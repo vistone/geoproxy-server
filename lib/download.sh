@@ -90,17 +90,30 @@ gps_self_resolve_ver() {
 }
 
 # 从远程 tag 拉取脚本树到 stdout 路径（打印仓库根目录）
+# 增强：若 tag tarball 不可用，回退尝试 main 分支；若未找到脚本，列出归档内容以便诊断
 gps_self_fetch_tree() {
   local tag=$1
   local dest=$2
   mkdir -p "$dest"
   local url="https://github.com/${GPS_SELF_REPO}/archive/refs/tags/${tag}.tar.gz"
   msg "$(_cyan "下载") ${GPS_SELF_REPO} ${tag} ..."
-  curl -fsSL --max-time 120 "$url" -o "${dest}/src.tar.gz" || err "下载失败: $url"
+
+  if ! curl -fsSL --max-time 120 "$url" -o "${dest}/src.tar.gz"; then
+    msg "$(_yellow "警告") 无法下载 tag tarball: $url；尝试 main 分支 tarball 回退 ..."
+    url="https://github.com/${GPS_SELF_REPO}/archive/refs/heads/main.tar.gz"
+    curl -fsSL --max-time 120 "$url" -o "${dest}/src.tar.gz" || err "下载失败: $url"
+  fi
+
   tar -xzf "${dest}/src.tar.gz" -C "$dest" || err "解压失败"
+
   local script
-  script=$(find "$dest" -mindepth 1 -name geoproxy-server.sh -type f | head -1 || true)
-  [[ -n $script && -f $script ]] || err "归档中未找到 geoproxy-server.sh"
+  script=$(find "$dest" -type f -name geoproxy-server.sh | head -1 || true)
+  if [[ -z $script || ! -f $script ]]; then
+    msg "$(_red "错误") 在归档中未找到 geoproxy-server.sh；列出解压目录（最多 5 层）以供诊断："
+    find "$dest" -maxdepth 5 -mindepth 1 -printf '%P\n' | sed 's|^|  |' || true
+    err "归档中未找到 geoproxy-server.sh"
+  fi
+
   cd "$(dirname "$script")" && pwd -P
 }
 
