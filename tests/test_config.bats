@@ -1,9 +1,8 @@
 #!/usr/bin/env bats
-load './_setup.bash'
 
 setup() {
-  # _setup.bash prepares environment; source to run
-  source ./_setup.bash
+  # Source test setup helper using BATS_TEST_DIRNAME
+  source "$BATS_TEST_DIRNAME/_setup.bash"
 }
 
 @test "gps_write_config creates config with inbounds and outbounds and correct log level" {

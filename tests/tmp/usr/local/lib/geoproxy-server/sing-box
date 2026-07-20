@@ -1,0 +1,12 @@
+#!/bin/bash
+# minimal fake sing-box for tests
+if [[ "$1" == "check" ]]; then
+  exit 0
+fi
+# mimic generate uuid if asked
+if [[ "$1" == "generate" && "$2" == "uuid" ]]; then
+  echo "00000000-0000-0000-0000-000000000000"
+  exit 0
+fi
+# default: exit 0
+exit 0

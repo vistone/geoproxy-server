@@ -1,7 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 # Test setup for geoproxy-server bats tests
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Determine repo root (works inside bats where BATS_TEST_DIRNAME is set)
+if [[ -n "${BATS_TEST_DIRNAME:-}" ]]; then
+  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+else
+  REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+fi
 export GPS_TEST_PREFIX="${GPS_TEST_PREFIX:-$REPO_ROOT/tests/tmp}"
 export GPS_NO_SYSTEMD=1
 # Ensure clean tmp

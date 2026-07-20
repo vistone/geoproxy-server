@@ -1,8 +1,7 @@
 #!/usr/bin/env bats
-load './_setup.bash'
 
 setup() {
-  source ./_setup.bash
+  source "$BATS_TEST_DIRNAME/_setup.bash"
 }
 
 @test "save_state writes state.env with expected keys and permissions" {
