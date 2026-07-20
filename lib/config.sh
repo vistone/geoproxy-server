@@ -141,11 +141,15 @@ gps_check_config() {
 }
 
 # 打印一条 TUIC URL；host 已是裸地址
+
+# 打印一条 TUIC URL；host 已是裸地址
 _gps_one_url() {
   local host=$1
   [[ -n $host ]] || return 1
-  printf 'tuic://%s:%s@%s:%s?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr\n' \
-    "$UUID" "$PASSWORD" "$(host_for_url "$host")" "$PORT"
+  # Format: tuic://<uuid>:<password>@<host>:<port>?params
+  # Include a name field so clients can display a friendly label (use service name)
+  local name=${GPS_SERVICE:-geoproxy-tuic}
+  printf 'tuic://%s:%s@%s:%s?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr&name=%s\n'     "$UUID" "$PASSWORD" "$(host_for_url "$host")" "$PORT" "$name"
 }
 
 # 输出所有可用 URL（v4 / v6），自适应；至少一行
