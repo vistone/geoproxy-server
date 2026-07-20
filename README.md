@@ -31,10 +31,18 @@ sudo bash install.sh
 sudo bash install.sh --port 5789 --uuid <UUID> --ip <IPv4> --ip6 <IPv6>
 ```
 
-一键（自动拉取完整仓库到临时目录再安装）：
+一键安装（推荐，不依赖 raw CDN 缓存）：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh)
+git clone --depth 1 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
+  && sudo bash /tmp/geoproxy-server/install.sh \
+  && rm -rf /tmp/geoproxy-server
+```
+
+或（`install.sh` 会自动拉取完整仓库；若 raw CDN 仍缓存旧版，请用上面的 clone 方式）：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/ccf18d8/install.sh)
 ```
 
 安装后：
