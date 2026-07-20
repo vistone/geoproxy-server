@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2034
 # CLI 子命令
 
 gps_parse_install_args() {

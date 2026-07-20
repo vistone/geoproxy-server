@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2034
 # GeoProxy Server — 路径与常量（VPS 端单实例 TUIC）
 #
 # 本地测试可设：
