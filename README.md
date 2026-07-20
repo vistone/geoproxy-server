@@ -2,7 +2,7 @@
 
 面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**仅 TUIC 入站 → direct 出站**。
 
-当前脚本版本：**v0.2.1**
+当前脚本版本：**v0.2.2**
 
 设计说明：
 
@@ -14,10 +14,12 @@
 - 菜单优先，CLI 为辅
 - **可自升级管理脚本**（`upgrade self`）与 **sing-box 核心**（`upgrade core`）
 - 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
-- **IPv4 / IPv6 自适应** 监听与 TUIC URL
+- **IPv4 / IPv6 自适应** 监听与 TUIC URL（生成的 TUIC URL 现包含 name 字段，默认取机器主机名）
 - 自签 TLS（`alpn=h3`），默认 UUID=密码、BBR
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
+- 可选二维码支持：安装时若系统可用会尝试安装 `qrencode`，`geoproxy-server qr` 会直接输出二维码（若可用）
+- 持续集成：已添加 GitHub Actions（shfmt, shellcheck, bats），仓库包含测试套件
 
 ## 要求
 
