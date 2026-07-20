@@ -12,11 +12,13 @@ _gps_inbound_json() {
       "listen_port": ${PORT},
       "users": [
         {
+          "name": "${HOST_DISPLAY_NAME:-${GPS_SERVICE}}",
           "uuid": "${UUID}",
           "password": "${PASSWORD}"
         }
       ],
       "congestion_control": "bbr",
+      "auth_timeout": "3s",
       "zero_rtt_handshake": true,
       "heartbeat": "10s",
       "tls": {
@@ -71,6 +73,13 @@ $(_gps_inbound_json tuic-in-v6 ::)"
     *) log_level=debug ;;
   esac
   LOG_LEVEL=$log_level
+  # compute HOST_DISPLAY_NAME from hostname if available
+  HOST_DISPLAY_NAME=""
+  if command -v hostname >/dev/null 2>&1; then
+    HOST_DISPLAY_NAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)
+  fi
+  HOST_DISPLAY_NAME=${HOST_DISPLAY_NAME:-${GPS_SERVICE}}
+
   cat >"$GPS_CONFIG" <<EOF
 {
   "log": {
