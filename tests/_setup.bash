@@ -39,8 +39,9 @@ fi
 exit 0
 EOF
 chmod +x "$GPS_LIB_DIR/sing-box"
-# Ensure log dir exists
+# Ensure log dir and pid dir exist
 mkdir -p "$GPS_LOG_DIR"
+mkdir -p "$(dirname "$GPS_PID_FILE")"
 mkdir -p "$GPS_TLS_DIR"
 # Provide dummy cert/key for gps_ensure_tls if called
 cat >"$GPS_CERT" <<'EOF'
@@ -50,3 +51,7 @@ cat >"$GPS_KEY" <<'EOF'
 -----TEST KEY-----
 EOF
 chmod 600 "$GPS_CERT" "$GPS_KEY"
+# Default minimal identity values to satisfy save_state/gps_write_config
+export PORT=${PORT:-12345}
+export UUID=${UUID:-test-uuid}
+export PASSWORD=${PASSWORD:-test-pass}

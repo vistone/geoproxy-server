@@ -10,11 +10,11 @@ setup() {
 
 @test "gps_kiwi_parse_info parses success JSON and sets pct/used/limit" {
   json='{"error":0,"data_counter":80000000,"plan_monthly_data":100000000,"monthly_data_multiplier":1,"data_next_reset":1700000000}'
-  run bash -c 'gps_kiwi_parse_info "$json"'
+  output=$(gps_kiwi_parse_info "$json")
+  status=$?
   [ "$status" -eq 0 ]
-  [[ "$output" =~ ^0\|80\.[0-9]{0,4}\|80000000\|100000000\|1 ]];
+  [[ "$output" =~ ^0\|80\.[0-9]{0,4}\|80000000\|100000000\|1 ]]
 }
-
 @test "traffic check handles API failure gracefully" {
   export KIWI_VEID=1
   export KIWI_API_KEY=key
