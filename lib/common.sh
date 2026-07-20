@@ -53,6 +53,8 @@ ensure_deps() {
   have_cmd openssl || missing+=(openssl)
   have_cmd tar || missing+=(tar)
   have_cmd ip || missing+=(iproute2)
+  # optional utilities
+  have_cmd qrencode || missing+=(qrencode)
   if ((${#missing[@]})); then
     if have_cmd apt-get; then
       # Debian 包名：iproute2 提供 ip

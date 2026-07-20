@@ -12,11 +12,13 @@ _gps_inbound_json() {
       "listen_port": ${PORT},
       "users": [
         {
+          "name": "${GPS_SERVICE}",
           "uuid": "${UUID}",
           "password": "${PASSWORD}"
         }
       ],
       "congestion_control": "bbr",
+      "auth_timeout": "3s",
       "zero_rtt_handshake": true,
       "heartbeat": "10s",
       "tls": {
@@ -141,8 +143,6 @@ gps_check_config() {
 }
 
 # 打印一条 TUIC URL；host 已是裸地址
-
-# 打印一条 TUIC URL；host 已是裸地址
 _gps_one_url() {
   local host=$1
   [[ -n $host ]] || return 1
@@ -151,6 +151,7 @@ _gps_one_url() {
   local name=${GPS_SERVICE:-geoproxy-tuic}
   printf 'tuic://%s:%s@%s:%s?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr&name=%s\n'     "$UUID" "$PASSWORD" "$(host_for_url "$host")" "$PORT" "$name"
 }
+
 
 # 输出所有可用 URL（v4 / v6），自适应；至少一行
 gps_tuic_urls() {
