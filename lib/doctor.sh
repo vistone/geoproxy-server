@@ -82,6 +82,25 @@ gps_doctor() {
 			msg "  $(_red FAIL) 无任何公网地址（url 无法对接 GeoProxy）"
 			fail=$((fail + 1))
 		fi
+		gps_traffic_defaults
+		if [[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]]; then
+			msg "  $(_green OK)  KiwiVM 已配置 veid=$KIWI_VEID"
+			ok=$((ok + 1))
+			msg "  流量阈值: warn=${TRAFFIC_WARN_PCT}% stop=${TRAFFIC_STOP_PCT}% tripped=${TRAFFIC_TRIPPED} last=${TRAFFIC_LAST_PCT:-?}%"
+			if [[ ${TRAFFIC_TRIPPED:-0} == 1 ]]; then
+				warn_item "流量熔断中 — 需: traffic resume"
+			fi
+			if have_cmd systemctl && [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]]; then
+				if systemctl is-active --quiet geoproxy-traffic.timer 2>/dev/null; then
+					msg "  $(_green OK)  geoproxy-traffic.timer active"
+					ok=$((ok + 1))
+				else
+					warn_item "geoproxy-traffic.timer 未 active — change kiwivm 后会启用"
+				fi
+			fi
+		else
+			warn_item "未配置 KiwiVM（流量熔断未启用）— change kiwivm <veid> <api_key>"
+		fi
 	fi
 	msg
 	msg "结果: ok=$ok fail=$fail"

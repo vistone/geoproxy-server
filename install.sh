@@ -5,10 +5,9 @@
 set -euo pipefail
 
 # 固定版本：安装/bootstrap 都钉死这个 tag，避免 main CDN 缓存旧脚本
-GPS_VERSION="${GPS_VERSION:-v0.1.1}"
+GPS_VERSION="${GPS_VERSION:-v0.2.0}"
 GPS_REPO_URL="${GPS_REPO_URL:-https://github.com/vistone/geoproxy-server.git}"
 GPS_REPO_TAR="${GPS_REPO_TAR:-https://github.com/vistone/geoproxy-server/archive/refs/tags/${GPS_VERSION}.tar.gz}"
-GPS_BOOTSTRAP_TMP_PREFIX="/tmp/gps-bootstrap"
 
 _gps_here() {
 	local src=${BASH_SOURCE[0]:-}
@@ -71,7 +70,7 @@ if ROOT=$(_gps_here) && [[ -f $ROOT/geoproxy-server.sh ]]; then
 fi
 
 echo "检测到远程/管道安装，正在拉取 geoproxy-server $GPS_VERSION ..."
-TMP=$(mktemp -d "${GPS_BOOTSTRAP_TMP_PREFIX}.XXXXXX")
+TMP=$(mktemp -d /tmp/gps-bootstrap.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 ROOT=$(_gps_fetch_repo "$TMP")
 [[ -f $ROOT/geoproxy-server.sh ]] || {

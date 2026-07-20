@@ -25,6 +25,8 @@ source "$GPS_ROOT/lib/doctor.sh"
 source "$GPS_ROOT/lib/url.sh"
 # shellcheck source=lib/bbr.sh
 source "$GPS_ROOT/lib/bbr.sh"
+# shellcheck source=lib/traffic.sh
+source "$GPS_ROOT/lib/traffic.sh"
 # shellcheck source=lib/cmd.sh
 source "$GPS_ROOT/lib/cmd.sh"
 # shellcheck source=lib/menu.sh
@@ -44,6 +46,8 @@ main() {
 		if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 			need_root
 		fi
+		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
+		load_state 2>/dev/null || true
 		gps_svc "$cmd"
 		;;
 	info | i)
@@ -73,6 +77,10 @@ main() {
 	change)
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		gps_cmd_change "$@"
+		;;
+	traffic)
+		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
+		gps_cmd_traffic "$@"
 		;;
 	upgrade)
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths

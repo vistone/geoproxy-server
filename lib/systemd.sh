@@ -15,11 +15,50 @@ gps_install_unit() {
 		-e "s|__CONFIG__|${GPS_CONFIG}|g" \
 		-e "s|__LOG__|${GPS_LOG}|g" \
 		"$tpl" >"$GPS_UNIT_PATH"
+	gps_install_traffic_timer
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		systemctl daemon-reload
 		systemctl enable "$GPS_SERVICE" >/dev/null
 	else
 		msg "$(_yellow "测试前缀下已写入 unit 文件，未 enable 系统 systemd")"
+	fi
+}
+
+gps_install_traffic_timer() {
+	local sec=${TRAFFIC_CHECK_SEC:-300}
+	[[ $sec =~ ^[0-9]+$ ]] || sec=300
+	((sec < 60)) && sec=60
+	TRAFFIC_CHECK_SEC=$sec
+	local stpl="${GPS_TMPL}/geoproxy-traffic.service"
+	local ttpl="${GPS_TMPL}/geoproxy-traffic.timer"
+	[[ -f $stpl && -f $ttpl ]] || err "缺少 traffic timer 模板"
+	mkdir -p "$(dirname "$GPS_TRAFFIC_UNIT_PATH")"
+	local bin=${GPS_BIN_LINK:-/usr/local/bin/geoproxy-server}
+	sed -e "s|/usr/local/bin/geoproxy-server|${bin}|g" "$stpl" >"$GPS_TRAFFIC_UNIT_PATH"
+	sed -e "s|__CHECK_SEC__|${sec}|g" "$ttpl" >"$GPS_TRAFFIC_TIMER_PATH"
+	if [[ -z ${GPS_TEST_PREFIX:-} && ${GPS_NO_SYSTEMD:-0} != 1 ]]; then
+		systemctl daemon-reload
+		# 有凭证才 enable timer；无凭证也装好 unit，避免以后再配时缺文件
+		if [[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]]; then
+			systemctl enable --now "$GPS_TRAFFIC_TIMER" >/dev/null 2>&1 || systemctl enable --now geoproxy-traffic.timer >/dev/null
+			msg "$(_cyan "流量定时器") 已启用（每 ${sec}s）"
+		else
+			systemctl disable "$GPS_TRAFFIC_TIMER" >/dev/null 2>&1 || true
+			msg "$(_yellow "流量定时器") 已安装但未启用（先: change kiwivm <veid> <key>）"
+		fi
+	fi
+}
+
+gps_remove_traffic_timer() {
+	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
+		rm -f "$GPS_TRAFFIC_UNIT_PATH" "$GPS_TRAFFIC_TIMER_PATH"
+		return 0
+	fi
+	if have_cmd systemctl; then
+		systemctl disable --now geoproxy-traffic.timer >/dev/null 2>&1 || true
+		systemctl disable --now geoproxy-traffic.service >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/geoproxy-traffic.service /etc/systemd/system/geoproxy-traffic.timer
+		systemctl daemon-reload 2>/dev/null || true
 	fi
 }
 
@@ -63,6 +102,10 @@ gps_stop_bg() {
 gps_svc() {
 	local action=$1
 	shift || true
+	if [[ $action == start || $action == restart ]]; then
+		load_state 2>/dev/null || true
+		gps_assert_not_tripped
+	fi
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
 		case $action in
 		start) gps_start_foreground_bg ;;

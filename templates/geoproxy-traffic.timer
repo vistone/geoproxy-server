@@ -1,0 +1,12 @@
+[Unit]
+Description=GeoProxy traffic check timer (every __CHECK_SEC__ seconds)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=__CHECK_SEC__
+AccuracySec=30s
+Persistent=true
+Unit=geoproxy-traffic.service
+
+[Install]
+WantedBy=timers.target

@@ -5,8 +5,10 @@
 #   GPS_TEST_PREFIX=/tmp/geoproxy-test  或  install --prefix DIR --no-systemd
 
 GPS_NAME="geoproxy-server"
-GPS_SH_VER="v0.1.1"
+GPS_SH_VER="v0.2.0"
 GPS_SERVICE="geoproxy-tuic"
+GPS_TRAFFIC_SERVICE="geoproxy-traffic"
+GPS_TRAFFIC_TIMER="geoproxy-traffic.timer"
 
 # 仓库内模板目录（相对本 lib 的上级）——先算 GPS_ROOT
 GPS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,12 +25,16 @@ gps_apply_paths() {
 		GPS_ETC="${base}/etc/${GPS_NAME}"
 		GPS_LOG_DIR="${base}/var/log/${GPS_NAME}"
 		GPS_UNIT_PATH="${base}/etc/systemd/system/${GPS_SERVICE}.service"
+		GPS_TRAFFIC_UNIT_PATH="${base}/etc/systemd/system/${GPS_TRAFFIC_SERVICE}.service"
+		GPS_TRAFFIC_TIMER_PATH="${base}/etc/systemd/system/${GPS_TRAFFIC_TIMER}"
 		GPS_PID_FILE="${base}/var/run/${GPS_NAME}.pid"
 	else
 		GPS_PREFIX="/usr/local"
 		GPS_ETC="/etc/${GPS_NAME}"
 		GPS_LOG_DIR="/var/log/${GPS_NAME}"
 		GPS_UNIT_PATH="/etc/systemd/system/${GPS_SERVICE}.service"
+		GPS_TRAFFIC_UNIT_PATH="/etc/systemd/system/${GPS_TRAFFIC_SERVICE}.service"
+		GPS_TRAFFIC_TIMER_PATH="/etc/systemd/system/${GPS_TRAFFIC_TIMER}"
 		GPS_PID_FILE="/var/run/${GPS_NAME}.pid"
 	fi
 	GPS_BIN_LINK="${GPS_PREFIX}/bin/${GPS_NAME}"
@@ -40,6 +46,7 @@ gps_apply_paths() {
 	GPS_CERT="${GPS_TLS_DIR}/cert.pem"
 	GPS_KEY="${GPS_TLS_DIR}/key.pem"
 	GPS_LOG="${GPS_LOG_DIR}/sing-box.log"
+	GPS_TRAFFIC_LOG="${GPS_LOG_DIR}/traffic.log"
 }
 
 gps_apply_paths

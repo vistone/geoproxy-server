@@ -7,7 +7,10 @@ gps_menu() {
 		msg "$(_cyan "======== GeoProxy Server $GPS_SH_VER ========")"
 		if [[ -f $GPS_STATE ]]; then
 			load_state 2>/dev/null || true
-			msg " 状态: $(gps_svc_status_line)  端口: ${PORT:-?}  日志: $(gps_config_log_level 2>/dev/null || echo ?)  v4: ${PUBLIC_IP:-?}  v6: ${PUBLIC_IP6:-?}"
+			gps_traffic_defaults 2>/dev/null || true
+			local trip=""
+			[[ ${TRAFFIC_TRIPPED:-0} == 1 ]] && trip=" $(_red TRIPPED)"
+			msg " 状态: $(gps_svc_status_line)  端口: ${PORT:-?}  流量: ${TRAFFIC_LAST_PCT:-?}%${trip}  v4: ${PUBLIC_IP:-?}"
 		else
 			msg " 状态: $(_yellow "未安装")"
 		fi
@@ -24,11 +27,16 @@ gps_menu() {
 		msg " 10) 重探双栈公网地址 (ips)"
 		msg " 11) 启动 / 停止 / 重启"
 		msg " 12) 查看日志（跟随，看进站/出站）"
-		msg " 13) 设置日志级别（debug=进/出站）"
-		msg " 14) 升级 sing-box（最新）"
-		msg " 15) 启用 BBR"
-		msg " 16) 健康检查 doctor"
-		msg " 17) 卸载"
+		msg " 13) 设置日志级别"
+		msg " 14) 配置 KiwiVM（VEID / API Key）"
+		msg " 15) 查看流量 / 阈值"
+		msg " 16) 立即流量检查"
+		msg " 17) 流量熔断恢复 (resume)"
+		msg " 18) 修改流量告警/停服阈值"
+		msg " 19) 升级 sing-box（最新）"
+		msg " 20) 启用 BBR"
+		msg " 21) 健康检查 doctor"
+		msg " 22) 卸载"
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
@@ -62,26 +70,39 @@ gps_menu() {
 		11)
 			read -r -p "start / stop / restart: " a
 			case $a in
-			start | stop | restart) gps_svc "$a" && msg "ok" ;;
+			start | stop | restart) gps_svc "$a" && msg "ok" || true ;;
 			*) warn "无效操作" ;;
 			esac
 			;;
 		12)
-			msg "跟随日志中… 客户端连上后会出现 inbound/tuic 与 outbound/direct（Ctrl+C 返回菜单）"
+			msg "跟随日志中…（Ctrl+C 返回菜单）"
 			gps_cmd_log -f || true
 			;;
 		13)
-			msg "级别说明: debug=进站/出站连接  info=仅启动  warn=几乎无输出"
 			read -r -p "日志级别 [debug]: " lv
 			gps_cmd_change log "${lv:-debug}"
 			;;
 		14)
+			read -r -p "VEID: " veid
+			read -r -p "API Key: " key
+			gps_cmd_change kiwivm "$veid" "$key"
+			;;
+		15) gps_cmd_traffic status || true ;;
+		16) gps_cmd_traffic check || true ;;
+		17) gps_cmd_traffic resume || true ;;
+		18)
+			read -r -p "告警阈值% [80]: " w
+			read -r -p "停服阈值% [95]: " s
+			[[ -n $w ]] && gps_cmd_change traffic-warn "$w"
+			[[ -n $s ]] && gps_cmd_change traffic-stop "$s"
+			;;
+		19)
 			msg "将升级到最新稳定版 sing-box"
 			gps_cmd_upgrade
 			;;
-		15) gps_enable_bbr ;;
-		16) gps_doctor || true ;;
-		17) gps_cmd_uninstall ;;
+		20) gps_enable_bbr ;;
+		21) gps_doctor || true ;;
+		22) gps_cmd_uninstall ;;
 		0 | q | quit | exit) exit 0 ;;
 		*) warn "无效选项" ;;
 		esac

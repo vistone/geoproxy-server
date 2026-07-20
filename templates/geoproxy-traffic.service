@@ -1,0 +1,12 @@
+[Unit]
+Description=GeoProxy traffic check (KiwiVM API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/geoproxy-server traffic check
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

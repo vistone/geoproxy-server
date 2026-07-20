@@ -162,7 +162,9 @@ gps_cmd_uninstall() {
 	fi
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_stop_bg 2>/dev/null || true
+		gps_remove_traffic_timer 2>/dev/null || true
 	elif have_cmd systemctl; then
+		gps_remove_traffic_timer 2>/dev/null || true
 		systemctl stop "$GPS_SERVICE" 2>/dev/null || true
 		systemctl disable "$GPS_SERVICE" 2>/dev/null || true
 		rm -f "$GPS_UNIT_PATH"
@@ -265,8 +267,50 @@ gps_cmd_change() {
 		msg "有客户端连上后，日志会出现 inbound/... 与 outbound/direct/..."
 		return 0
 		;;
+	kiwivm | kiwi)
+		local veid=${1:-} key=${2:-}
+		[[ -n $veid && -n $key ]] || err "用法: change kiwivm <veid> <api_key>"
+		KIWI_VEID=$veid
+		KIWI_API_KEY=$key
+		KIWI_API_BASE=${KIWI_API_BASE:-https://api.64clouds.com/v1}
+		gps_traffic_defaults
+		save_state
+		if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]]; then
+			gps_install_traffic_timer
+		fi
+		msg "$(_green "已保存 KiwiVM") veid=$KIWI_VEID key=$(gps_mask_key "$KIWI_API_KEY")"
+		gps_cmd_traffic_status || true
+		return 0
+		;;
+	traffic-warn | warn-pct)
+		local p=${1:-}
+		[[ $p =~ ^[0-9]+$ && $p -ge 1 && $p -le 100 ]] || err "告警阈值需为 1-100"
+		TRAFFIC_WARN_PCT=$p
+		save_state
+		msg "$(_green "告警阈值") → ${TRAFFIC_WARN_PCT}%"
+		return 0
+		;;
+	traffic-stop | stop-pct)
+		local p=${1:-}
+		[[ $p =~ ^[0-9]+$ && $p -ge 1 && $p -le 100 ]] || err "停服阈值需为 1-100"
+		TRAFFIC_STOP_PCT=$p
+		save_state
+		msg "$(_green "停服阈值") → ${TRAFFIC_STOP_PCT}%"
+		return 0
+		;;
+	traffic-interval | interval)
+		local s=${1:-}
+		[[ $s =~ ^[0-9]+$ && $s -ge 60 ]] || err "间隔需为 ≥60 的秒数"
+		TRAFFIC_CHECK_SEC=$s
+		save_state
+		if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]]; then
+			gps_install_traffic_timer
+		fi
+		msg "$(_green "检查间隔") → ${TRAFFIC_CHECK_SEC}s"
+		return 0
+		;;
 	*)
-		err "用法: change port|uuid|passwd|ip|ip6|ips|log [值|auto]"
+		err "用法: change port|uuid|passwd|ip|ip6|ips|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config
@@ -364,22 +408,19 @@ Usage: $GPS_NAME [command] [args...]
   install [--port N] [--uuid U] [--passwd P] [--ip V4] [--ip6 V6]
   uninstall [-y]
   status | start | stop | restart
-  info | url | qr | log [-f]
-  change port|uuid|passwd|ip|ip6|ips|log [值|auto]
+  info | url | qr | log [--once]
+  change port|uuid|passwd|ip|ip6|ips|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  traffic [status|check|resume]
   upgrade [--force] [--ver TAG]
   doctor
   bbr
   help | version
 
 说明:
-  - install/upgrade 默认对齐 GitHub 最新稳定版 sing-box（不要写死版本）
-  - upgrade 若本地已是最新则跳过下载；--force 强制重装
-  - 默认日志 debug：可看到 inbound/tuic 与 outbound/direct 连接
-  - 查看日志默认跟随（Ctrl+C 退出）；一次性快照: log --once
-  - change log debug|info|warn|… 调整级别
-  - IPv4/IPv6 自适应：双栈时同时监听并输出两套 TUIC URL
-  - 仅 TUIC 入站 → direct 出站；不做路由/DNS/流量统计
-  - URL 可直接写入本地 GeoProxy 配置
-  - 旧多协议脚本 scripts/sing-box-server/ 仅作参考
+  - install/upgrade 默认对齐 GitHub 最新稳定版 sing-box
+  - 流量熔断: change kiwivm <veid> <api_key>；默认 80% 告警 / 95% 停服；仅手动 resume
+  - systemd timer 每 TRAFFIC_CHECK_SEC 秒执行 traffic check
+  - 熔断后 start 会被拒绝，需 traffic resume
+  - 默认日志 debug；IPv4/IPv6 自适应 TUIC URL
 EOF
 }

@@ -42,5 +42,12 @@ gps_cmd_info() {
 	msg "  公网 IPv6:${PUBLIC_IP6:-（未设置）}"
 	msg "  日志级别: $(gps_config_log_level 2>/dev/null || echo "${LOG_LEVEL:-debug}")（进/出站连接需 debug）"
 	msg "  日志文件: $GPS_LOG"
+	gps_traffic_defaults 2>/dev/null || true
+	if [[ -n ${KIWI_VEID:-} ]]; then
+		msg "  KiwiVM:   veid=$KIWI_VEID key=$(gps_mask_key "${KIWI_API_KEY:-}")"
+		msg "  流量:     last=${TRAFFIC_LAST_PCT:-?}% warn=${TRAFFIC_WARN_PCT}% stop=${TRAFFIC_STOP_PCT}% tripped=${TRAFFIC_TRIPPED}"
+	else
+		msg "  KiwiVM:   （未配置 — change kiwivm <veid> <api_key>）"
+	fi
 	msg "  安装于:   ${INSTALLED_AT:-?}"
 }
