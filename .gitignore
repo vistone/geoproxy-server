@@ -1,0 +1,4 @@
+*.log
+*.pem
+state.env
+.DS_Store
