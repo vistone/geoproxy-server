@@ -3,7 +3,23 @@
 
 gps_cmd_url() {
   msg "$(_cyan "TUIC URL")（IPv4/IPv6 自适应；复制到本地 GeoProxy 配置）:"
+  # compute display name from hostname if possible
+  local display_name=""
+  if command -v hostname >/dev/null 2>&1; then
+    display_name=$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)
+  fi
+  display_name=${display_name:-${GPS_SERVICE:-geoproxy-tuic}}
+
   gps_tuic_urls | while IFS= read -r u; do
+    # append name param if missing
+    if [[ $u != *"name="* ]]; then
+      # preserve existing query string
+      if [[ $u == *"?"* ]]; then
+        u="$u&name=$display_name"
+      else
+        u="$u?name=$display_name"
+      fi
+    fi
     if [[ $u == *"@"*\[* ]]; then
       msg "  $(_cyan IPv6) $u"
     else
