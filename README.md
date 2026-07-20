@@ -31,13 +31,11 @@ sudo bash install.sh
 sudo bash install.sh --port 5789 --uuid <UUID> --ip <IPv4> --ip6 <IPv6>
 ```
 
-一键（不落盘 clone 时）：
+一键（自动拉取完整仓库到临时目录再安装）：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh)
 ```
-
-> 注意：`curl | bash` 方式需要仓库已推送且 `install.sh` 能找到同目录的 `geoproxy-server.sh`；**推荐 clone 后本地安装**。
 
 安装后：
 
