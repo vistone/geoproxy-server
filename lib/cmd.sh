@@ -183,6 +183,45 @@ gps_cmd_upgrade() {
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		need_root
 	fi
+	# 默认升级脚本；upgrade core → 只升 sing-box；upgrade all → 两者
+	local target=self
+	if [[ $# -gt 0 ]]; then
+		case $1 in
+		self | script | scripts)
+			target=self
+			shift
+			;;
+		core | sing-box | singbox)
+			target=core
+			shift
+			;;
+		all | both)
+			target=all
+			shift
+			;;
+		--ver | --force | -f)
+			# 无子命令时默认 self，参数留给 self
+			target=self
+			;;
+		*)
+			err "用法: upgrade [self|core|all] [--ver TAG] [--force]"
+			;;
+		esac
+	fi
+	case $target in
+	self) gps_cmd_upgrade_self "$@" ;;
+	core) gps_cmd_upgrade_core "$@" ;;
+	all)
+		gps_cmd_upgrade_self "$@"
+		gps_cmd_upgrade_core "$@"
+		;;
+	esac
+}
+
+gps_cmd_upgrade_core() {
+	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
+		need_root
+	fi
 	local ver=latest
 	local force=0
 	while [[ $# -gt 0 ]]; do
@@ -195,7 +234,7 @@ gps_cmd_upgrade() {
 			force=1
 			shift
 			;;
-		*) err "未知参数: $1" ;;
+		*) err "未知参数: $1（用法: upgrade core [--ver TAG] [--force]）" ;;
 		esac
 	done
 	load_state || err "未安装"
@@ -204,11 +243,11 @@ gps_cmd_upgrade() {
 	gps_download_core "$ver" "$force"
 	save_state
 	if [[ $force -eq 0 && -n $before && $before == "${CORE_VER}" ]]; then
-		msg "$(_green "无需升级") 当前已是 v${CORE_VER}"
+		msg "$(_green "无需升级") sing-box 当前已是 v${CORE_VER}"
 		return 0
 	fi
 	gps_restart_svc
-	msg "$(_green "升级完成") core=$CORE_VER"
+	msg "$(_green "升级完成") sing-box=$CORE_VER"
 }
 
 gps_cmd_change() {
@@ -411,13 +450,15 @@ Usage: $GPS_NAME [command] [args...]
   info | url | qr | log [--once]
   change port|uuid|passwd|ip|ip6|ips|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
-  upgrade [--force] [--ver TAG]
+  upgrade [self|core|all] [--ver TAG] [--force]
   doctor
   bbr
   help | version
 
 说明:
-  - install/upgrade 默认对齐 GitHub 最新稳定版 sing-box
+  - upgrade / upgrade self：从 GitHub 升级本管理脚本（保留配置与 KiwiVM 凭证）
+  - upgrade core：只升级 sing-box 核心
+  - upgrade all：先脚本后核心
   - 流量熔断: change kiwivm <veid> <api_key>；默认 80% 告警 / 95% 停服；仅手动 resume
   - systemd timer 每 TRAFFIC_CHECK_SEC 秒执行 traffic check
   - 熔断后 start 会被拒绝，需 traffic resume

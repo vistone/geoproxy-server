@@ -5,10 +5,13 @@
 #   GPS_TEST_PREFIX=/tmp/geoproxy-test  或  install --prefix DIR --no-systemd
 
 GPS_NAME="geoproxy-server"
-GPS_SH_VER="v0.2.0"
+GPS_SH_VER="v0.2.1"
 GPS_SERVICE="geoproxy-tuic"
 GPS_TRAFFIC_SERVICE="geoproxy-traffic"
 GPS_TRAFFIC_TIMER="geoproxy-traffic.timer"
+GPS_SELF_REPO="${GPS_SELF_REPO:-vistone/geoproxy-server}"
+GPS_SELF_REPO_URL="${GPS_SELF_REPO_URL:-https://github.com/${GPS_SELF_REPO}.git}"
+
 
 # 仓库内模板目录（相对本 lib 的上级）——先算 GPS_ROOT
 GPS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

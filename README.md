@@ -2,7 +2,7 @@
 
 面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**仅 TUIC 入站 → direct 出站**。
 
-当前脚本版本：**v0.2.0**
+当前脚本版本：**v0.2.1**
 
 设计说明：
 
@@ -12,7 +12,8 @@
 ## 特点
 
 - 菜单优先，CLI 为辅
-- 自动下载 **最新稳定版** sing-box（不锁定 sing-box 版本号）
+- **可自升级管理脚本**（`upgrade self`）与 **sing-box 核心**（`upgrade core`）
+- 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
 - **IPv4 / IPv6 自适应** 监听与 TUIC URL
 - 自签 TLS（`alpn=h3`），默认 UUID=密码、BBR
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
@@ -21,23 +22,38 @@
 ## 要求
 
 - root、systemd、amd64/arm64
-- 可访问 GitHub Releases（sing-box）与 `api.64clouds.com`（流量熔断）
+- 可访问 GitHub Releases（sing-box / 本仓库）与 `api.64clouds.com`（流量熔断）
 
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.0/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.1/install.sh)
 ```
 
 或：
 
 ```bash
-git clone --depth 1 --branch v0.2.0 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
+git clone --depth 1 --branch v0.2.1 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
   && sudo bash /tmp/geoproxy-server/install.sh \
   && rm -rf /tmp/geoproxy-server
 ```
 
 本 monorepo：`sudo bash scripts/geoproxy-server/install.sh`
+
+## 升级
+
+```bash
+# 升级本管理脚本（保留配置 / 证书 / KiwiVM 凭证）
+geoproxy-server upgrade          # 默认 = upgrade self
+geoproxy-server upgrade self
+geoproxy-server upgrade self --ver v0.2.1
+
+# 只升级 sing-box
+geoproxy-server upgrade core
+
+# 两者都升
+geoproxy-server upgrade all
+```
 
 ## 流量熔断（KiwiVM）
 
@@ -64,7 +80,8 @@ geoproxy-server change traffic-interval 300
 
 ```text
 geoproxy-server install | uninstall | status | start | stop | restart
-geoproxy-server info | url | qr | log | doctor | bbr | upgrade
+geoproxy-server info | url | qr | log | doctor | bbr
+geoproxy-server upgrade [self|core|all]
 geoproxy-server change …
 geoproxy-server traffic [status|check|resume]
 geoproxy-server version

@@ -33,10 +33,11 @@ gps_menu() {
 		msg " 16) 立即流量检查"
 		msg " 17) 流量熔断恢复 (resume)"
 		msg " 18) 修改流量告警/停服阈值"
-		msg " 19) 升级 sing-box（最新）"
-		msg " 20) 启用 BBR"
-		msg " 21) 健康检查 doctor"
-		msg " 22) 卸载"
+		msg " 19) 升级管理脚本（geoproxy-server）"
+		msg " 20) 升级 sing-box 核心"
+		msg " 21) 启用 BBR"
+		msg " 22) 健康检查 doctor"
+		msg " 23) 卸载"
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
@@ -97,12 +98,16 @@ gps_menu() {
 			[[ -n $s ]] && gps_cmd_change traffic-stop "$s"
 			;;
 		19)
-			msg "将升级到最新稳定版 sing-box"
-			gps_cmd_upgrade
+			msg "将从 GitHub 升级 geoproxy-server 管理脚本（保留配置）"
+			gps_cmd_upgrade self
 			;;
-		20) gps_enable_bbr ;;
-		21) gps_doctor || true ;;
-		22) gps_cmd_uninstall ;;
+		20)
+			msg "将升级到最新稳定版 sing-box"
+			gps_cmd_upgrade core
+			;;
+		21) gps_enable_bbr ;;
+		22) gps_doctor || true ;;
+		23) gps_cmd_uninstall ;;
 		0 | q | quit | exit) exit 0 ;;
 		*) warn "无效选项" ;;
 		esac
