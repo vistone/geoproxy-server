@@ -29,13 +29,13 @@
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.1/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.2/install.sh)
 ```
 
 或：
 
 ```bash
-git clone --depth 1 --branch v0.2.1 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
+git clone --depth 1 --branch v0.2.2 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
   && sudo bash /tmp/geoproxy-server/install.sh \
   && rm -rf /tmp/geoproxy-server
 ```
@@ -48,7 +48,7 @@ git clone --depth 1 --branch v0.2.1 https://github.com/vistone/geoproxy-server.g
 # 升级本管理脚本（保留配置 / 证书 / KiwiVM 凭证）
 geoproxy-server upgrade          # 默认 = upgrade self
 geoproxy-server upgrade self
-geoproxy-server upgrade self --ver v0.2.1
+geoproxy-server upgrade self --ver v0.2.2
 
 # 只升级 sing-box
 geoproxy-server upgrade core

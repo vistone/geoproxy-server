@@ -6,7 +6,7 @@
 #   GPS_TEST_PREFIX=/tmp/geoproxy-test  或  install --prefix DIR --no-systemd
 
 GPS_NAME="geoproxy-server"
-GPS_SH_VER="v0.2.1"
+GPS_SH_VER="v0.2.2"
 GPS_SERVICE="geoproxy-tuic"
 GPS_TRAFFIC_SERVICE="geoproxy-traffic"
 GPS_TRAFFIC_TIMER="geoproxy-traffic.timer"

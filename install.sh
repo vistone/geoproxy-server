@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # 固定版本：安装/bootstrap 都钉死这个 tag，避免 main CDN 缓存旧脚本
-GPS_VERSION="${GPS_VERSION:-v0.2.1}"
+GPS_VERSION="${GPS_VERSION:-v0.2.2}"
 GPS_REPO_URL="${GPS_REPO_URL:-https://github.com/vistone/geoproxy-server.git}"
 GPS_REPO_TAR="${GPS_REPO_TAR:-https://github.com/vistone/geoproxy-server/archive/refs/tags/${GPS_VERSION}.tar.gz}"
 
