@@ -5,7 +5,7 @@
 #   GPS_TEST_PREFIX=/tmp/geoproxy-test  或  install --prefix DIR --no-systemd
 
 GPS_NAME="geoproxy-server"
-GPS_SH_VER="v0.1.0"
+GPS_SH_VER="v0.1.1"
 GPS_SERVICE="geoproxy-tuic"
 
 # 仓库内模板目录（相对本 lib 的上级）——先算 GPS_ROOT

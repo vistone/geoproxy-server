@@ -7,7 +7,7 @@
 ## 目标
 
 在每台 VPS 上以**单实例**方式部署 sing-box：**TUIC 入站 → direct 出站**，供本地 GeoProxy 出站连接。  
-脚本独立仓库：https://github.com/vistone/geoproxy-server 。
+脚本路径：`scripts/geoproxy-server/`。旧 `scripts/sing-box-server/` 仅作参考，不改不删。
 
 ## 决策
 
@@ -38,7 +38,7 @@
 
 - 本地 GeoProxy 主进程、批量 SSH 编排
 - 多协议、多实例、Caddy、Let’s Encrypt、OpenRC
-- 修改其它多协议第三方脚本
+- 修改旧 233boy 脚本
 
 ## 验收
 
