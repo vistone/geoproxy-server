@@ -204,7 +204,10 @@ gps_cmd_uninstall() {
 	fi
 	if ((force == 0)); then
 		if [[ -t 0 ]]; then
-			confirm_yes "确认卸载 $GPS_NAME（停止服务并删除配置）?" || err "已取消"
+			if ! confirm_yes "确认卸载 $GPS_NAME（停止服务并删除配置）?"; then
+				warn "已取消卸载"
+				return 1
+			fi
 		fi
 	fi
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then

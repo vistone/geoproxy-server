@@ -107,7 +107,11 @@ gps_menu() {
 			;;
 		21) gps_enable_bbr ;;
 		22) gps_doctor || true ;;
-		23) gps_cmd_uninstall ;;
+		23)
+			if gps_cmd_uninstall; then
+				exit 0
+			fi
+			;;
 		0 | q | quit | exit) exit 0 ;;
 		*) warn "无效选项" ;;
 		esac
