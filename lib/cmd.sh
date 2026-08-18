@@ -345,6 +345,15 @@ gps_cmd_change() {
 		[[ -n $PUBLIC_IP || -n $PUBLIC_IP6 ]] || err "未能探测到任何公网地址"
 		detect_local_stack
 		;;
+	name | remark | alias)
+		local n=${1:-}
+		[[ -n $n ]] || err "用法: change name <节点名>（写入 TUIC URL 的 #fragment，如 tile1.spacexway.com）"
+		TUIC_NAME=$n
+		save_state
+		msg "$(_green "节点名") → $TUIC_NAME"
+		gps_cmd_url
+		return 0
+		;;
 	log | loglevel | level)
 		local lv=${1:-debug}
 		gps_set_log_level "$lv"
@@ -396,7 +405,7 @@ gps_cmd_change() {
 		return 0
 		;;
 	*)
-		err "用法: change port|uuid|passwd|ip|ip6|ips|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
+		err "用法: change port|uuid|passwd|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config
@@ -495,7 +504,7 @@ Usage: $GPS_NAME [command] [args...]
   uninstall [-y]
   status | start | stop | restart
   info | url | qr | log [--once]
-  change port|uuid|passwd|ip|ip6|ips|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  change port|uuid|passwd|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor
@@ -509,6 +518,6 @@ Usage: $GPS_NAME [command] [args...]
   - 流量熔断: change kiwivm <veid> <api_key>；默认 80% 告警 / 95% 停服；低于停服线自动恢复
   - systemd timer 每 TRAFFIC_CHECK_SEC 秒执行 traffic check
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
-  - 默认日志 debug；IPv4/IPv6 自适应 TUIC URL
+  - 默认日志 debug；TUIC URL 节点名在 #fragment（change name）
 EOF
 }

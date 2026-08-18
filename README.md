@@ -2,7 +2,7 @@
 
 面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**仅 TUIC 入站 → direct 出站**。
 
-当前脚本版本：**v0.2.5**
+当前脚本版本：**v0.2.6**
 
 设计说明：
 
@@ -27,13 +27,13 @@
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.5/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.6/install.sh)
 ```
 
 或：
 
 ```bash
-git clone --depth 1 --branch v0.2.5 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
+git clone --depth 1 --branch v0.2.6 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
   && sudo bash /tmp/geoproxy-server/install.sh \
   && rm -rf /tmp/geoproxy-server
 ```
@@ -46,7 +46,7 @@ git clone --depth 1 --branch v0.2.5 https://github.com/vistone/geoproxy-server.g
 # 升级本管理脚本（保留配置 / 证书 / KiwiVM 凭证）
 geoproxy-server upgrade          # 默认 = upgrade self
 geoproxy-server upgrade self
-geoproxy-server upgrade self --ver v0.2.5
+geoproxy-server upgrade self --ver v0.2.6
 
 # 只升级 sing-box
 geoproxy-server upgrade core
@@ -58,8 +58,8 @@ geoproxy-server upgrade all
 v0.2.4 菜单「安装/重装」会把正在运行的脚本目录 `rm` 掉，导致 `geoproxy-server.sh: No such file`。请用 GitHub 包恢复（保留 `/etc/geoproxy-server`）：
 
 ```bash
-cd /tmp && curl -fsSL https://github.com/vistone/geoproxy-server/archive/refs/tags/v0.2.5.tar.gz | tar -xz \
-  && sudo bash geoproxy-server-0.2.5/geoproxy-server.sh upgrade self --ver v0.2.5 --force
+cd /tmp && curl -fsSL https://github.com/vistone/geoproxy-server/archive/refs/tags/v0.2.6.tar.gz | tar -xz \
+  && sudo bash geoproxy-server-0.2.6/geoproxy-server.sh upgrade self --ver v0.2.6 --force
 ```
 
 若 `scripts.prev` 仍在，也可先：`cp -a /usr/local/lib/geoproxy-server/scripts.prev/. /usr/local/lib/geoproxy-server/scripts/`
@@ -85,6 +85,23 @@ geoproxy-server change traffic-interval 300
 月配额与重置时间来自 KiwiVM `getServiceInfo`（`plan_monthly_data`、`data_next_reset`）。  
 ≥告警写日志；≥停服则 `stop geoproxy-tuic` 并置 `TRAFFIC_TRIPPED=1`。  
 用量低于停服线后（含月流量重置），`traffic check` / `start` / `restart` 会**自动清除熔断并恢复服务**；仍可用 `traffic resume` 手动恢复。
+
+## TUIC 分享链接
+
+节点名写在 URL **fragment**（`#` 后面），不要用 query 的 `name=`：
+
+```text
+tuic://UUID:PASSWORD@IP:PORT/?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr&udp_relay_mode=native#tile1.spacexway.com
+```
+
+默认用本机 `hostname -f`。自定义：
+
+```bash
+geoproxy-server change name tile1.spacexway.com
+geoproxy-server url
+```
+
+自签证书仍带 `insecure=1`（GeoProxy / 多数客户端需要）。有正式证书时再自行改 `allow_insecure=false`。
 
 ## CLI
 
