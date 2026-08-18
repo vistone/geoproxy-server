@@ -60,6 +60,9 @@ geoproxy-server upgrade core
 geoproxy-server upgrade all
 ```
 
+版本更新会先 **stop 并清掉旧进程**，换上新文件后再 **start**（不用旧进程 restart）。  
+从菜单升级后会 **exec 新脚本**，丢掉已加载的旧函数，重新画出菜单。
+
 菜单 **19** 与上面等价。不要写 `--ver v0.2.x`，否则会钉在旧版。
 
 入口脚本已丢失时（不要用坏掉的 `/usr/local/bin/geoproxy-server`）：

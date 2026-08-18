@@ -272,6 +272,18 @@ gps_cmd_upgrade() {
 		gps_cmd_upgrade_core "$@"
 		;;
 	esac
+	gps_reexec_if_menu
+}
+
+# 菜单内升级后：丢掉已 source 的旧函数，exec 新脚本
+gps_reexec_if_menu() {
+	[[ ${GPS_INVOKED_AS_MENU:-0} == 1 ]] || return 0
+	[[ ${GPS_UPGRADE_DID_WORK:-0} == 1 ]] || return 0
+	[[ -z ${GPS_TEST_PREFIX:-} ]] || return 0
+	local script="${GPS_LIB_DIR}/scripts/geoproxy-server.sh"
+	[[ -f $script ]] || return 0
+	msg "$(_cyan "结束旧管理进程，启动新版菜单") $GPS_SH_VER"
+	exec bash "$script"
 }
 
 gps_cmd_upgrade_core() {
@@ -294,15 +306,19 @@ gps_cmd_upgrade_core() {
 		esac
 	done
 	load_state || err "未安装"
-	local before
+	local before target
 	before=$(gps_core_ver_installed)
-	gps_download_core "$ver" "$force"
-	save_state
-	if [[ $force -eq 0 && -n $before && $before == "${CORE_VER}" ]]; then
+	target=$(gps_resolve_core_ver "$ver")
+	if [[ $force -eq 0 && -n $before && $before == "$target" && -x ${GPS_CORE_BIN:-} ]]; then
+		CORE_VER=$before
 		msg "$(_green "无需升级") sing-box 当前已是 v${CORE_VER}"
 		return 0
 	fi
-	gps_restart_svc
+	gps_svc_halt
+	gps_download_core "$ver" "$force"
+	save_state
+	gps_svc_boot
+	GPS_UPGRADE_DID_WORK=1
 	msg "$(_green "升级完成") sing-box=$CORE_VER"
 }
 

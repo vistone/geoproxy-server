@@ -183,12 +183,18 @@ gps_cmd_upgrade_self() {
 		msg "$(_green "无需升级") 脚本已是 $cur"
 		return 0
 	fi
+	# 先停干净再换文件，禁止在旧进程记忆上 restart
+	gps_svc_halt
 	local tmp root
 	tmp=$(mktemp -d /tmp/gps-self-upgrade.XXXXXX)
 	trap 'rm -rf "'"$tmp"'"' RETURN
 	root=$(gps_self_fetch_tree "$ver" "$tmp")
 	gps_self_install_tree "$root"
 	save_state
+	rm -rf "$tmp"
+	trap - RETURN
+	gps_svc_boot
+	GPS_UPGRADE_DID_WORK=1
 	msg "$(_green "脚本已升级") $cur → $GPS_SH_VER"
-	msg "配置/证书/凭证未改动；可用: $GPS_NAME version / doctor / traffic"
+	msg "配置/证书/凭证未改动；已停止旧进程并用新脚本重新拉起服务"
 }
