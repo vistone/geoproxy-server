@@ -86,12 +86,25 @@ gps_cmd_install() {
 	fi
 	ensure_deps
 
+	# CLI 显式参数优先；其余从已有 state.env 继承，避免重装抹掉 UUID/KiwiVM
+	local cli_port=$PORT cli_uuid=$UUID cli_pw=$PASSWORD cli_ip=$PUBLIC_IP cli_ip6=$PUBLIC_IP6
+	local had_state=0
 	if [[ -f $GPS_STATE ]]; then
-		warn "检测到已安装配置: $GPS_STATE"
+		had_state=1
+		load_state || true
+		[[ -n $cli_port ]] && PORT=$cli_port
+		[[ -n $cli_uuid ]] && UUID=$cli_uuid
+		[[ -n $cli_pw ]] && PASSWORD=$cli_pw
+		[[ -n $cli_ip ]] && PUBLIC_IP=$cli_ip
+		[[ -n $cli_ip6 ]] && PUBLIC_IP6=$cli_ip6
+		warn "检测到已安装配置: $GPS_STATE（保留端口/UUID/KiwiVM 凭证）"
 		if [[ -t 0 ]]; then
-			confirm_yes "覆盖并重装?" || err "已取消"
+			confirm_yes "保留配置并重装脚本与服务?" || err "已取消"
 		else
-			msg "非交互：覆盖已有配置"
+			msg "非交互：保留已有配置，刷新脚本与服务"
+		fi
+		if [[ -z ${GPS_TEST_PREFIX:-} && ${GPS_NO_FETCH_SELF:-0} != 1 ]]; then
+			gps_reinstall_fetch_self
 		fi
 	fi
 
@@ -117,18 +130,52 @@ gps_cmd_install() {
 
 	msg
 	msg "$(_green "安装完成")"
+	[[ $had_state -eq 1 ]] && msg "已保留原配置；管理脚本 $GPS_SH_VER"
 	gps_cmd_info
 	msg
 	gps_cmd_url
 }
 
+# 重装时从 GitHub 拉取最新管理脚本（避免从已安装目录拷贝自己）
+gps_reinstall_fetch_self() {
+	local ver tmp root
+	ver=$(gps_self_resolve_ver latest)
+	msg "$(_cyan "拉取最新管理脚本") $ver ..."
+	tmp=$(mktemp -d /tmp/gps-self-upgrade.XXXXXX)
+	root=$(gps_self_fetch_tree "$ver" "$tmp")
+	gps_self_install_tree "$root"
+	rm -rf "$tmp"
+}
+
 gps_install_entrypoint() {
-	mkdir -p "$(dirname "$GPS_BIN_LINK")"
+	mkdir -p "$(dirname "$GPS_BIN_LINK")" "$GPS_LIB_DIR"
 	local src="${GPS_ROOT}/geoproxy-server.sh"
 	[[ -f $src ]] || err "找不到入口脚本: $src"
-	mkdir -p "$GPS_LIB_DIR/scripts"
-	rm -rf "${GPS_LIB_DIR}/scripts/"*
-	cp -a "$GPS_ROOT/." "${GPS_LIB_DIR}/scripts/"
+
+	local dest="${GPS_LIB_DIR}/scripts"
+	local src_real dest_real=""
+	src_real=$(cd "$GPS_ROOT" && pwd -P)
+	if [[ -d $dest ]]; then
+		dest_real=$(cd "$dest" && pwd -P 2>/dev/null || true)
+	fi
+
+	# 已在目标目录运行：禁止 rm/cp 自己（v0.2.4 菜单重装会删光脚本）
+	if [[ -n $dest_real && $src_real == "$dest_real" ]]; then
+		msg "$(_cyan "脚本树已在") $dest，跳过拷贝"
+	else
+		local staging="${GPS_LIB_DIR}/.scripts.staging.$$"
+		rm -rf "$staging"
+		mkdir -p "$staging"
+		cp -a "$GPS_ROOT/." "$staging/"
+		rm -rf "${GPS_LIB_DIR}/scripts.prev"
+		if [[ -d $dest ]]; then
+			mv "$dest" "${GPS_LIB_DIR}/scripts.prev"
+		fi
+		mv "$staging" "$dest"
+		GPS_ROOT="$dest"
+		GPS_TMPL="${GPS_ROOT}/templates"
+	fi
+
 	cat >"$GPS_BIN_LINK" <<EOF
 #!/bin/bash
 export GPS_TEST_PREFIX='${GPS_TEST_PREFIX:-}'
