@@ -79,6 +79,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main
 # 录入凭证（启用 geoproxy-traffic.timer）
 geoproxy-server change kiwivm <VEID> <API_KEY>
 
+# 凭证写入 /etc/geoproxy-kiwivm.env，卸载后仍保留；重装会自动恢复
+# 彻底忘掉凭证：geoproxy-server uninstall --purge
+
 # 查看 / 立即检查 / 熔断后恢复
 geoproxy-server traffic
 geoproxy-server traffic check

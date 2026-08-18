@@ -211,7 +211,33 @@ load_state() {
 		gps_apply_paths
 	fi
 	GPS_NO_SYSTEMD=${GPS_NO_SYSTEMD:-0}
+	gps_kiwi_load_persist
 	return 0
+}
+
+# KiwiVM 凭证长期保存（卸载不删 /etc/geoproxy-kiwivm.env）
+gps_kiwi_load_persist() {
+	local f=${GPS_KIWI_PERSIST:-}
+	[[ -n $f && -f $f ]] || return 0
+	# shellcheck disable=SC1090
+	set -a
+	# shellcheck source=/dev/null
+	source "$f"
+	set +a
+}
+
+gps_kiwi_save_persist() {
+	local f=${GPS_KIWI_PERSIST:-}
+	[[ -n $f ]] || return 0
+	[[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]] || return 0
+	umask 077
+	mkdir -p "$(dirname "$f")"
+	cat >"$f" <<EOF
+KIWI_VEID=${KIWI_VEID}
+KIWI_API_KEY=${KIWI_API_KEY}
+KIWI_API_BASE=${KIWI_API_BASE:-https://api.64clouds.com/v1}
+EOF
+	chmod 600 "$f"
 }
 
 save_state() {
@@ -248,6 +274,7 @@ INSTALLED_AT=${INSTALLED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 TUIC_NAME=${TUIC_NAME:-}
 EOF
 	chmod 600 "$GPS_STATE"
+	gps_kiwi_save_persist
 }
 
 rand_port() {

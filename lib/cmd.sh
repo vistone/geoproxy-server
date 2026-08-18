@@ -106,6 +106,11 @@ gps_cmd_install() {
 		if [[ -z ${GPS_TEST_PREFIX:-} && ${GPS_NO_FETCH_SELF:-0} != 1 ]]; then
 			gps_reinstall_fetch_self
 		fi
+	else
+		gps_kiwi_load_persist
+		if [[ -n ${KIWI_VEID:-} ]]; then
+			msg "$(_cyan "已恢复长期保存的 KiwiVM") veid=$KIWI_VEID"
+		fi
 	fi
 
 	gps_download_core "${CORE_VER_ARG:-latest}"
@@ -186,8 +191,15 @@ EOF
 }
 
 gps_cmd_uninstall() {
-	local force=0
-	[[ ${1:-} == -y || ${1:-} == --yes ]] && force=1
+	local force=0 purge=0
+	while [[ $# -gt 0 ]]; do
+		case $1 in
+		-y | --yes) force=1 ;;
+		--purge) purge=1 ;;
+		*) err "用法: uninstall [-y] [--purge]" ;;
+		esac
+		shift
+	done
 	# 允许通过环境恢复前缀
 	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_apply_paths
@@ -199,12 +211,13 @@ gps_cmd_uninstall() {
 		set +a
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 	fi
+	gps_apply_paths
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		need_root
 	fi
 	if ((force == 0)); then
 		if [[ -t 0 ]]; then
-			if ! confirm_yes "确认卸载 $GPS_NAME（停止服务并删除配置）?"; then
+			if ! confirm_yes "确认卸载 $GPS_NAME（停止服务并删除配置；KiwiVM 凭证会保留）?"; then
 				warn "已取消卸载"
 				return 1
 			fi
@@ -227,6 +240,13 @@ gps_cmd_uninstall() {
 		rm -rf "$GPS_ETC" "$GPS_LIB_DIR" "$GPS_LOG_DIR"
 	fi
 	msg "$(_green "已卸载")"
+	if ((purge == 1)); then
+		rm -f "$GPS_KIWI_PERSIST"
+		msg "已同时删除 KiwiVM 长期凭证 $GPS_KIWI_PERSIST"
+	elif [[ -f ${GPS_KIWI_PERSIST:-} ]]; then
+		msg "KiwiVM 凭证已保留: $GPS_KIWI_PERSIST"
+		msg "彻底清除凭证: $GPS_NAME uninstall --purge"
+	fi
 	# 必须在此进程退出：卸载会删掉正在运行的脚本树，函数返回值可能非 0，
 	# 菜单里 if uninstall; then exit 无法触发，会继续画菜单。
 	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
@@ -526,7 +546,7 @@ Usage: $GPS_NAME [command] [args...]
 
 命令:
   install [--port N] [--uuid U] [--passwd P] [--ip V4] [--ip6 V6]
-  uninstall [-y]
+  uninstall [-y] [--purge]
   status | start | stop | restart
   info | url | qr | log [--once]
   change port|uuid|passwd|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...

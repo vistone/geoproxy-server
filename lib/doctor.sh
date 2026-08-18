@@ -85,6 +85,7 @@ gps_doctor() {
 		gps_traffic_defaults
 		if [[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]]; then
 			msg "  $(_green OK)  KiwiVM 已配置 veid=$KIWI_VEID"
+			[[ -f ${GPS_KIWI_PERSIST:-} ]] && msg "  长期凭证: $GPS_KIWI_PERSIST（卸载后保留）"
 			ok=$((ok + 1))
 			msg "  流量阈值: warn=${TRAFFIC_WARN_PCT}% stop=${TRAFFIC_STOP_PCT}% tripped=${TRAFFIC_TRIPPED} last=${TRAFFIC_LAST_PCT:-?}%"
 			if [[ ${TRAFFIC_TRIPPED:-0} == 1 ]]; then
