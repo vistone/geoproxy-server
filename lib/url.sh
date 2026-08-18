@@ -13,18 +13,31 @@ gps_cmd_url() {
 }
 
 gps_cmd_qr() {
-	local u
-	u=$(gps_tuic_url)
-	msg "二维码使用优先地址: $u"
+	local u has_qr=0
 	if have_cmd qrencode; then
-		qrencode -t ANSIUTF8 "$u"
+		has_qr=1
 	else
 		warn "未安装 qrencode，仅打印 URL。可: apt install qrencode"
-		msg "$u"
 	fi
-	msg
-	msg "完整列表:"
-	gps_cmd_url
+	local n=0
+	while IFS= read -r u; do
+		[[ -n $u ]] || continue
+		n=$((n + 1))
+		if [[ $u == *"@"*\[* ]]; then
+			msg
+			msg "$(_cyan "IPv6 二维码")"
+		else
+			msg
+			msg "$(_cyan "IPv4 二维码")"
+		fi
+		msg "$u"
+		if [[ $has_qr -eq 1 ]]; then
+			qrencode -t ANSIUTF8 "$u"
+		fi
+	done < <(gps_tuic_urls)
+	if [[ $n -eq 0 ]]; then
+		err "无可用 TUIC URL"
+	fi
 }
 
 gps_cmd_info() {
