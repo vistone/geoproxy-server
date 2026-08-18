@@ -133,6 +133,12 @@ gps_cmd_install() {
 	gps_install_entrypoint
 	gps_restart_svc
 
+	# 已有 KiwiVM（含卸载后恢复的长期凭证）时立刻拉一次用量，避免 last=?%
+	if [[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]]; then
+		gps_cmd_traffic_check || true
+		load_state 2>/dev/null || true
+	fi
+
 	msg
 	msg "$(_green "安装完成")"
 	[[ $had_state -eq 1 ]] && msg "已保留原配置；管理脚本 $GPS_SH_VER"
