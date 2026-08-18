@@ -227,6 +227,12 @@ gps_cmd_uninstall() {
 		rm -rf "$GPS_ETC" "$GPS_LIB_DIR" "$GPS_LOG_DIR"
 	fi
 	msg "$(_green "已卸载")"
+	# 必须在此进程退出：卸载会删掉正在运行的脚本树，函数返回值可能非 0，
+	# 菜单里 if uninstall; then exit 无法触发，会继续画菜单。
+	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
+		return 0
+	fi
+	exit 0
 }
 
 gps_cmd_upgrade() {

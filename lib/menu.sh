@@ -108,9 +108,8 @@ gps_menu() {
 		21) gps_enable_bbr ;;
 		22) gps_doctor || true ;;
 		23)
-			if gps_cmd_uninstall; then
-				exit 0
-			fi
+			# 成功卸载会在 gps_cmd_uninstall 里 exit 0；取消则 return 1 留在菜单
+			gps_cmd_uninstall || true
 			;;
 		0 | q | quit | exit) exit 0 ;;
 		*) warn "无效选项" ;;
