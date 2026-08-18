@@ -2,7 +2,8 @@
 
 面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**仅 TUIC 入站 → direct 出站**。
 
-当前脚本版本：**v0.2.6**
+发布号以仓库内 [`VERSION`](./VERSION) 和 [GitHub Releases](https://github.com/vistone/geoproxy-server/releases/latest) 为准。  
+**README 不写死版本号**；安装 / 升级默认拉取最新 Release。
 
 设计说明：
 
@@ -14,7 +15,7 @@
 - 菜单优先，CLI 为辅
 - **可自升级管理脚本**（`upgrade self`）与 **sing-box 核心**（`upgrade core`）
 - 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
-- **IPv4 / IPv6 自适应** 监听与 TUIC URL
+- **IPv4 / IPv6 自适应** 监听与 TUIC URL（节点名在 `#fragment`）
 - 自签 TLS（`alpn=h3`），默认 UUID=密码、BBR
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
@@ -26,27 +27,31 @@
 
 ## 安装
 
+始终从 `main` 拉 `install.sh`，由脚本解析 **最新 Release tag**（不要把 tag 写进这一条）：
+
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.6/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh)
 ```
 
 或：
 
 ```bash
-git clone --depth 1 --branch v0.2.6 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
+git clone --depth 1 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
   && sudo bash /tmp/geoproxy-server/install.sh \
   && rm -rf /tmp/geoproxy-server
 ```
+
+指定某版（仅排障）：`GPS_VERSION=vX.Y.Z sudo -E bash install.sh`
 
 本 monorepo：`sudo bash scripts/geoproxy-server/install.sh`
 
 ## 升级
 
 ```bash
-# 升级本管理脚本（保留配置 / 证书 / KiwiVM 凭证）
+# 管理脚本 → GitHub 最新 Release（保留配置 / 证书 / KiwiVM 凭证）
 geoproxy-server upgrade          # 默认 = upgrade self
 geoproxy-server upgrade self
-geoproxy-server upgrade self --ver v0.2.6
+geoproxy-server upgrade self --force
 
 # 只升级 sing-box
 geoproxy-server upgrade core
@@ -55,14 +60,15 @@ geoproxy-server upgrade core
 geoproxy-server upgrade all
 ```
 
-v0.2.4 菜单「安装/重装」会把正在运行的脚本目录 `rm` 掉，导致 `geoproxy-server.sh: No such file`。请用 GitHub 包恢复（保留 `/etc/geoproxy-server`）：
+菜单 **19** 与上面等价。不要写 `--ver v0.2.x`，否则会钉在旧版。
+
+入口脚本已丢失时（不要用坏掉的 `/usr/local/bin/geoproxy-server`）：
 
 ```bash
-cd /tmp && curl -fsSL https://github.com/vistone/geoproxy-server/archive/refs/tags/v0.2.6.tar.gz | tar -xz \
-  && sudo bash geoproxy-server-0.2.6/geoproxy-server.sh upgrade self --ver v0.2.6 --force
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh)
 ```
 
-若 `scripts.prev` 仍在，也可先：`cp -a /usr/local/lib/geoproxy-server/scripts.prev/. /usr/local/lib/geoproxy-server/scripts/`
+会保留 `/etc/geoproxy-server`。若仍有备份：`cp -a /usr/local/lib/geoproxy-server/scripts.prev/. /usr/local/lib/geoproxy-server/scripts/`
 
 ## 流量熔断（KiwiVM）
 

@@ -4,10 +4,17 @@
 # - curl | bash：按版本号拉取完整仓库到临时目录再安装
 set -euo pipefail
 
-# 固定版本：安装/bootstrap 都钉死这个 tag，避免 main CDN 缓存旧脚本
-GPS_VERSION="${GPS_VERSION:-v0.2.6}"
-GPS_REPO_URL="${GPS_REPO_URL:-https://github.com/vistone/geoproxy-server.git}"
-GPS_REPO_TAR="${GPS_REPO_TAR:-https://github.com/vistone/geoproxy-server/archive/refs/tags/${GPS_VERSION}.tar.gz}"
+# 默认 latest：向 GitHub Releases 解析最新 tag。钉死某版：GPS_VERSION=vX.Y.Z
+GPS_SELF_REPO="${GPS_SELF_REPO:-vistone/geoproxy-server}"
+GPS_VERSION="${GPS_VERSION:-latest}"
+GPS_REPO_URL="${GPS_REPO_URL:-https://github.com/${GPS_SELF_REPO}.git}"
+
+_gps_latest_tag() {
+	curl -fsSL --max-time 20 \
+		"https://api.github.com/repos/${GPS_SELF_REPO}/releases/latest" |
+		grep -oE '"tag_name":[[:space:]]*"v[^"]+"' | head -1 |
+		grep -oE 'v[0-9.]+' | head -1
+}
 
 _gps_here() {
 	local src=${BASH_SOURCE[0]:-}
@@ -68,6 +75,17 @@ ROOT=""
 if ROOT=$(_gps_here) && [[ -f $ROOT/geoproxy-server.sh ]]; then
 	exec bash "$ROOT/geoproxy-server.sh" install "$@"
 fi
+
+# 管道安装才解析 latest，避免本地 clone 依赖 GitHub API
+if [[ $GPS_VERSION == latest || -z $GPS_VERSION ]]; then
+	GPS_VERSION=$(_gps_latest_tag || true)
+	[[ -n $GPS_VERSION ]] || {
+		echo "错误: 无法从 GitHub 获取 ${GPS_SELF_REPO} 最新版本" >&2
+		exit 1
+	}
+fi
+[[ $GPS_VERSION == v* ]] || GPS_VERSION="v${GPS_VERSION}"
+GPS_REPO_TAR="${GPS_REPO_TAR:-https://github.com/${GPS_SELF_REPO}/archive/refs/tags/${GPS_VERSION}.tar.gz}"
 
 echo "检测到远程/管道安装，正在拉取 geoproxy-server $GPS_VERSION ..."
 TMP=$(mktemp -d /tmp/gps-bootstrap.XXXXXX)
