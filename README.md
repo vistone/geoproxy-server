@@ -2,7 +2,7 @@
 
 面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**仅 TUIC 入站 → direct 出站**。
 
-当前脚本版本：**v0.2.3**
+当前脚本版本：**v0.2.4**
 
 设计说明：
 
@@ -27,13 +27,13 @@
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.3/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/v0.2.4/install.sh)
 ```
 
 或：
 
 ```bash
-git clone --depth 1 --branch v0.2.3 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
+git clone --depth 1 --branch v0.2.4 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
   && sudo bash /tmp/geoproxy-server/install.sh \
   && rm -rf /tmp/geoproxy-server
 ```
@@ -46,13 +46,20 @@ git clone --depth 1 --branch v0.2.3 https://github.com/vistone/geoproxy-server.g
 # 升级本管理脚本（保留配置 / 证书 / KiwiVM 凭证）
 geoproxy-server upgrade          # 默认 = upgrade self
 geoproxy-server upgrade self
-geoproxy-server upgrade self --ver v0.2.3
+geoproxy-server upgrade self --ver v0.2.4
 
 # 只升级 sing-box
 geoproxy-server upgrade core
 
 # 两者都升
 geoproxy-server upgrade all
+```
+
+v0.2.1 / v0.2.2 / v0.2.3 的菜单「升级管理脚本」会因下载日志污染路径而失败。请用新脚本执行升级（保留配置）：
+
+```bash
+cd /tmp && curl -fsSL https://github.com/vistone/geoproxy-server/archive/refs/tags/v0.2.4.tar.gz | tar -xz \
+  && sudo bash geoproxy-server-0.2.4/geoproxy-server.sh upgrade self --ver v0.2.4 --force
 ```
 
 ## 流量熔断（KiwiVM）
