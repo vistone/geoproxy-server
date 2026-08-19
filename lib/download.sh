@@ -182,7 +182,8 @@ gps_self_fetch_tree() {
 	local turl="https://github.com/${GPS_SELF_REPO}/archive/refs/tags/${tag}.tar.gz"
 	if curl -fsSL --max-time 120 "$aurl" -o "${dest}/src.tar.gz" 2>/dev/null; then
 		echo -e "$(_cyan "下载") ${GPS_SELF_REPO} ${tag} (release asset, sha256 校验) ..." >&2
-		gps_verify_release_asset "${dest}/src.tar.gz" "$tag" "$asset"
+		# stdout 是数据通道（只回传树根），校验消息全部转 stderr
+		gps_verify_release_asset "${dest}/src.tar.gz" "$tag" "$asset" >&2
 	else
 		echo -e "$(_yellow "无 release asset，回退 tag archive（仅 VERSION 一致性校验）") ${tag}" >&2
 		curl -fsSL --max-time 120 "$turl" -o "${dest}/src.tar.gz" || err "下载失败: $turl"

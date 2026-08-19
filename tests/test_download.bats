@@ -100,3 +100,31 @@ setup() {
 	run gps_verify_release_asset "$BATS_TEST_TMPDIR/src.tar.gz" v9.9.9 geoproxy-server-v9.9.9.tar.gz
 	[ "$status" -eq 0 ]
 }
+
+@test "self fetch tree stdout carries only the tree root" {
+	# 构造本地假 release asset（git archive 结构：根含 geoproxy-server.sh）
+	mkdir -p "$BATS_TEST_TMPDIR/pkgtree"
+	touch "$BATS_TEST_TMPDIR/pkgtree/geoproxy-server.sh"
+	printf 'v9.9.9\n' >"$BATS_TEST_TMPDIR/pkgtree/VERSION"
+	tar -czf "$BATS_TEST_TMPDIR/pkg.tar.gz" -C "$BATS_TEST_TMPDIR/pkgtree" .
+	# mock 网络：curl 落盘 asset，digest 查询返回真实摘要
+	curl() {
+		local out=""
+		while [[ $# -gt 0 ]]; do
+			if [[ $1 == -o ]]; then
+				out=$2
+				shift 2
+				continue
+			fi
+			shift
+		done
+		[[ -n $out ]] || return 1
+		cp "$BATS_TEST_TMPDIR/pkg.tar.gz" "$out"
+	}
+	gps_repo_asset_digest() { sha256sum "$BATS_TEST_TMPDIR/pkg.tar.gz" | awk '{print $1}'; }
+	local dest="$BATS_TEST_TMPDIR/fetch-dest"
+	lines=$(gps_self_fetch_tree v9.9.9 "$dest")
+	# stdout 必须恰好一行：脚本树根路径
+	[ "$(printf '%s\n' "$lines" | grep -c .)" -eq 1 ]
+	[ -f "$lines/geoproxy-server.sh" ]
+}
