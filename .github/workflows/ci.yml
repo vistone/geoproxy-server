@@ -10,23 +10,33 @@ jobs:
   lint:
     name: Lint & Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install apt dependencies
+      # 不依赖 apt（runner 的 apt 源偶发挂起会吊死整个 job），
+      # 三个工具全部下载固定版本二进制
+      - name: Install pinned tools (shfmt / shellcheck / bats)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck bats
-
-      - name: Install shfmt (pinned release binary; mvdan/shfmt action is gone)
-        run: |
-          set -e
-          sudo curl -sSL -o /usr/local/bin/shfmt \
+          set -euo pipefail
+          sudo curl -sSL --retry 3 -o /usr/local/bin/shfmt \
             https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64
           sudo chmod +x /usr/local/bin/shfmt
+
+          sudo curl -sSL --retry 3 -o /tmp/sc.tar.xz \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          sudo tar -xJf /tmp/sc.tar.xz -C /usr/local/bin --strip-components=1 shellcheck-v0.11.0/shellcheck
+
+          sudo curl -sSL --retry 3 -o /tmp/bats.tgz \
+            https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz
+          sudo tar -xzf /tmp/bats.tgz -C /usr/local/lib
+          sudo ln -s /usr/local/lib/bats-core-1.14.0/bin/bats /usr/local/bin/bats
+
           shfmt --version
+          shellcheck --version | head -2
+          bats --version
 
       - name: shfmt (format check)
         run: shfmt -l .
