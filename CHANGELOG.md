@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.18 - 2026-08-19
+
+供应链：自升级完整性校验 + 发布自动化。
+
+- 自升级校验：`upgrade self` 优先从 GitHub Release 下载打包资产 `geoproxy-server-<tag>.tar.gz`，用 GitHub API 的 sha256 digest 强制校验后才安装（与 sing-box 核心同一机制）。旧版本 Release 无资产时回退 tag archive，退化为 VERSION-tag 一致性校验并明确告警；解包后一律校验脚本树 `VERSION` 与目标 tag 一致（防串包/缓存/半包）。
+- 发布自动化：新增 release workflow——推送 `v*` tag 自动校验 `VERSION == tag`、`git archive` 打包资产并生成 `.sha256`、从 CHANGELOG 提取对应版本段落作为 Release notes、创建带资产附件的 GitHub Release。今后发版无需手工 `gh release create`，`upgrade self` 的校验链路随发布天然成立。
+
 ## v0.2.17 - 2026-08-19
 
 运维韧性：升级失败自动恢复 + 日志轮转。

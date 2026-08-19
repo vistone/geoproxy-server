@@ -73,3 +73,30 @@ setup() {
 	run gps_verify_core_archive "$BATS_TEST_TMPDIR/sb.tar.gz" "$BATS_TEST_TMPDIR/sha256sums.txt" sing-box-test-linux-amd64.tar.gz
 	[ "$status" -ne 0 ]
 }
+
+@test "self tree version check accepts matching VERSION" {
+	mkdir -p "$BATS_TEST_TMPDIR/tree-ok"
+	printf 'v9.9.9\n' >"$BATS_TEST_TMPDIR/tree-ok/VERSION"
+	gps_verify_tree_version "$BATS_TEST_TMPDIR/tree-ok" v9.9.9
+}
+
+@test "self tree version check rejects mismatched and missing VERSION" {
+	mkdir -p "$BATS_TEST_TMPDIR/tree-bad"
+	printf 'v1.2.3\n' >"$BATS_TEST_TMPDIR/tree-bad/VERSION"
+	run gps_verify_tree_version "$BATS_TEST_TMPDIR/tree-bad" v9.9.9
+	[ "$status" -ne 0 ]
+	mkdir -p "$BATS_TEST_TMPDIR/tree-nov"
+	run gps_verify_tree_version "$BATS_TEST_TMPDIR/tree-nov" v9.9.9
+	[ "$status" -ne 0 ]
+}
+
+@test "release asset verification compares against repo digest" {
+	printf asset-bytes >"$BATS_TEST_TMPDIR/src.tar.gz"
+	# mock 仓库 digest 查询（不打网络）
+	gps_repo_asset_digest() { printf '%064d' 0; }
+	run gps_verify_release_asset "$BATS_TEST_TMPDIR/src.tar.gz" v9.9.9 geoproxy-server-v9.9.9.tar.gz
+	[ "$status" -ne 0 ]
+	gps_repo_asset_digest() { sha256sum "$BATS_TEST_TMPDIR/src.tar.gz" | awk '{print $1}'; }
+	run gps_verify_release_asset "$BATS_TEST_TMPDIR/src.tar.gz" v9.9.9 geoproxy-server-v9.9.9.tar.gz
+	[ "$status" -eq 0 ]
+}

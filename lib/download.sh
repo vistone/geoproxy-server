@@ -28,12 +28,12 @@ gps_resolve_core_ver() {
 	echo "${ver#v}"
 }
 
-# 从 GitHub Release API 取资产 sha256 摘要（上游不发布 checksum 文件，digest 由 GitHub 计算）
-gps_core_asset_digest() {
-	local tag=$1 asset=$2
-	have_cmd python3 || err "需要 python3 解析 GitHub API（用于校验 sing-box 下载完整性）"
+# 从任意仓库的 GitHub Release API 取资产 sha256 摘要（digest 由 GitHub 计算）
+gps_repo_asset_digest() {
+	local repo=$1 tag=$2 asset=$3
+	have_cmd python3 || err "需要 python3 解析 GitHub API（用于校验下载完整性）"
 	local digest
-	digest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/SagerNet/sing-box/releases/tags/${tag}" |
+	digest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/${repo}/releases/tags/${tag}" |
 		python3 -c 'import json,sys
 try:
     d = json.load(sys.stdin)
@@ -47,6 +47,11 @@ for a in d.get("assets") or []:
 sys.exit(1)' "$asset") || return 1
 	[[ -n $digest ]] || return 1
 	printf '%s' "$digest"
+}
+
+# sing-box 核心资产摘要
+gps_core_asset_digest() {
+	gps_repo_asset_digest SagerNet/sing-box "$1" "$2"
 }
 
 # 校验归档：清单中该资产必须恰好一行且 sha256 一致（缺失/重复/不匹配都拒绝）
@@ -147,19 +152,48 @@ gps_self_resolve_ver() {
 	echo "$ver"
 }
 
+# 校验 release asset：GitHub API digest 与本地 sha256 必须一致
+gps_verify_release_asset() {
+	local archive=$1 tag=$2 asset=$3
+	local digest
+	if ! digest=$(gps_repo_asset_digest "${GPS_SELF_REPO}" "$tag" "$asset"); then
+		err "无法获取 ${asset} 的 sha256 摘要（GitHub API），拒绝安装"
+	fi
+	printf '%s  %s\n' "$digest" "$asset" >"${archive}.sha256sums"
+	gps_verify_core_archive "$archive" "${archive}.sha256sums" "$asset"
+}
+
+# 解出的脚本树 VERSION 必须与目标 tag 一致（防串包/缓存/半包）
+gps_verify_tree_version() {
+	local root=$1 tag=$2 v
+	v=$(tr -d '[:space:]' <"${root}/VERSION" 2>/dev/null || echo "")
+	[[ -n $v ]] || err "脚本树缺少 VERSION 文件，拒绝安装"
+	[[ $v == "$tag" ]] || err "脚本树 VERSION(${v}) 与目标版本(${tag})不一致，拒绝安装"
+}
+
 # 从远程 tag 拉取脚本树；仅把仓库根打印到 stdout（日志走 stderr）
+# 优先 Release asset（sha256 校验）；旧版本 Release 无 asset 时回退 tag archive（VERSION-tag 一致性校验）
 gps_self_fetch_tree() {
 	local tag=$1
 	local dest=$2
 	mkdir -p "$dest"
-	local url="https://github.com/${GPS_SELF_REPO}/archive/refs/tags/${tag}.tar.gz"
-	echo -e "$(_cyan "下载") ${GPS_SELF_REPO} ${tag} ..." >&2
-	curl -fsSL --max-time 120 "$url" -o "${dest}/src.tar.gz" || err "下载失败: $url"
+	local asset="geoproxy-server-${tag}.tar.gz"
+	local aurl="https://github.com/${GPS_SELF_REPO}/releases/download/${tag}/${asset}"
+	local turl="https://github.com/${GPS_SELF_REPO}/archive/refs/tags/${tag}.tar.gz"
+	if curl -fsSL --max-time 120 "$aurl" -o "${dest}/src.tar.gz" 2>/dev/null; then
+		echo -e "$(_cyan "下载") ${GPS_SELF_REPO} ${tag} (release asset, sha256 校验) ..." >&2
+		gps_verify_release_asset "${dest}/src.tar.gz" "$tag" "$asset"
+	else
+		echo -e "$(_yellow "无 release asset，回退 tag archive（仅 VERSION 一致性校验）") ${tag}" >&2
+		curl -fsSL --max-time 120 "$turl" -o "${dest}/src.tar.gz" || err "下载失败: $turl"
+	fi
 	tar -xzf "${dest}/src.tar.gz" -C "$dest" || err "解压失败"
-	local script
+	local script root
 	script=$(find "$dest" -mindepth 1 -name geoproxy-server.sh -type f | head -1 || true)
 	[[ -n $script && -f $script ]] || err "归档中未找到 geoproxy-server.sh"
-	(cd "$(dirname "$script")" && pwd -P)
+	root=$(cd "$(dirname "$script")" && pwd -P)
+	gps_verify_tree_version "$root" "$tag"
+	echo "$root"
 }
 
 # 用 src_root 覆盖已安装脚本（保留 state/config/tls/sing-box）

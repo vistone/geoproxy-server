@@ -1,0 +1,62 @@
+name: Release — tag → GitHub Release (asset + sha256)
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create release with verified asset
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      - name: Verify VERSION matches tag
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="$(tr -d '[:space:]' <VERSION)"
+          if [ "$VER" != "$TAG" ]; then
+            echo "VERSION($VER) 与 tag($TAG) 不一致" >&2
+            exit 1
+          fi
+          echo "VERSION == tag == $TAG"
+
+      - name: Package release asset
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          git archive --format=tar.gz -o "geoproxy-server-${TAG}.tar.gz" "$TAG"
+          sha256sum "geoproxy-server-${TAG}.tar.gz" >"geoproxy-server-${TAG}.tar.gz.sha256"
+          cat "geoproxy-server-${TAG}.tar.gz.sha256"
+
+      - name: Extract release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          python3 - "$TAG" >release-notes.md <<'PY'
+import re, sys
+tag = sys.argv[1]
+text = open("CHANGELOG.md", encoding="utf-8").read()
+m = re.search(rf"^## {re.escape(tag)} - [^\n]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+print(m.group(1).strip() if m else f"{tag} release")
+PY
+          head -5 release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            "geoproxy-server-${TAG}.tar.gz" \
+            "geoproxy-server-${TAG}.tar.gz.sha256"
