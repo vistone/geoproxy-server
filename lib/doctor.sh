@@ -1,6 +1,15 @@
 #!/bin/bash
 # 健康检查（含双栈）
 
+# 目录所在分区使用率（0-100 整数）；取不到返回 1
+gps_disk_usage_pct() {
+	local dir=${1:-$GPS_LOG_DIR}
+	local p
+	p=$(df -P "$dir" 2>/dev/null | awk 'NR==2{gsub("%","",$5); print $5}') || return 1
+	[[ $p =~ ^[0-9]+$ ]] || return 1
+	echo "$p"
+}
+
 gps_doctor() {
 	local ok=0 fail=0
 	check() {
@@ -21,6 +30,22 @@ gps_doctor() {
 	msg "$(_cyan "== GeoProxy Server doctor ==")"
 	detect_local_stack
 	msg "  本机栈: STACK_MODE=${STACK_MODE} HAS_V4=${HAS_V4} HAS_V6=${HAS_V6}"
+
+	# 日志目录所在分区：写满会导致 sing-box / state 全部写失败
+	local dpct
+	if dpct=$(gps_disk_usage_pct "$GPS_LOG_DIR"); then
+		if ((dpct >= 95)); then
+			msg "  $(_red FAIL) 磁盘使用 ${dpct}%（日志分区 ${GPS_LOG_DIR}）— 清理或扩容"
+			fail=$((fail + 1))
+		elif ((dpct >= 90)); then
+			warn_item "磁盘使用 ${dpct}%（日志分区）— 建议清理，写满会导致服务不可用"
+		else
+			msg "  $(_green OK)  磁盘使用 ${dpct}%"
+			ok=$((ok + 1))
+		fi
+	else
+		warn_item "无法读取磁盘使用率（df）"
+	fi
 
 	check "systemd 可用" need_systemd_ok
 	check "sing-box 二进制可执行" test -x "$GPS_CORE_BIN"

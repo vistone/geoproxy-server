@@ -5,6 +5,7 @@ gps_install_unit() {
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 ]]; then
 		msg "$(_cyan "跳过 systemd")（--no-systemd / 测试前缀模式）"
 		mkdir -p "$(dirname "$GPS_PID_FILE")"
+		gps_install_logrotate
 		return 0
 	fi
 	need_systemd
@@ -16,12 +17,29 @@ gps_install_unit() {
 		-e "s|__LOG__|${GPS_LOG}|g" \
 		"$tpl" >"$GPS_UNIT_PATH"
 	gps_install_traffic_timer
+	gps_install_logrotate
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		systemctl daemon-reload
 		systemctl enable "$GPS_SERVICE" >/dev/null
 	else
 		msg "$(_yellow "测试前缀下已写入 unit 文件，未 enable 系统 systemd")"
 	fi
+}
+
+# 日志轮转：sing-box 以 append fd 持有日志，必须 copytruncate
+gps_install_logrotate() {
+	if [[ -z ${GPS_TEST_PREFIX:-} ]] && ! have_cmd logrotate; then
+		warn "未安装 logrotate，跳过日志轮转（建议: apt install logrotate）"
+		return 0
+	fi
+	local tpl="${GPS_TMPL}/logrotate.conf"
+	[[ -f $tpl ]] || err "缺少 logrotate 模板: $tpl"
+	mkdir -p "$(dirname "$GPS_LOGROTATE_PATH")"
+	sed -e "s|__LOG__|${GPS_LOG}|g" \
+		-e "s|__TRAFFIC_LOG__|${GPS_TRAFFIC_LOG}|g" \
+		"$tpl" >"$GPS_LOGROTATE_PATH"
+	chmod 644 "$GPS_LOGROTATE_PATH"
+	msg "$(_cyan "日志轮转") 已配置: $GPS_LOGROTATE_PATH（weekly / maxsize）"
 }
 
 gps_install_traffic_timer() {

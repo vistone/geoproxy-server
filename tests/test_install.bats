@@ -30,3 +30,12 @@ setup() {
 	[ "$status" -eq 0 ]
 	[[ "$output" == *1* ]]
 }
+
+@test "logrotate config is rendered for both logs with copytruncate" {
+	gps_install_logrotate
+	[ -f "$GPS_LOGROTATE_PATH" ]
+	grep -q "^${GPS_LOG} {" "$GPS_LOGROTATE_PATH"
+	grep -q "^${GPS_TRAFFIC_LOG} {" "$GPS_LOGROTATE_PATH"
+	grep -q 'copytruncate' "$GPS_LOGROTATE_PATH"
+	grep -q 'compress' "$GPS_LOGROTATE_PATH"
+}

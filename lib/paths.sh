@@ -32,6 +32,7 @@ gps_apply_paths() {
 		GPS_TRAFFIC_TIMER_PATH="${base}/etc/systemd/system/${GPS_TRAFFIC_TIMER}"
 		GPS_PID_FILE="${base}/var/run/${GPS_NAME}.pid"
 		GPS_KIWI_PERSIST="${base}/etc/geoproxy-kiwivm.env"
+		GPS_LOGROTATE_PATH="${base}/etc/logrotate.d/${GPS_NAME}"
 	else
 		GPS_PREFIX="/usr/local"
 		GPS_ETC="/etc/${GPS_NAME}"
@@ -41,6 +42,7 @@ gps_apply_paths() {
 		GPS_TRAFFIC_TIMER_PATH="/etc/systemd/system/${GPS_TRAFFIC_TIMER}"
 		GPS_PID_FILE="/var/run/${GPS_NAME}.pid"
 		GPS_KIWI_PERSIST="/etc/geoproxy-kiwivm.env"
+		GPS_LOGROTATE_PATH="/etc/logrotate.d/${GPS_NAME}"
 	fi
 	GPS_BIN_LINK="${GPS_PREFIX}/bin/${GPS_NAME}"
 	GPS_LIB_DIR="${GPS_PREFIX}/lib/${GPS_NAME}"

@@ -378,7 +378,22 @@ gps_cmd_upgrade_core() {
 		return 0
 	fi
 	gps_svc_halt
-	gps_download_core "$ver" "$force"
+	# 子 shell 捕获下载链路的 err（exit 1）：失败时旧核心未动，先拉回服务
+	if (gps_download_core "$ver" "$force"); then :; else
+		gps_svc_boot || true
+		err "sing-box 下载/校验失败，已用旧核心恢复服务；稍后重试或 upgrade core --ver <tag>"
+	fi
+	# 新核心先过配置检查，不吃当前配置则回滚到旧核心
+	if (gps_check_config); then :; else
+		if gps_rollback_core; then
+			msg "$(_yellow "新核心校验失败，已回滚旧核心")"
+			(gps_check_config) || err "旧核心亦无法通过配置检查，请排查: $GPS_CONFIG"
+		else
+			err "新核心校验失败且无旧核心可回滚（首次安装后首次升级），请排查: $GPS_CONFIG"
+		fi
+		gps_svc_boot
+		err "已回滚并恢复服务；可稍后重试或指定 --ver"
+	fi
 	save_state
 	gps_svc_boot
 	GPS_UPGRADE_DID_WORK=1

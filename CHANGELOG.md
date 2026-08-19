@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.17 - 2026-08-19
+
+运维韧性：升级失败自动恢复 + 日志轮转。
+
+- 升级回滚：`upgrade core` 安装新核心前保留 `sing-box.prev`；新核心通过 `sing-box check` 失败时自动回滚旧核心并恢复服务。下载/校验失败（网络、digest 拿不到）时服务不再停留在停机状态，先拉回旧核心再报错。
+- 脚本升级恢复：`upgrade self` 拉取脚本失败时先用旧脚本恢复服务再报错，不再停服。
+- 日志轮转：安装/升级时部署 `/etc/logrotate.d/geoproxy-server`（weekly + maxsize 10M/5M，copytruncate——sing-box 以 append fd 持有日志），解决 debug 级别下日志无限增长写满小盘 VPS 的问题。
+- doctor：新增日志分区磁盘使用率检查（≥90% 告警，≥95% 判 FAIL）。
+- CI：去掉 apt 依赖（runner 的 apt 源偶发挂起会吊死 job），shellcheck/shfmt/bats 全部改为下载固定版本二进制；job 增加 `timeout-minutes: 10`。
+
 ## v0.2.16 - 2026-08-19
 
 Hardening（低优先级）：测试卫生与项目可维护性。

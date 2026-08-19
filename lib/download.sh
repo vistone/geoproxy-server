@@ -63,6 +63,22 @@ gps_verify_core_archive() {
 	msg "$(_green "sha256 校验通过") $asset"
 }
 
+# 装入新核心；旧二进制保留为 .prev 供失败回滚
+gps_install_core_from() {
+	local bin=$1
+	mkdir -p "$GPS_LIB_DIR"
+	if [[ -x $GPS_CORE_BIN ]]; then
+		mv -f "$GPS_CORE_BIN" "${GPS_CORE_BIN}.prev"
+	fi
+	install -m 755 "$bin" "$GPS_CORE_BIN"
+}
+
+# 回滚到上一版核心；无 .prev（首次安装）返回 1
+gps_rollback_core() {
+	[[ -x ${GPS_CORE_BIN}.prev ]] || return 1
+	mv -f "${GPS_CORE_BIN}.prev" "$GPS_CORE_BIN"
+}
+
 gps_download_core() {
 	local ver=$1
 	local force=${2:-0}
@@ -107,8 +123,7 @@ gps_download_core() {
 		rm -rf "$tmp"
 		err "归档中未找到 sing-box 二进制"
 	}
-	mkdir -p "$GPS_LIB_DIR"
-	install -m 755 "$bin" "$GPS_CORE_BIN"
+	gps_install_core_from "$bin"
 	rm -rf "$tmp"
 	CORE_VER="$ver"
 	msg "$(_green "已安装") $GPS_CORE_BIN ($tag)"
@@ -186,10 +201,12 @@ EOF
 				"$tpl" >"$GPS_UNIT_PATH"
 		fi
 		gps_install_traffic_timer 2>/dev/null || true
+		gps_install_logrotate
 		systemctl daemon-reload 2>/dev/null || true
 	elif [[ -n ${GPS_TEST_PREFIX:-} || ${GPS_NO_SYSTEMD:-0} == 1 ]]; then
 		# 测试前缀也写 timer 文件（不 enable）
 		gps_install_traffic_timer 2>/dev/null || true
+		gps_install_logrotate
 	fi
 	SCRIPT_VER=$(cat "${GPS_ROOT}/VERSION" 2>/dev/null || echo "$GPS_SH_VER")
 	SCRIPT_VER=${SCRIPT_VER//$'\n'/}
@@ -231,7 +248,13 @@ gps_cmd_upgrade_self() {
 	local tmp root
 	tmp=$(mktemp -d /tmp/gps-self-upgrade.XXXXXX)
 	trap 'rm -rf "'"$tmp"'"' RETURN
-	root=$(gps_self_fetch_tree "$ver" "$tmp")
+	# $() 子 shell 捕获 fetch 的 err：失败时旧脚本未动，先拉回服务
+	if root=$(gps_self_fetch_tree "$ver" "$tmp"); then :; else
+		rm -rf "$tmp"
+		trap - RETURN
+		gps_svc_boot || true
+		err "脚本拉取失败，已用旧脚本恢复服务；稍后重试或 upgrade self --ver <tag>"
+	fi
 	gps_self_install_tree "$root"
 	save_state
 	rm -rf "$tmp"
