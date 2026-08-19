@@ -3,3 +3,4 @@
 state.env
 .DS_Store
 .worktrees/
+tests/tmp/

@@ -3,9 +3,9 @@ set -euo pipefail
 # Test setup for geoproxy-server bats tests
 # Determine repo root (works inside bats where BATS_TEST_DIRNAME is set)
 if [[ -n "${BATS_TEST_DIRNAME:-}" ]]; then
-  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+	REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 else
-  REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+	REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fi
 export REPO_ROOT
 export GPS_TEST_PREFIX="${GPS_TEST_PREFIX:-$REPO_ROOT/tests/tmp}"
@@ -59,10 +59,15 @@ export PASSWORD=${PASSWORD:-test-pass}
 
 # NTFS (Git Bash / Windows) does not honor chmod 600; only assert mode on POSIX
 check_perm_600() {
-  if [[ -n ${MSYSTEM:-} ]]; then
-    return 0
-  fi
-  local p
-  p=$(stat -c %a "$1")
-  [ "$p" -eq 600 ]
+	if [[ -n ${MSYSTEM:-} ]]; then
+		return 0
+	fi
+	local p
+	p=$(stat -c %a "$1")
+	[ "$p" -eq 600 ]
+}
+
+# bats 每个测试结束后清理：只删测试前缀，绝不越界
+teardown() {
+	rm -rf "$GPS_TEST_PREFIX"
 }

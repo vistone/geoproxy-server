@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.16 - 2026-08-19
+
+Hardening（低优先级）：测试卫生与项目可维护性。
+
+- 测试卫生：bats teardown 只清理 `GPS_TEST_PREFIX`；新增 hygiene 测试断言 bats 运行后 `tests/tmp` 无 tracked/脏文件、README 仓库相对链接全部可解析。
+- `.gitignore` 增加 `tests/tmp/`，并移除误提交的假 sing-box 二进制（`tests/tmp/usr/local/lib/geoproxy-server/sing-box`）；假核心只在 `tests/_setup.bash` 生成。
+- README 设计文档链接改为仓库内实际路径（原 monorepo 相对路径已失效）。
+- CI 修复：`mvdan/shfmt` action 已不存在导致 CI 常年红——改为直接下载 shfmt 发布二进制；shellcheck 补齐 SC2034 抑制后 CI 恢复绿。
+- CHANGELOG 依据 git 历史重建 v0.2.3–v0.2.13 条目。
+
 ## v0.2.15 - 2026-08-19
 
 Hardening（中优先级）：状态原子性与互斥、运维参数严格校验。
@@ -24,6 +34,50 @@ Hardening（高优先级）：输入校验、JSON/state 注入防护、下载完
 - TUIC URL：UUID 与密码经百分号编码后再生成分享链接。
 - 下载完整性：sing-box 归档解压前用 GitHub Release API 的 sha256 digest 做校验（清单条目缺失/重复/不匹配一律拒绝）；上游未发布 checksum 文件，digest 由 GitHub 计算。
 - 静态检查：补齐 shellcheck SC2034 抑制（跨 source 变量）、shfmt 全仓格式化。
+
+## v0.2.13 - 2026-08-18
+
+- fix(qr): IPv4 与 IPv6 各生成一张二维码。
+
+## v0.2.12 - 2026-08-18
+
+- fix(install): 安装成功后立即拉取一次流量百分比，避免 `last=?%`。
+
+## v0.2.11 - 2026-08-18
+
+- feat(kiwivm): 凭证长期保存（`/etc/geoproxy-kiwivm.env`），卸载不丢失，重装自动恢复。
+
+## v0.2.10 - 2026-08-18
+
+- fix(upgrade): 升级先停干净旧进程再启动新版本，不再沿用旧进程 restart。
+
+## v0.2.9 - 2026-08-18
+
+- fix(uninstall): 卸载成功后强制 `exit 0`。
+
+## v0.2.8 - 2026-08-18
+
+- fix(menu): 卸载成功后退出菜单。
+
+## v0.2.7 - 2026-08-18
+
+- fix: README/install 不再写死版本号，始终解析最新 Release tag。
+
+## v0.2.6 - 2026-08-18
+
+- fix(url): TUIC 节点名写入 URL `#fragment`。
+
+## v0.2.5 - 2026-08-18
+
+- fix(install): 重装不再删除正在运行的脚本树。
+
+## v0.2.4 - 2026-08-18
+
+- fix(upgrade): self 升级不再把下载日志当成脚本路径。
+
+## v0.2.3 - 2026-08-18
+
+- feat(traffic): 月流量重置后自动恢复熔断服务。
 
 ## v0.2.2 - 2026-07-20
 

@@ -7,8 +7,9 @@
 
 设计说明：
 
-- [`docs/superpowers/specs/2026-07-20-geoproxy-server-vps-design.md`](../../docs/superpowers/specs/2026-07-20-geoproxy-server-vps-design.md)
-- 流量熔断：[`docs/superpowers/specs/2026-07-20-geoproxy-server-traffic-guard-design.md`](../../docs/superpowers/specs/2026-07-20-geoproxy-server-traffic-guard-design.md)
+- [`docs/design.md`](./docs/design.md)
+- 流量熔断：见 [`docs/design.md`](./docs/design.md) 中 KiwiVM 章节
+- 加固：[`docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md`](./docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md)
 
 ## 特点
 
