@@ -2,3 +2,4 @@
 *.pem
 state.env
 .DS_Store
+.worktrees/
