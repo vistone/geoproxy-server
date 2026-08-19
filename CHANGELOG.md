@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.15 - 2026-08-19
+
+Hardening（中优先级）：状态原子性与互斥、运维参数严格校验。
+
+- 状态互斥：新增 `gps_with_state_lock`（flock 优先，无 flock 环境 mkdir 自旋回退），CLI 与 traffic timer 的所有 state/timer 变更串行化；同进程重入直接执行，防自死锁。
+- 原子写：state.env 经同目录临时文件 + `mv -f` 原子替换，读端不再可能看到半写文件。
+- IPv4 严格校验：四段且每段 0-255（`999.0.0.1` 等被拒绝），install/change ip 全部收口。
+- IPv6 严格校验：python3 `ipaddress` 校验；用户显式输入在缺 python3 时给出可操作安装提示，自动探测值降级为告警。
+- 流量阈值配对校验：warn/stop 均需 1-100 且 warn < stop，任一变更前先校验配对，不再允许写入 95/80 这类倒挂配置。
+
 ## v0.2.14 - 2026-08-19
 
 Hardening（高优先级）：输入校验、JSON/state 注入防护、下载完整性校验。

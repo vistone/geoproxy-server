@@ -78,3 +78,12 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$output" =~ "已 resume" ]] || true
 }
+
+@test "traffic threshold pair requires warn below stop" {
+  gps_validate_traffic_thresholds 80 95
+  ! gps_validate_traffic_thresholds 95 80
+  ! gps_validate_traffic_thresholds 80 80
+  gps_validate_traffic_thresholds 1 100
+  ! gps_validate_traffic_thresholds 0 100
+  ! gps_validate_traffic_thresholds 1 101
+}

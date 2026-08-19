@@ -146,6 +146,82 @@ gps_validate_single_line() {
 	[[ ${1:-} != *$'\n'* && ${1:-} != *$'\r'* ]]
 }
 
+# 严格 IPv4：四段且每段 0-255
+gps_validate_ipv4() {
+	local ip=${1:-} o
+	[[ $ip =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+	for o in "${BASH_REMATCH[@]:1}"; do
+		((10#$o >= 0 && 10#$o <= 255)) || return 1
+	done
+	return 0
+}
+
+# 严格 IPv6：python3 ipaddress。返回 2 表示缺 python3 无法校验（调用方给可操作提示）
+gps_validate_ipv6() {
+	local ip=${1:-}
+	[[ -n $ip ]] || return 1
+	have_cmd python3 || return 2
+	python3 -c 'import ipaddress,sys
+try:
+    ipaddress.IPv6Address(sys.argv[1])
+except Exception:
+    sys.exit(1)' "$ip"
+}
+
+# 流量阈值必须都在 1-100 且告警 < 停服
+gps_validate_traffic_thresholds() {
+	local warn=${1:-} stop=${2:-}
+	[[ $warn =~ ^[0-9]+$ && $stop =~ ^[0-9]+$ ]] || return 1
+	((10#$warn >= 1 && 10#$warn <= 100 && 10#$stop >= 1 && 10#$stop <= 100)) || return 1
+	((10#$warn < 10#$stop))
+}
+
+# ---------- 状态互斥锁：flock 优先，无 flock 时 mkdir 自旋回退 ----------
+
+# 同进程持锁：获取后返回，锁保持到 gps_state_lock_release 或进程退出
+gps_state_lock_acquire() {
+	mkdir -p "$GPS_ETC"
+	if have_cmd flock; then
+		exec 9>>"${GPS_ETC}/state.lock"
+		flock -x 9
+		return 0
+	fi
+	local d="${GPS_ETC}/state.lock.dir" i
+	for i in $(seq 1 300); do
+		mkdir "$d" 2>/dev/null && return 0
+		sleep 0.1
+	done
+	err "获取状态锁超时: $d（若确认无其他实例可删除后重试）"
+}
+
+gps_state_lock_release() {
+	if have_cmd flock; then
+		exec 9>&- 2>/dev/null || true
+	else
+		rmdir "${GPS_ETC}/state.lock.dir" 2>/dev/null || true
+	fi
+}
+
+# 串行化状态/timer 变更。在当前 shell 持锁执行（保留变量写回）；
+# 已持锁（同进程）则直接执行，防自死锁。
+gps_with_state_lock() {
+	if [[ ${GPS_STATE_LOCK_HELD:-0} == 1 ]]; then
+		"$@"
+		return $?
+	fi
+	mkdir -p "$GPS_ETC"
+	if have_cmd flock; then
+		exec 9>>"${GPS_ETC}/state.lock"
+		flock -x 9
+	else
+		gps_state_lock_acquire
+	fi
+	local rc=0
+	GPS_STATE_LOCK_HELD=1 "$@" || rc=$?
+	gps_state_lock_release
+	return "$rc"
+}
+
 # JSON 字符串转义：反斜杠/引号/控制字符（\b \f \n \r \t）
 gps_json_escape() {
 	local s=$1 out='' i c
@@ -305,7 +381,8 @@ gps_kiwi_save_persist() {
 	} | gps_atomic_write_env "$f"
 }
 
-save_state() {
+# 私有：无锁写入。调用方须经 save_state（持锁）或确认单线程。
+gps_save_state_unlocked() {
 	umask 077
 	mkdir -p "$GPS_ETC"
 	# 流量相关默认值
@@ -339,6 +416,11 @@ save_state() {
 		gps_env_assign TUIC_NAME "${TUIC_NAME:-}"
 	} | gps_atomic_write_env "$GPS_STATE"
 	gps_kiwi_save_persist
+}
+
+# 公共：持项目锁写状态（timer 与 CLI 的所有变更入口）
+save_state() {
+	gps_with_state_lock gps_save_state_unlocked
 }
 
 rand_port() {

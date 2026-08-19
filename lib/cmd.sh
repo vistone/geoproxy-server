@@ -71,6 +71,23 @@ Usage: $GPS_NAME install [options]
 EOF
 }
 
+# IPv6 校验边界：manual=用户输入（缺 python3 直接报错）；auto=探测值（缺 python3 降级告警）
+gps_check_ipv6() {
+	local ip=$1 src=${2:-manual} rc=0
+	gps_validate_ipv6 "$ip" || rc=$?
+	if ((rc == 0)); then
+		return 0
+	fi
+	if ((rc == 2)); then
+		if [[ $src == manual ]]; then
+			err "校验 IPv6 需要 python3: apt install python3（或 yum/dnf install python3）"
+		fi
+		warn "缺 python3，跳过 IPv6 严格校验: $ip"
+		return 0
+	fi
+	err "不是合法 IPv6: $ip"
+}
+
 gps_cmd_install() {
 	gps_parse_install_args "$@"
 	if [[ -n $INSTALL_PREFIX ]]; then
@@ -134,8 +151,17 @@ gps_cmd_install() {
 	gps_validate_uuid "$UUID" || err "无效 UUID: $UUID（示例: $(gen_uuid)）"
 	gps_validate_single_line "$PASSWORD" || err "密码不能包含换行/回车/NUL"
 	gps_validate_single_line "${TUIC_NAME:-}" || err "节点名不能包含换行/回车/NUL"
-	[[ -z ${PUBLIC_IP:-} ]] || is_ipv4 "$PUBLIC_IP" || err "无效 IPv4: $PUBLIC_IP"
-	[[ -z ${PUBLIC_IP6:-} ]] || is_ipv6 "$PUBLIC_IP6" || err "无效 IPv6: $PUBLIC_IP6"
+	if [[ -n ${PUBLIC_IP:-} ]]; then
+		gps_validate_ipv4 "$PUBLIC_IP" || err "无效 IPv4: $PUBLIC_IP（四段 0-255）"
+	fi
+	if [[ -n ${PUBLIC_IP6:-} ]]; then
+		# 用户显式 --ip6 必须可校验；探测值缺 python3 时降级告警
+		if [[ -n $cli_ip6 ]]; then
+			gps_check_ipv6 "$PUBLIC_IP6" manual
+		else
+			gps_check_ipv6 "$PUBLIC_IP6" auto
+		fi
+	fi
 
 	gps_write_config
 	save_state
@@ -392,7 +418,7 @@ gps_cmd_change() {
 			ip=$(detect_public_ipv4) || err "IPv4 探测失败，请: change ip <x.x.x.x>"
 		fi
 		gps_validate_single_line "$ip" || err "无效 IPv4: $ip"
-		is_ipv4 "$ip" || err "不是合法 IPv4: $ip"
+		gps_validate_ipv4 "$ip" || err "不是合法 IPv4: $ip（四段 0-255）"
 		PUBLIC_IP=$ip
 		;;
 	ip6 | ipv6)
@@ -401,7 +427,7 @@ gps_cmd_change() {
 			ip6=$(detect_public_ipv6) || err "IPv6 探测失败，请: change ip6 <addr>"
 		fi
 		gps_validate_single_line "$ip6" || err "无效 IPv6: $ip6"
-		is_ipv6 "$ip6" || err "不是合法 IPv6: $ip6"
+		gps_check_ipv6 "$ip6" manual
 		PUBLIC_IP6=$ip6
 		;;
 	ips)
@@ -448,7 +474,8 @@ gps_cmd_change() {
 		;;
 	traffic-warn | warn-pct)
 		local p=${1:-}
-		[[ $p =~ ^[0-9]+$ && $p -ge 1 && $p -le 100 ]] || err "告警阈值需为 1-100"
+		gps_validate_traffic_thresholds "$p" "${TRAFFIC_STOP_PCT:-95}" ||
+			err "告警阈值需为 1-100 且小于停服阈值 ${TRAFFIC_STOP_PCT:-95}%"
 		TRAFFIC_WARN_PCT=$p
 		save_state
 		msg "$(_green "告警阈值") → ${TRAFFIC_WARN_PCT}%"
@@ -456,7 +483,8 @@ gps_cmd_change() {
 		;;
 	traffic-stop | stop-pct)
 		local p=${1:-}
-		[[ $p =~ ^[0-9]+$ && $p -ge 1 && $p -le 100 ]] || err "停服阈值需为 1-100"
+		gps_validate_traffic_thresholds "${TRAFFIC_WARN_PCT:-80}" "$p" ||
+			err "停服阈值需为 1-100 且大于告警阈值 ${TRAFFIC_WARN_PCT:-80}%"
 		TRAFFIC_STOP_PCT=$p
 		save_state
 		msg "$(_green "停服阈值") → ${TRAFFIC_STOP_PCT}%"

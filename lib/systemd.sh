@@ -25,6 +25,10 @@ gps_install_unit() {
 }
 
 gps_install_traffic_timer() {
+	gps_with_state_lock _gps_install_traffic_timer_locked
+}
+
+_gps_install_traffic_timer_locked() {
 	local sec=${TRAFFIC_CHECK_SEC:-300}
 	[[ $sec =~ ^[0-9]+$ ]] || sec=300
 	((sec < 60)) && sec=60
@@ -50,6 +54,10 @@ gps_install_traffic_timer() {
 }
 
 gps_remove_traffic_timer() {
+	gps_with_state_lock _gps_remove_traffic_timer_locked
+}
+
+_gps_remove_traffic_timer_locked() {
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
 		rm -f "$GPS_TRAFFIC_UNIT_PATH" "$GPS_TRAFFIC_TIMER_PATH"
 		return 0
