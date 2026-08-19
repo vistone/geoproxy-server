@@ -28,6 +28,41 @@ gps_resolve_core_ver() {
 	echo "${ver#v}"
 }
 
+# 从 GitHub Release API 取资产 sha256 摘要（上游不发布 checksum 文件，digest 由 GitHub 计算）
+gps_core_asset_digest() {
+	local tag=$1 asset=$2
+	have_cmd python3 || err "需要 python3 解析 GitHub API（用于校验 sing-box 下载完整性）"
+	local digest
+	digest=$(curl -fsSL --max-time 20 "https://api.github.com/repos/SagerNet/sing-box/releases/tags/${tag}" |
+		python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+for a in d.get("assets") or []:
+    if a.get("name") == sys.argv[1]:
+        g = a.get("digest") or ""
+        print(g.split(":", 1)[1] if g.startswith("sha256:") else g)
+        sys.exit(0)
+sys.exit(1)' "$asset") || return 1
+	[[ -n $digest ]] || return 1
+	printf '%s' "$digest"
+}
+
+# 校验归档：清单中该资产必须恰好一行且 sha256 一致（缺失/重复/不匹配都拒绝）
+gps_verify_core_archive() {
+	local archive=$1 manifest=$2 asset=$3
+	[[ -f $archive ]] || err "归档不存在: $archive"
+	[[ -f $manifest ]] || err "校验清单不存在: $manifest"
+	local count expected actual
+	count=$(awk -v a="$asset" '$2==a{n++} END{print n+0}' "$manifest")
+	[[ $count -eq 1 ]] || err "校验清单异常: ${asset} 条目数=${count}（应为 1），拒绝解压"
+	expected=$(awk -v a="$asset" '$2==a{print $1; exit}' "$manifest")
+	actual=$(sha256sum "$archive" | awk '{print $1}')
+	[[ ${expected,,} == "${actual,,}" ]] || err "sha256 校验失败: $asset（清单=${expected} 实际=${actual}），拒绝解压"
+	msg "$(_green "sha256 校验通过") $asset"
+}
+
 gps_download_core() {
 	local ver=$1
 	local force=${2:-0}
@@ -54,6 +89,14 @@ gps_download_core() {
 		rm -rf "$tmp"
 		err "下载失败: $url"
 	fi
+	# 解压前先做完整性校验：GitHub API digest → 本地 sha256 对比
+	local asset="${name}.tar.gz" digest
+	if ! digest=$(gps_core_asset_digest "$tag" "$asset"); then
+		rm -rf "$tmp"
+		err "无法获取 ${asset} 的 sha256 摘要（GitHub API），已中止；请稍后重试或检查网络"
+	fi
+	printf '%s  %s\n' "$digest" "$asset" >"${tmp}/sha256sums.txt"
+	gps_verify_core_archive "${tmp}/sb.tar.gz" "${tmp}/sha256sums.txt" "$asset"
 	tar -xzf "${tmp}/sb.tar.gz" -C "$tmp" || {
 		rm -rf "$tmp"
 		err "解压失败"
@@ -194,6 +237,7 @@ gps_cmd_upgrade_self() {
 	rm -rf "$tmp"
 	trap - RETURN
 	gps_svc_boot
+	# shellcheck disable=SC2034  # 供 gps_reexec_if_menu 读取
 	GPS_UPGRADE_DID_WORK=1
 	msg "$(_green "脚本已升级") $cur → $GPS_SH_VER"
 	msg "配置/证书/凭证未改动；已停止旧进程并用新脚本重新拉起服务"

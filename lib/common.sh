@@ -122,10 +122,85 @@ gps_urlencode() {
 		c=${s:i:1}
 		case $c in
 		[a-zA-Z0-9._~-]) out+=$c ;;
-		*) printf -v c '%%%02X' "'$c"; out+=$c ;;
+		*)
+			printf -v c '%%%02X' "'$c"
+			out+=$c
+			;;
 		esac
 	done
 	printf '%s' "$out"
+}
+
+# ---------- 输入校验 / JSON 转义 / 状态文件安全 ----------
+
+gps_validate_port() {
+	[[ ${1:-} =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535))
+}
+
+gps_validate_uuid() {
+	[[ ${1:-} =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[1-5][0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$ ]]
+}
+
+gps_validate_single_line() {
+	# bash 变量无法容纳 NUL，只需挡住换行/回车
+	[[ ${1:-} != *$'\n'* && ${1:-} != *$'\r'* ]]
+}
+
+# JSON 字符串转义：反斜杠/引号/控制字符（\b \f \n \r \t）
+gps_json_escape() {
+	local s=$1 out='' i c
+	local LC_ALL=C
+	for ((i = 0; i < ${#s}; i++)); do
+		c=${s:i:1}
+		# shellcheck disable=SC1003  # case 模式里的 \\ 是反斜杠字符本身
+		case $c in
+		\\) out+='\\\\' ;;
+		\") out+='\\\"' ;;
+		$'\b') out+='\b' ;;
+		$'\f') out+='\f' ;;
+		$'\n') out+='\n' ;;
+		$'\r') out+='\r' ;;
+		$'\t') out+='\t' ;;
+		*) out+=$c ;;
+		esac
+	done
+	printf '%s' "$out"
+}
+
+# %q 序列化一行 KEY=VALUE，source 时按字面值还原（防注入）
+gps_env_assign() {
+	printf '%s=%q\n' "$1" "${2:-}"
+}
+
+# 同目录临时文件 + mv 原子写入（读端不会看到半写的文件）
+gps_atomic_write_env() {
+	local dest=$1 tmp
+	mkdir -p "$(dirname "$dest")"
+	tmp=$(mktemp "${dest}.tmp.XXXXXX") || err "无法创建临时文件: ${dest}.tmp.*"
+	cat >"$tmp"
+	chmod 600 "$tmp"
+	mv -f "$tmp" "$dest"
+}
+
+# source 前的安全检查：拒绝符号链接；生产模式要求属主=当前用户且无组/其他写
+gps_source_env() {
+	local f=$1
+	[[ -f $f ]] || return 1
+	[[ ! -L $f ]] || err "拒绝加载符号链接状态文件: $f"
+	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
+		local mode owner
+		mode=$(stat -c '%a' "$f" 2>/dev/null || echo 0)
+		if [[ $mode =~ ^[0-7]+$ ]] && (((8#$mode & 8#022) != 0)); then
+			err "状态文件权限过宽 (${mode}): $f（应为 600）"
+		fi
+		owner=$(stat -c '%u' "$f" 2>/dev/null || echo -1)
+		[[ $owner == "$EUID" ]] || err "状态文件属主不是当前用户: $f"
+	fi
+	set -a
+	# shellcheck disable=SC1090
+	source "$f"
+	set +a
+	return 0
 }
 
 # 本机协议栈：HAS_V4 / HAS_V6 / STACK_MODE=dual|v4only|v6only
@@ -199,11 +274,7 @@ detect_public_ips() {
 
 load_state() {
 	[[ -f $GPS_STATE ]] || return 1
-	# shellcheck disable=SC1090
-	set -a
-	# shellcheck source=/dev/null
-	source "$GPS_STATE"
-	set +a
+	gps_source_env "$GPS_STATE"
 	PUBLIC_IP=${PUBLIC_IP:-}
 	PUBLIC_IP6=${PUBLIC_IP6:-}
 	# 恢复测试前缀路径
@@ -218,12 +289,8 @@ load_state() {
 # KiwiVM 凭证长期保存（卸载不删 /etc/geoproxy-kiwivm.env）
 gps_kiwi_load_persist() {
 	local f=${GPS_KIWI_PERSIST:-}
-	[[ -n $f && -f $f ]] || return 0
-	# shellcheck disable=SC1090
-	set -a
-	# shellcheck source=/dev/null
-	source "$f"
-	set +a
+	[[ -n $f ]] || return 0
+	gps_source_env "$f" || return 0
 }
 
 gps_kiwi_save_persist() {
@@ -231,13 +298,11 @@ gps_kiwi_save_persist() {
 	[[ -n $f ]] || return 0
 	[[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]] || return 0
 	umask 077
-	mkdir -p "$(dirname "$f")"
-	cat >"$f" <<EOF
-KIWI_VEID=${KIWI_VEID}
-KIWI_API_KEY=${KIWI_API_KEY}
-KIWI_API_BASE=${KIWI_API_BASE:-https://api.64clouds.com/v1}
-EOF
-	chmod 600 "$f"
+	{
+		gps_env_assign KIWI_VEID "$KIWI_VEID"
+		gps_env_assign KIWI_API_KEY "$KIWI_API_KEY"
+		gps_env_assign KIWI_API_BASE "${KIWI_API_BASE:-https://api.64clouds.com/v1}"
+	} | gps_atomic_write_env "$f"
 }
 
 save_state() {
@@ -249,31 +314,30 @@ save_state() {
 	TRAFFIC_STOP_PCT=${TRAFFIC_STOP_PCT:-95}
 	TRAFFIC_CHECK_SEC=${TRAFFIC_CHECK_SEC:-300}
 	TRAFFIC_TRIPPED=${TRAFFIC_TRIPPED:-0}
-	cat >"$GPS_STATE" <<EOF
-PORT=${PORT}
-UUID=${UUID}
-PASSWORD=${PASSWORD}
-PUBLIC_IP=${PUBLIC_IP:-}
-PUBLIC_IP6=${PUBLIC_IP6:-}
-STACK_MODE=${STACK_MODE:-}
-LOG_LEVEL=${LOG_LEVEL:-debug}
-CORE_VER=${CORE_VER:-}
-KIWI_VEID=${KIWI_VEID:-}
-KIWI_API_KEY=${KIWI_API_KEY:-}
-KIWI_API_BASE=${KIWI_API_BASE}
-TRAFFIC_WARN_PCT=${TRAFFIC_WARN_PCT}
-TRAFFIC_STOP_PCT=${TRAFFIC_STOP_PCT}
-TRAFFIC_CHECK_SEC=${TRAFFIC_CHECK_SEC}
-TRAFFIC_TRIPPED=${TRAFFIC_TRIPPED}
-TRAFFIC_LAST_PCT=${TRAFFIC_LAST_PCT:-}
-TRAFFIC_LAST_CHECK=${TRAFFIC_LAST_CHECK:-}
-TRAFFIC_LAST_ERROR=${TRAFFIC_LAST_ERROR:-}
-GPS_TEST_PREFIX=${GPS_TEST_PREFIX:-}
-GPS_NO_SYSTEMD=${GPS_NO_SYSTEMD:-0}
-INSTALLED_AT=${INSTALLED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
-TUIC_NAME=${TUIC_NAME:-}
-EOF
-	chmod 600 "$GPS_STATE"
+	{
+		gps_env_assign PORT "${PORT:-}"
+		gps_env_assign UUID "${UUID:-}"
+		gps_env_assign PASSWORD "${PASSWORD:-}"
+		gps_env_assign PUBLIC_IP "${PUBLIC_IP:-}"
+		gps_env_assign PUBLIC_IP6 "${PUBLIC_IP6:-}"
+		gps_env_assign STACK_MODE "${STACK_MODE:-}"
+		gps_env_assign LOG_LEVEL "${LOG_LEVEL:-debug}"
+		gps_env_assign CORE_VER "${CORE_VER:-}"
+		gps_env_assign KIWI_VEID "${KIWI_VEID:-}"
+		gps_env_assign KIWI_API_KEY "${KIWI_API_KEY:-}"
+		gps_env_assign KIWI_API_BASE "${KIWI_API_BASE}"
+		gps_env_assign TRAFFIC_WARN_PCT "${TRAFFIC_WARN_PCT}"
+		gps_env_assign TRAFFIC_STOP_PCT "${TRAFFIC_STOP_PCT}"
+		gps_env_assign TRAFFIC_CHECK_SEC "${TRAFFIC_CHECK_SEC}"
+		gps_env_assign TRAFFIC_TRIPPED "${TRAFFIC_TRIPPED}"
+		gps_env_assign TRAFFIC_LAST_PCT "${TRAFFIC_LAST_PCT:-}"
+		gps_env_assign TRAFFIC_LAST_CHECK "${TRAFFIC_LAST_CHECK:-}"
+		gps_env_assign TRAFFIC_LAST_ERROR "${TRAFFIC_LAST_ERROR:-}"
+		gps_env_assign GPS_TEST_PREFIX "${GPS_TEST_PREFIX:-}"
+		gps_env_assign GPS_NO_SYSTEMD "${GPS_NO_SYSTEMD:-0}"
+		gps_env_assign INSTALLED_AT "${INSTALLED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+		gps_env_assign TUIC_NAME "${TUIC_NAME:-}"
+	} | gps_atomic_write_env "$GPS_STATE"
 	gps_kiwi_save_persist
 }
 

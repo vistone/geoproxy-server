@@ -7,6 +7,7 @@ if [[ -n "${BATS_TEST_DIRNAME:-}" ]]; then
 else
   REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fi
+export REPO_ROOT
 export GPS_TEST_PREFIX="${GPS_TEST_PREFIX:-$REPO_ROOT/tests/tmp}"
 export GPS_NO_SYSTEMD=1
 # Ensure clean tmp
@@ -55,3 +56,13 @@ chmod 600 "$GPS_CERT" "$GPS_KEY"
 export PORT=${PORT:-12345}
 export UUID=${UUID:-test-uuid}
 export PASSWORD=${PASSWORD:-test-pass}
+
+# NTFS (Git Bash / Windows) does not honor chmod 600; only assert mode on POSIX
+check_perm_600() {
+  if [[ -n ${MSYSTEM:-} ]]; then
+    return 0
+  fi
+  local p
+  p=$(stat -c %a "$1")
+  [ "$p" -eq 600 ]
+}

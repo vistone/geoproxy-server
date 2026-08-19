@@ -75,8 +75,9 @@ gps_cmd_install() {
 	gps_parse_install_args "$@"
 	if [[ -n $INSTALL_PREFIX ]]; then
 		GPS_TEST_PREFIX=$INSTALL_PREFIX
+		# 前缀安装必须无条件走无 systemd 模式，不吃外部环境值
+		GPS_NO_SYSTEMD=1
 		gps_apply_paths
-		GPS_NO_SYSTEMD=${GPS_NO_SYSTEMD:-1}
 		export GPS_TEST_PREFIX GPS_NO_SYSTEMD
 		msg "$(_cyan "测试/前缀安装") prefix=$GPS_TEST_PREFIX no_systemd=$GPS_NO_SYSTEMD"
 	fi
@@ -124,8 +125,17 @@ gps_cmd_install() {
 	fi
 	[[ -z ${PUBLIC_IP:-} ]] && PUBLIC_IP=$(detect_public_ipv4) || true
 	[[ -z ${PUBLIC_IP6:-} ]] && PUBLIC_IP6=$(detect_public_ipv6) || true
+	# shellcheck disable=SC2034  # INSTALLED_AT 由 url.sh 的 gps_cmd_info 读取
 	INSTALLED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 	LOG_LEVEL=${LOG_LEVEL:-debug}
+
+	# 落盘前统一校验所有边界输入
+	gps_validate_port "$PORT" || err "无效端口: $PORT（需 1-65535）"
+	gps_validate_uuid "$UUID" || err "无效 UUID: $UUID（示例: $(gen_uuid)）"
+	gps_validate_single_line "$PASSWORD" || err "密码不能包含换行/回车/NUL"
+	gps_validate_single_line "${TUIC_NAME:-}" || err "节点名不能包含换行/回车/NUL"
+	[[ -z ${PUBLIC_IP:-} ]] || is_ipv4 "$PUBLIC_IP" || err "无效 IPv4: $PUBLIC_IP"
+	[[ -z ${PUBLIC_IP6:-} ]] || is_ipv6 "$PUBLIC_IP6" || err "无效 IPv6: $PUBLIC_IP6"
 
 	gps_write_config
 	save_state
@@ -184,6 +194,7 @@ gps_install_entrypoint() {
 		fi
 		mv "$staging" "$dest"
 		GPS_ROOT="$dest"
+		# shellcheck disable=SC2034  # GPS_TMPL 由其他模块读取
 		GPS_TMPL="${GPS_ROOT}/templates"
 	fi
 
@@ -359,18 +370,20 @@ gps_cmd_change() {
 	port)
 		local p=${1:-auto}
 		[[ $p == auto ]] && p=$(rand_port)
-		[[ $p =~ ^[0-9]+$ ]] || err "无效端口: $p"
+		gps_validate_port "$p" || err "无效端口: $p（需 1-65535）"
 		PORT=$p
 		;;
 	uuid)
 		local u=${1:-auto}
 		[[ $u == auto ]] && u=$(gen_uuid)
+		gps_validate_uuid "$u" || err "无效 UUID: $u（示例: $(gen_uuid)）"
 		UUID=$u
 		# 若密码仍等于旧习惯，保持 UUID=密码可由用户显式改 passwd
 		;;
 	passwd | password)
 		local pw=${1:-auto}
 		[[ $pw == auto ]] && pw=$(gen_uuid)
+		gps_validate_single_line "$pw" || err "密码不能包含换行/回车/NUL"
 		PASSWORD=$pw
 		;;
 	ip | ipv4)
@@ -378,6 +391,7 @@ gps_cmd_change() {
 		if [[ -z $ip || $ip == auto ]]; then
 			ip=$(detect_public_ipv4) || err "IPv4 探测失败，请: change ip <x.x.x.x>"
 		fi
+		gps_validate_single_line "$ip" || err "无效 IPv4: $ip"
 		is_ipv4 "$ip" || err "不是合法 IPv4: $ip"
 		PUBLIC_IP=$ip
 		;;
@@ -386,6 +400,7 @@ gps_cmd_change() {
 		if [[ -z $ip6 || $ip6 == auto ]]; then
 			ip6=$(detect_public_ipv6) || err "IPv6 探测失败，请: change ip6 <addr>"
 		fi
+		gps_validate_single_line "$ip6" || err "无效 IPv6: $ip6"
 		is_ipv6 "$ip6" || err "不是合法 IPv6: $ip6"
 		PUBLIC_IP6=$ip6
 		;;
@@ -399,6 +414,7 @@ gps_cmd_change() {
 	name | remark | alias)
 		local n=${1:-}
 		[[ -n $n ]] || err "用法: change name <节点名>（写入 TUIC URL 的 #fragment，如 tile1.spacexway.com）"
+		gps_validate_single_line "$n" || err "节点名不能包含换行/回车/NUL"
 		TUIC_NAME=$n
 		save_state
 		msg "$(_green "节点名") → $TUIC_NAME"
@@ -416,6 +432,8 @@ gps_cmd_change() {
 	kiwivm | kiwi)
 		local veid=${1:-} key=${2:-}
 		[[ -n $veid && -n $key ]] || err "用法: change kiwivm <veid> <api_key>"
+		gps_validate_single_line "$veid" || err "VEID 不能包含换行/回车/NUL"
+		gps_validate_single_line "$key" || err "API_KEY 不能包含换行/回车/NUL"
 		KIWI_VEID=$veid
 		KIWI_API_KEY=$key
 		KIWI_API_BASE=${KIWI_API_BASE:-https://api.64clouds.com/v1}
@@ -474,7 +492,10 @@ gps_cmd_log() {
 	local once_lines=80
 	while [[ $# -gt 0 ]]; do
 		case $1 in
-		-f | --follow) follow=1; shift ;;
+		-f | --follow)
+			follow=1
+			shift
+			;;
 		--once | -n)
 			follow=0
 			shift

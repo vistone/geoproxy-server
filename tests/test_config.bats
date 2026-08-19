@@ -23,8 +23,17 @@ setup() {
   run grep '"info"' "$GPS_CONFIG"
   [ "$status" -eq 0 ]
   # permissions
-  perms=$(stat -c %a "$GPS_CONFIG")
-  [ "$perms" -eq 600 ]
+  check_perm_600 "$GPS_CONFIG"
+}
+
+@test "config escapes quote and backslash in password" {
+  export PORT=12345
+  export UUID="00000000-0000-4000-8000-000000000000"
+  export PASSWORD='quoted"\\password'
+  run gps_write_config
+  [ "$status" -eq 0 ]
+  run python3 -m json.tool "$GPS_CONFIG"
+  [ "$status" -eq 0 ]
 }
 
 @test "gps_tuic_urls prints at least one URL (using PUBLIC_IP fallback)" {
@@ -36,7 +45,8 @@ setup() {
   export GPS_TEST_PREFIX="$GPS_TEST_PREFIX"
 
   # ensure state file exists
-  save_state
+  run save_state
+  [ "$status" -eq 0 ]
 
   run gps_tuic_urls
   [ "$status" -eq 0 ]

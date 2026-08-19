@@ -144,8 +144,7 @@ gps_svc_halt() {
 	fi
 	need_systemd
 	systemctl stop "$GPS_SERVICE" 2>/dev/null || true
-	local i
-	for i in $(seq 1 20); do
+	for _ in $(seq 1 20); do
 		systemctl is-active --quiet "$GPS_SERVICE" 2>/dev/null || break
 		sleep 0.15
 	done

@@ -18,6 +18,15 @@ setup() {
   [ "$status" -eq 0 ]
   run grep '^PUBLIC_IP=' "$GPS_STATE"
   [ "$status" -eq 0 ]
-  perms=$(stat -c %a "$GPS_STATE")
-  [ "$perms" -eq 600 ]
+  check_perm_600 "$GPS_STATE"
+}
+
+@test "state reload preserves shell metacharacters as data" {
+  PASSWORD='literal$(not-a-command); "quoted"'
+  run save_state
+  [ "$status" -eq 0 ]
+  PASSWORD=''
+  # load_state 必须直接调用：其赋值要留在当前 shell
+  load_state
+  [ "$PASSWORD" = 'literal$(not-a-command); "quoted"' ]
 }

@@ -4,6 +4,7 @@
 # 本地测试可设：
 #   GPS_TEST_PREFIX=/tmp/geoproxy-test  或  install --prefix DIR --no-systemd
 
+# shellcheck disable=SC2034  # 路径常量由 source 本文件的其他模块使用
 GPS_NAME="geoproxy-server"
 GPS_SERVICE="geoproxy-tuic"
 GPS_TRAFFIC_SERVICE="geoproxy-traffic"

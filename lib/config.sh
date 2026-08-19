@@ -1,9 +1,14 @@
 #!/bin/bash
 # 生成 / 校验 TUIC 配置（IPv4/IPv6 自适应监听）
 
-# 生成单个 inbound JSON 片段（不含尾逗号）
+# 生成单个 inbound JSON 片段（不含尾逗号）；用户可控值一律 JSON 转义
 _gps_inbound_json() {
 	local tag=$1 listen=$2
+	local uuid pw cert key
+	uuid=$(gps_json_escape "$UUID")
+	pw=$(gps_json_escape "$PASSWORD")
+	cert=$(gps_json_escape "$GPS_CERT")
+	key=$(gps_json_escape "$GPS_KEY")
 	cat <<EOF
     {
       "type": "tuic",
@@ -12,8 +17,8 @@ _gps_inbound_json() {
       "listen_port": ${PORT},
       "users": [
         {
-          "uuid": "${UUID}",
-          "password": "${PASSWORD}"
+          "uuid": "${uuid}",
+          "password": "${pw}"
         }
       ],
       "congestion_control": "bbr",
@@ -21,8 +26,8 @@ _gps_inbound_json() {
       "heartbeat": "10s",
       "tls": {
         "enabled": true,
-        "certificate_path": "${GPS_CERT}",
-        "key_path": "${GPS_KEY}",
+        "certificate_path": "${cert}",
+        "key_path": "${key}",
         "alpn": ["h3"]
       }
     }
@@ -71,12 +76,14 @@ $(_gps_inbound_json tuic-in-v6 ::)"
 	*) log_level=debug ;;
 	esac
 	LOG_LEVEL=$log_level
+	local log_out
+	log_out=$(gps_json_escape "$GPS_LOG")
 	cat >"$GPS_CONFIG" <<EOF
 {
   "log": {
     "level": "${log_level}",
     "timestamp": true,
-    "output": "${GPS_LOG}"
+    "output": "${log_out}"
   },
   "inbounds": [
 ${inbounds}
@@ -140,14 +147,16 @@ gps_check_config() {
 	"$GPS_CORE_BIN" check -c "$GPS_CONFIG" || err "sing-box check 失败"
 }
 
-# 打印一条 TUIC URL；节点名放在 #fragment，不是 query 的 name=
+# 打印一条 TUIC URL；节点名放在 #fragment，不是 query 的 name=；凭证百分号编码
 _gps_one_url() {
 	local host=$1
 	[[ -n $host ]] || return 1
-	local name
+	local name u pw
 	name=$(gps_urlencode "$(gps_tuic_node_name)")
+	u=$(gps_urlencode "$UUID")
+	pw=$(gps_urlencode "$PASSWORD")
 	printf 'tuic://%s:%s@%s:%s/?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr&udp_relay_mode=native#%s\n' \
-		"$UUID" "$PASSWORD" "$(host_for_url "$host")" "$PORT" "$name"
+		"$u" "$pw" "$(host_for_url "$host")" "$PORT" "$name"
 }
 
 # 输出所有可用 URL（v4 / v6），自适应；至少一行
