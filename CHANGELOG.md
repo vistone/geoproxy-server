@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.20 - 2026-08-20
+
+修复：logrotate 缺失时自动安装，不再跳过日志轮转。
+
+- 生产模式检测到未安装 logrotate 时，自动经 apt-get / yum / dnf 安装（新增 `ensure_logrotate`），安装后照常部署轮转配置。
+- logrotate 同时纳入 `ensure_deps` 通用依赖清单：全新安装时与 curl / openssl / tar 一起自动装齐。
+- 极端情况（无包管理器或安装失败）不再"跳过"，而是照写 `/etc/logrotate.d/geoproxy-server` 配置并给出告警——logrotate 装好后配置即自动生效。
+
 ## v0.2.19 - 2026-08-19
 
 修复：显式日志级别被启动逻辑静默覆盖。

@@ -39,3 +39,26 @@ setup() {
 	grep -q 'copytruncate' "$GPS_LOGROTATE_PATH"
 	grep -q 'compress' "$GPS_LOGROTATE_PATH"
 }
+
+@test "missing logrotate is auto-installed and config is still written" {
+	# 生产模式（无前缀）+ 无 logrotate：必须尝试自动安装，且配置照写
+	GPS_TEST_PREFIX=
+	have_cmd() { return 1; }
+	ensure_logrotate_called=0
+	ensure_logrotate() {
+		ensure_logrotate_called=1
+		return 0
+	}
+	gps_install_logrotate
+	[ "$ensure_logrotate_called" -eq 1 ]
+	[ -f "$GPS_LOGROTATE_PATH" ]
+	grep -q 'copytruncate' "$GPS_LOGROTATE_PATH"
+}
+
+@test "ensure_logrotate succeeds when present and fails softly without a package manager" {
+	have_cmd() { return 0; }
+	ensure_logrotate
+	have_cmd() { return 1; }
+	run ensure_logrotate
+	[ "$status" -ne 0 ]
+}

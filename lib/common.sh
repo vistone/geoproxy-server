@@ -53,6 +53,7 @@ ensure_deps() {
 	have_cmd openssl || missing+=(openssl)
 	have_cmd tar || missing+=(tar)
 	have_cmd ip || missing+=(iproute2)
+	have_cmd logrotate || missing+=(logrotate)
 	if ((${#missing[@]})); then
 		if have_cmd apt-get; then
 			# Debian 包名：iproute2 提供 ip
@@ -62,13 +63,29 @@ ensure_deps() {
 			done
 			apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
 		elif have_cmd yum; then
-			yum install -y -q curl openssl tar iproute
+			yum install -y -q curl openssl tar iproute logrotate
 		elif have_cmd dnf; then
-			dnf install -y -q curl openssl tar iproute
+			dnf install -y -q curl openssl tar iproute logrotate
 		else
 			err "缺少依赖: ${missing[*]}，请手动安装"
 		fi
 	fi
+}
+
+# 缺 logrotate 时自动安装（跟随发行版包管理器）；装不上返回 1 由调用方降级
+ensure_logrotate() {
+	have_cmd logrotate && return 0
+	msg "$(_cyan "安装") logrotate ..."
+	if have_cmd apt-get; then
+		apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq logrotate
+	elif have_cmd yum; then
+		yum install -y -q logrotate
+	elif have_cmd dnf; then
+		dnf install -y -q logrotate
+	else
+		return 1
+	fi
+	have_cmd logrotate
 }
 
 is_ipv4() {

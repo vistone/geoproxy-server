@@ -29,8 +29,10 @@ gps_install_unit() {
 # 日志轮转：sing-box 以 append fd 持有日志，必须 copytruncate
 gps_install_logrotate() {
 	if [[ -z ${GPS_TEST_PREFIX:-} ]] && ! have_cmd logrotate; then
-		warn "未安装 logrotate，跳过日志轮转（建议: apt install logrotate）"
-		return 0
+		# 生产模式缺 logrotate：自动安装；装不上也照写配置（装好后即生效）
+		if ! ensure_logrotate; then
+			warn "logrotate 自动安装失败（无可用包管理器或网络问题）；轮转配置仍会写入，手动安装后自动生效"
+		fi
 	fi
 	local tpl="${GPS_TMPL}/logrotate.conf"
 	[[ -f $tpl ]] || err "缺少 logrotate 模板: $tpl"
