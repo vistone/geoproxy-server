@@ -128,8 +128,9 @@ gps_set_log_level() {
 	msg "$(_green "日志级别") → $level（进站/出站连接建议 debug）"
 }
 
-# 旧安装默认 warn/info → 抬到 debug，否则看不到进/出站连接
+# 旧安装默认 warn/info → 抬到 debug（用户显式设置过级别则不动）
 gps_bump_log_level_if_quiet() {
+	[[ ${LOG_LEVEL_EXPLICIT:-0} == 1 ]] && return 0
 	[[ -f ${GPS_CONFIG:-} ]] || return 0
 	local cur
 	cur=$(gps_config_log_level)

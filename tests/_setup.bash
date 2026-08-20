@@ -18,9 +18,11 @@ mkdir -p "$GPS_TEST_PREFIX"
 source "$REPO_ROOT/lib/paths.sh"
 # override GPS_ROOT to repo root for sources
 GPS_ROOT="$REPO_ROOT"
-# Source common and config; silence outputs
+# Source common, tls and config; silence outputs
 # shellcheck source=lib/common.sh
 source "$REPO_ROOT/lib/common.sh"
+# shellcheck source=lib/tls.sh
+source "$REPO_ROOT/lib/tls.sh"
 # shellcheck source=lib/config.sh
 source "$REPO_ROOT/lib/config.sh"
 # Create fake sing-box binary that supports 'check'

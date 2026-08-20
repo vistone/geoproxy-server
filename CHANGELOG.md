@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.19 - 2026-08-19
+
+修复：显式日志级别被启动逻辑静默覆盖。
+
+- `change log`（菜单 13）设置 `info/warn/error/fatal/panic` 后，`gps_svc_boot` 里的 `gps_bump_log_level_if_quiet` 会把级别静默抬回 `debug`，导致用户的显式选择永远不生效（进程其实重启了，但配置被翻转）。现在 `change log` 在 state.env 记录 `LOG_LEVEL_EXPLICIT=1`，boot 时检测到显式标记则不再动日志级别；从未显式设置过的旧安装仍保持自动抬 debug 的行为。
+- 测试基建：`tests/_setup.bash` 补齐 `lib/tls.sh` 的加载（此前 `gps_write_config` 在测试环境因缺失 `gps_ensure_tls` 而被 `run` 机制掩盖为"假通过"）。
+
 ## v0.2.18 - 2026-08-19
 
 供应链：自升级完整性校验 + 发布自动化。

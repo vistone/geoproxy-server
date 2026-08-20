@@ -465,9 +465,12 @@ gps_cmd_change() {
 	log | loglevel | level)
 		local lv=${1:-debug}
 		gps_set_log_level "$lv"
+		# 用户显式选择：boot 时不再被 gps_bump_log_level_if_quiet 抬回 debug
+		# shellcheck disable=SC2034  # 由 gps_bump_log_level_if_quiet 读取
+		LOG_LEVEL_EXPLICIT=1
 		save_state
 		gps_restart_svc
-		msg "有客户端连上后，日志会出现 inbound/... 与 outbound/direct/..."
+		msg "日志级别已生效（进程已重启）: $lv（进站/出站连接建议 debug）"
 		return 0
 		;;
 	kiwivm | kiwi)

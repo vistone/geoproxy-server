@@ -399,6 +399,7 @@ gps_save_state_unlocked() {
 		gps_env_assign PUBLIC_IP6 "${PUBLIC_IP6:-}"
 		gps_env_assign STACK_MODE "${STACK_MODE:-}"
 		gps_env_assign LOG_LEVEL "${LOG_LEVEL:-debug}"
+		gps_env_assign LOG_LEVEL_EXPLICIT "${LOG_LEVEL_EXPLICIT:-0}"
 		gps_env_assign CORE_VER "${CORE_VER:-}"
 		gps_env_assign KIWI_VEID "${KIWI_VEID:-}"
 		gps_env_assign KIWI_API_KEY "${KIWI_API_KEY:-}"
