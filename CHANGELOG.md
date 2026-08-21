@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.32 - 2026-08-21
+
+修复：菜单加入 Node 时误粘贴整行命令导致 Master URL 被污染。
+
+- 支持直接粘贴 Master 打印的整行 `GPS_MESH_MASTER=... GPS_MESH_TOKEN=...`，自动拆分。
+- 拒绝把整段命令 / 垃圾串当成 IPv6 包进 `http://[...]`。
+- 菜单 26 若检测到已损坏的 Master URL，提示重新填写。
+
 ## v0.2.31 - 2026-08-21
 
 功能：Node 自动发现列表 + 心跳在线状态。

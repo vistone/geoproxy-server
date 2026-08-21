@@ -148,14 +148,60 @@ gps_mesh_print_join_hints() {
 	done < <(gps_mesh_join_urls)
 }
 
+# 从「整行加入命令」或「地址 + TOKEN」解析出 url/token（写入全局 __MESH_PARSE_URL / __MESH_PARSE_TOKEN）
+gps_mesh_parse_join_input() {
+	local blob=${1:-}
+	__MESH_PARSE_URL=""
+	__MESH_PARSE_TOKEN=""
+	[[ -n $blob ]] || return 1
+	# 粘贴了完整命令：GPS_MESH_MASTER=... GPS_MESH_TOKEN=...
+	if [[ $blob == *GPS_MESH_MASTER=* ]]; then
+		__MESH_PARSE_URL=$(printf '%s' "$blob" | sed -n 's/.*GPS_MESH_MASTER=\([^[:space:]]*\).*/\1/p' | head -n1)
+		__MESH_PARSE_TOKEN=$(printf '%s' "$blob" | sed -n 's/.*GPS_MESH_TOKEN=\([^[:space:]]*\).*/\1/p' | head -n1)
+		[[ -n $__MESH_PARSE_URL ]] || return 1
+		return 0
+	fi
+	# 仅 URL
+	__MESH_PARSE_URL=$blob
+	return 0
+}
+
+# 是否像合法 IPv6（十六进制与冒号，可选压缩）
+gps_mesh_looks_like_ipv6() {
+	local h=${1:-}
+	[[ -n $h ]] || return 1
+	[[ $h == *:* ]] || return 1
+	[[ $h =~ ^[0-9A-Fa-f:]+$ ]] || return 1
+	local colons=${h//[^:]/}
+	((${#colons} >= 2))
+}
+
 # 把用户输入规范成 http://host:port（支持域名 / IPv4 / IPv6 / 已带 http）
 gps_mesh_normalize_master_url() {
 	local raw=${1:-}
+	# 保留空格以便检测整行粘贴；先尝试解析命令行
+	if [[ $raw == *GPS_MESH_MASTER=* ]]; then
+		gps_mesh_parse_join_input "$raw" || err "无法从粘贴内容解析 GPS_MESH_MASTER"
+		raw=$__MESH_PARSE_URL
+	fi
 	raw=$(printf '%s' "$raw" | tr -d '[:space:]')
 	[[ -n $raw ]] || err "Master 地址不能为空"
+	# 拒绝把整段命令误当地址
+	case $raw in
+	*GPS_MESH_* | *TOKEN=* | *install.sh* | *bash*)
+		err "Master 地址无效：请只填域名/IP，或粘贴完整一行「GPS_MESH_MASTER=... GPS_MESH_TOKEN=...」"
+		;;
+	esac
+	((${#raw} < 256)) || err "Master 地址过长，请检查是否误粘贴了整段命令"
 	gps_mesh_defaults
 	local port=${MESH_MASTER_PORT:-19527}
 	if [[ $raw == http://* || $raw == https://* ]]; then
+		# 再拦一次被包进 URL 的垃圾
+		case $raw in
+		*GPS_MESH_* | *TOKEN=* | *install.sh*)
+			err "Master URL 无效（含命令残留），请重新填写"
+			;;
+		esac
 		printf '%s\n' "${raw%/}"
 		return 0
 	fi
@@ -168,17 +214,19 @@ gps_mesh_normalize_master_url() {
 		fi
 		return 0
 	fi
-	# 含多个冒号 → 当作裸 IPv6（无端口）
-	local colons=${raw//[^:]/}
-	if ((${#colons} >= 2)); then
+	# 裸 IPv6
+	if gps_mesh_looks_like_ipv6 "$raw"; then
 		printf 'http://[%s]:%s\n' "$raw" "$port"
 		return 0
 	fi
-	# host:port 或 host（IPv4 / 域名）
-	if [[ $raw == *:* ]]; then
+	# host:port 或 host（IPv4 / 域名）— 单冒号才当 port
+	local colons=${raw//[^:]/}
+	if ((${#colons} == 1)); then
 		printf 'http://%s\n' "$raw"
-	else
+	elif ((${#colons} == 0)); then
 		printf 'http://%s:%s\n' "$raw" "$port"
+	else
+		err "无法识别 Master 地址: $raw（域名/IPv4/IPv6 或 http://...）"
 	fi
 }
 
@@ -203,6 +251,12 @@ gps_mesh_become_member() {
 	local url=${1:-}
 	local token=${2:-}
 	[[ -n $url ]] || err "用法: mesh join <Master地址> <TOKEN>"
+	# 整行粘贴时自动拆出 TOKEN
+	if [[ $url == *GPS_MESH_MASTER=* ]] || [[ -z $token && $url == *GPS_MESH_TOKEN=* ]]; then
+		gps_mesh_parse_join_input "$url" || err "无法解析加入命令"
+		url=$__MESH_PARSE_URL
+		[[ -n $token ]] || token=$__MESH_PARSE_TOKEN
+	fi
 	[[ -n $token ]] || err "需要集群 TOKEN（在 Master 的 mesh show 中查看）"
 	load_state 2>/dev/null || true
 	MESH_ROLE=member
@@ -210,6 +264,11 @@ gps_mesh_become_member() {
 	PROFILE=mesh-member
 	MESH_MASTER_URL=$(gps_mesh_normalize_master_url "$url")
 	MESH_CLUSTER_TOKEN=$token
+	# 去掉 TOKEN 里可能粘上的 bash/install 残留
+	MESH_CLUSTER_TOKEN=${MESH_CLUSTER_TOKEN%%bash*}
+	MESH_CLUSTER_TOKEN=${MESH_CLUSTER_TOKEN%%install*}
+	MESH_CLUSTER_TOKEN=$(printf '%s' "$MESH_CLUSTER_TOKEN" | tr -d '[:space:]')
+	[[ ${#MESH_CLUSTER_TOKEN} -ge 16 ]] || err "TOKEN 看起来不对，请从 Master「mesh show」复制"
 	gps_mesh_ensure_dirs
 	umask 077
 	printf '%s\n' "$MESH_CLUSTER_TOKEN" >"$GPS_MESH_TOKEN_FILE"
@@ -225,10 +284,15 @@ gps_mesh_become_member() {
 # 菜单：选择 Master 或 Node 并填写
 gps_mesh_menu_role() {
 	load_state 2>/dev/null || true
+	# 展示时若 Master URL 已损坏，给出提示
+	local show_url=${MESH_MASTER_URL:-—}
+	if [[ $show_url == *GPS_MESH_* || $show_url == *install.sh* || ${#show_url} -gt 120 ]]; then
+		show_url="（当前配置已损坏，请选 2 重新填写）"
+	fi
 	msg "$(_cyan "Mesh 角色")"
-	msg "  当前: MESH_ROLE=${MESH_ROLE:-?}  Master=${MESH_MASTER_URL:-—}"
+	msg "  当前: MESH_ROLE=${MESH_ROLE:-?}  Master=${show_url}"
 	msg "  1) 本机作为 Master（其它机器来加入）"
-	msg "  2) 本机作为 Node（填写 Master 公网地址/域名 + TOKEN）"
+	msg "  2) 本机作为 Node（加入已有 Master）"
 	msg "  0) 返回"
 	local c
 	read -r -p "请选择: " c
@@ -237,15 +301,18 @@ gps_mesh_menu_role() {
 		gps_mesh_become_master
 		;;
 	2)
-		local url token
-		msg "Master 地址示例:"
-		msg "  域名: tile3.zeromaps.cn"
-		msg "  IPv4: 65.49.192.85"
-		msg "  IPv6: 2607:8700:5500:e639::2   或  [2607:...]:19527"
-		msg "  完整: http://tile3.zeromaps.cn:19527"
-		read -r -p "Master 地址: " url
-		read -r -p "集群 TOKEN: " token
-		gps_mesh_become_member "$url" "$token"
+		local line url token
+		msg "任选一种填写方式:"
+		msg "  A) 粘贴 Master 上打印的整行（推荐）:"
+		msg "     GPS_MESH_MASTER=http://... GPS_MESH_TOKEN=... bash install.sh"
+		msg "  B) 分开填写：先地址（仅域名/IP），再 TOKEN"
+		read -r -p "粘贴整行 或 只填 Master 地址: " line
+		if [[ $line == *GPS_MESH_MASTER=* ]]; then
+			gps_mesh_become_member "$line" ""
+		else
+			read -r -p "集群 TOKEN: " token
+			gps_mesh_become_member "$line" "$token"
+		fi
 		;;
 	0 | "") ;;
 	*) warn "无效选项" ;;

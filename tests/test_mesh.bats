@@ -195,6 +195,16 @@ setup() {
 	[[ "$(gps_mesh_normalize_master_url 'http://ex.com:19527')" == "http://ex.com:19527" ]]
 }
 
+@test "paste full join command parses master and token" {
+	local line='GPS_MESH_MASTER=http://tile3.zeromaps.cn:19527 GPS_MESH_TOKEN=cf419e550b07e06d963d2b4add62a0ab96e00336a17a721f bash install.sh'
+	gps_mesh_parse_join_input "$line"
+	[[ "$__MESH_PARSE_URL" == "http://tile3.zeromaps.cn:19527" ]]
+	[[ "$__MESH_PARSE_TOKEN" == "cf419e550b07e06d963d2b4add62a0ab96e00336a17a721f" ]]
+	[[ "$(gps_mesh_normalize_master_url "$line")" == "http://tile3.zeromaps.cn:19527" ]]
+	run gps_mesh_normalize_master_url 'http://[GPS_MESH_MASTER=http://x:19527GPS_MESH_TOKEN=abashinstall.sh]:19527'
+	[ "$status" -ne 0 ]
+}
+
 @test "mesh role member registers via join url" {
 	export PORT=43011
 	export UUID="00000000-0000-4000-8000-000000000110"
