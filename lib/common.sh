@@ -370,6 +370,8 @@ load_state() {
 	gps_source_env "$GPS_STATE"
 	PUBLIC_IP=${PUBLIC_IP:-}
 	PUBLIC_IP6=${PUBLIC_IP6:-}
+	# 旧安装无 PROTOCOL → tuic；未知值在写配置前由 gps_protocol_normalize 拒绝
+	PROTOCOL=${PROTOCOL:-tuic}
 	# 恢复测试前缀路径
 	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_apply_paths
@@ -408,7 +410,9 @@ gps_save_state_unlocked() {
 	TRAFFIC_STOP_PCT=${TRAFFIC_STOP_PCT:-95}
 	TRAFFIC_CHECK_SEC=${TRAFFIC_CHECK_SEC:-300}
 	TRAFFIC_TRIPPED=${TRAFFIC_TRIPPED:-0}
+	PROTOCOL=${PROTOCOL:-tuic}
 	{
+		gps_env_assign PROTOCOL "${PROTOCOL}"
 		gps_env_assign PORT "${PORT:-}"
 		gps_env_assign UUID "${UUID:-}"
 		gps_env_assign PASSWORD "${PASSWORD:-}"

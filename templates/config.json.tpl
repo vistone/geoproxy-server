@@ -1,5 +1,5 @@
 {
-  "_comment": "参考模板；实际由 lib/config.sh 按本机双栈自适应生成（dual=0.0.0.0+::）",
+  "_comment": "参考模板；实际由 lib/config.sh + lib/protocols/* 按本机双栈与 PROTOCOL 生成（默认 tuic；dual=0.0.0.0+::）",
   "log": {
     "level": "debug",
     "timestamp": true,

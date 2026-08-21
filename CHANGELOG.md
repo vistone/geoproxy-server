@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.21 - 2026-08-21
+
+架构：入站协议插件框架（Phase 0），运行时行为与 v0.2.20 的 TUIC 单协议安装兼容。
+
+- 新增 `lib/protocols/_registry.sh` 与 `lib/protocols/tuic.sh`：配置生成与分享链接经协议注册表分发；当前白名单仅 `tuic`。
+- `state.env` 增加 `PROTOCOL`（缺省 / 旧安装无字段 → `tuic`）；未知协议在写配置前失败关闭。
+- `lib/config.sh` 只负责日志、双栈监听与拼装 `config.json`，不再内嵌 TUIC JSON。
+- 文档：`docs/design.md` 补充产品模型；规格与计划见 `docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`、`docs/superpowers/plans/2026-08-21-protocol-plugin-phase0.md`。
+- 测试：新增 `tests/test_protocol.bats`（遗留 state 默认、拒绝未知协议、TUIC 渲染）。
+- 明确非目标：本版本不增加第二协议、不提供 `change protocol`、不改名 `geoproxy-tuic.service`。
+
 ## v0.2.20 - 2026-08-20
 
 修复：logrotate 缺失时自动安装，不再跳过日志轮转。

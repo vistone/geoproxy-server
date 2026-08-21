@@ -1,13 +1,14 @@
 # GeoProxy Server（VPS 端）
 
-面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**仅 TUIC 入站 → direct 出站**。
+面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**入站协议可插件化扩展，当前默认 TUIC → direct 出站**。
 
 发布号以仓库内 [`VERSION`](./VERSION) 和 [GitHub Releases](https://github.com/vistone/geoproxy-server/releases/latest) 为准。  
 **README 不写死版本号**；安装 / 升级默认拉取最新 Release。
 
 设计说明：
 
-- [`docs/design.md`](./docs/design.md)
+- [`docs/design.md`](./docs/design.md)（产品模型 + KiwiVM）
+- 协议插件（Phase 0）：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./docs/superpowers/specs/2026-08-21-protocol-plugin-design.md)
 - 流量熔断：见 [`docs/design.md`](./docs/design.md) 中 KiwiVM 章节
 - 加固：[`docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md`](./docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md)
 
@@ -16,10 +17,11 @@
 - 菜单优先，CLI 为辅
 - **可自升级管理脚本**（`upgrade self`）与 **sing-box 核心**（`upgrade core`）
 - 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
-- **IPv4 / IPv6 自适应** 监听与 TUIC URL（节点名在 `#fragment`）
-- 自签 TLS（`alpn=h3`），默认 UUID=密码、BBR
+- **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
+- 自签 TLS（TUIC：`alpn=h3`），默认 UUID=密码、BBR
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
+- 入站协议框架：`PROTOCOL` 写入 `state.env`（v0.2.21 起；当前仅 `tuic`）
 
 ## 要求
 

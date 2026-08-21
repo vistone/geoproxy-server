@@ -15,6 +15,8 @@ source "$GPS_ROOT/lib/common.sh"
 source "$GPS_ROOT/lib/download.sh"
 # shellcheck source=lib/tls.sh
 source "$GPS_ROOT/lib/tls.sh"
+# shellcheck source=lib/protocols/_registry.sh
+source "$GPS_ROOT/lib/protocols/_registry.sh"
 # shellcheck source=lib/config.sh
 source "$GPS_ROOT/lib/config.sh"
 # shellcheck source=lib/systemd.sh

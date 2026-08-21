@@ -23,6 +23,8 @@ GPS_ROOT="$REPO_ROOT"
 source "$REPO_ROOT/lib/common.sh"
 # shellcheck source=lib/tls.sh
 source "$REPO_ROOT/lib/tls.sh"
+# shellcheck source=lib/protocols/_registry.sh
+source "$REPO_ROOT/lib/protocols/_registry.sh"
 # shellcheck source=lib/config.sh
 source "$REPO_ROOT/lib/config.sh"
 # Create fake sing-box binary that supports 'check'

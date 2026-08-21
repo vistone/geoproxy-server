@@ -1,5 +1,5 @@
 #!/bin/bash
-# GeoProxy Server — 路径与常量（VPS 端单实例 TUIC）
+# GeoProxy Server — 路径与常量（VPS 端单实例；默认入站协议 TUIC）
 #
 # 本地测试可设：
 #   GPS_TEST_PREFIX=/tmp/geoproxy-test  或  install --prefix DIR --no-systemd

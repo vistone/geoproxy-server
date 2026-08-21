@@ -145,12 +145,15 @@ gps_cmd_install() {
 	# shellcheck disable=SC2034  # INSTALLED_AT 由 url.sh 的 gps_cmd_info 读取
 	INSTALLED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 	LOG_LEVEL=${LOG_LEVEL:-debug}
+	PROTOCOL=${PROTOCOL:-tuic}
+	gps_protocol_normalize
 
 	# 落盘前统一校验所有边界输入
 	gps_validate_port "$PORT" || err "无效端口: $PORT（需 1-65535）"
 	gps_validate_uuid "$UUID" || err "无效 UUID: $UUID（示例: $(gen_uuid)）"
 	gps_validate_single_line "$PASSWORD" || err "密码不能包含换行/回车/NUL"
 	gps_validate_single_line "${TUIC_NAME:-}" || err "节点名不能包含换行/回车/NUL"
+	gps_protocol_validate
 	if [[ -n ${PUBLIC_IP:-} ]]; then
 		gps_validate_ipv4 "$PUBLIC_IP" || err "无效 IPv4: $PUBLIC_IP（四段 0-255）"
 	fi
@@ -611,7 +614,7 @@ gps_cmd_log() {
 
 gps_help() {
 	cat <<EOF
-$GPS_NAME $GPS_SH_VER — GeoProxy VPS 端（单实例 TUIC）
+$GPS_NAME $GPS_SH_VER — GeoProxy VPS 端（单实例；默认入站 TUIC → direct）
 
 Usage: $GPS_NAME [command] [args...]
 
@@ -636,6 +639,7 @@ Usage: $GPS_NAME [command] [args...]
   - 流量熔断: change kiwivm <veid> <api_key>；默认 80% 告警 / 95% 停服；低于停服线自动恢复
   - systemd timer 每 TRAFFIC_CHECK_SEC 秒执行 traffic check
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
-  - 默认日志 debug；TUIC URL 节点名在 #fragment（change name）
+  - 默认日志 debug；分享 URL 节点名在 #fragment（change name）
+  - 入站协议由插件框架管理（当前仅 tuic；见 docs/design.md）
 EOF
 }

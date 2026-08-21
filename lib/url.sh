@@ -48,6 +48,7 @@ gps_cmd_info() {
 	msg "  核心:     $GPS_CORE_BIN  (ver=${CORE_VER:-?})"
 	msg "  配置:     $GPS_CONFIG"
 	msg "  端口:     $PORT"
+	msg "  入站协议: ${PROTOCOL:-tuic}"
 	msg "  协议栈:   ${STACK_MODE:-?}（本机 v4=${HAS_V4} v6=${HAS_V6}）"
 	msg "  UUID:     $UUID"
 	msg "  密码:     ${PASSWORD:0:8}********"

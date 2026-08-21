@@ -45,10 +45,11 @@ setup() {
 	run grep '^PORT=33333' "$GPS_STATE"
 	[ "$status" -eq 0 ]
 	# 新内容是完整键集
-	for k in UUID PASSWORD TRAFFIC_WARN_PCT TRAFFIC_STOP_PCT GPS_TEST_PREFIX TUIC_NAME; do
+	for k in PROTOCOL UUID PASSWORD TRAFFIC_WARN_PCT TRAFFIC_STOP_PCT GPS_TEST_PREFIX TUIC_NAME; do
 		run grep "^${k}=" "$GPS_STATE"
 		[ "$status" -eq 0 ]
 	done
+	grep -q '^PROTOCOL=tuic$' "$GPS_STATE"
 	# 无残留临时文件
 	leftovers=$(find "$GPS_ETC" -name 'state.env.tmp.*' 2>/dev/null | wc -l)
 	[ "$leftovers" -eq 0 ]
