@@ -298,9 +298,23 @@ gps_cmd_upgrade_self() {
 	save_state
 	rm -rf "$tmp"
 	trap - RETURN
+	# 菜单进程里仍是升级前 source 的旧函数；用磁盘上的新入口强制初始化组网
+	if [[ -x ${GPS_BIN_LINK:-} ]]; then
+		"$GPS_BIN_LINK" mesh ensure || warn "mesh ensure 未成功（将在服务启动 ExecStartPre 再试）"
+	elif [[ -f ${GPS_LIB_DIR}/scripts/geoproxy-server.sh ]]; then
+		bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" mesh ensure || warn "mesh ensure 未成功（将在服务启动 ExecStartPre 再试）"
+	fi
 	gps_svc_boot
 	# shellcheck disable=SC2034  # 供 gps_reexec_if_menu 读取
 	GPS_UPGRADE_DID_WORK=1
 	msg "$(_green "脚本已升级") $cur → $GPS_SH_VER"
 	msg "配置/证书/凭证未改动；已停止旧进程并用新脚本重新拉起服务"
+	if [[ ${MESH_ROLE:-master} == master ]]; then
+		load_state 2>/dev/null || true
+		local join_host=${PUBLIC_IP:-<公网IP>}
+		msg "$(_cyan "组网 Master") overlay=${MESH_OVERLAY_IP:-?} wg=${WG_PUBLIC_KEY:-(未生成)}"
+		if [[ -n ${MESH_CLUSTER_TOKEN:-} ]]; then
+			msg "其它节点加入: GPS_MESH_MASTER=http://${join_host}:${MESH_MASTER_PORT:-19527} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
+		fi
+	fi
 }
