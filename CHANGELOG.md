@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.29 - 2026-08-21
+
+体验：分清公网地址与 WG overlay；NODE_ID 域名自动作 Master host。
+
+- `mesh show` 标明 overlay 为「WG 内部虚拟网，非公网」，并单独列出公网 IPv4/IPv6。
+- `MESH_MASTER_HOST` 未设置时，除 TUIC_NAME 外也可沿用像域名的 `NODE_ID`（如 tile3.zeromaps.cn）。
+
 ## v0.2.28 - 2026-08-21
 
 功能：Master 加入地址双栈 + 域名。

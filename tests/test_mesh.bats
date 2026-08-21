@@ -164,6 +164,7 @@ setup() {
 	grep -q 'tile3.zeromaps.cn:19527' "$GPS_TEST_PREFIX/mesh-show.out"
 	grep -q '203.0.113.50:19527' "$GPS_TEST_PREFIX/mesh-show.out"
 	grep -q '\[2001:db8::50\]:19527' "$GPS_TEST_PREFIX/mesh-show.out"
+	grep -q 'WG 内部虚拟网' "$GPS_TEST_PREFIX/mesh-show.out"
 	! grep -q 'master URL:  local' "$GPS_TEST_PREFIX/mesh-show.out"
 	grep -q 'WG public:' "$GPS_TEST_PREFIX/mesh-show.out"
 	! grep -q 'WG public:   （未生成）' "$GPS_TEST_PREFIX/mesh-show.out"

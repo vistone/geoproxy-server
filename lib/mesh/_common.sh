@@ -83,13 +83,17 @@ gps_mesh_looks_like_hostname() {
 	return 0
 }
 
-# 解析 MESH_MASTER_HOST：显式值优先；否则若 TUIC_NAME 像域名则沿用
+# 解析 MESH_MASTER_HOST：显式值优先；否则沿用像域名的 TUIC_NAME / NODE_ID
 gps_mesh_resolve_master_host() {
 	if [[ -n ${MESH_MASTER_HOST:-} ]]; then
 		return 0
 	fi
 	if [[ -n ${TUIC_NAME:-} ]] && gps_mesh_looks_like_hostname "$TUIC_NAME"; then
 		MESH_MASTER_HOST=$TUIC_NAME
+		return 0
+	fi
+	if [[ -n ${NODE_ID:-} ]] && gps_mesh_looks_like_hostname "$NODE_ID"; then
+		MESH_MASTER_HOST=$NODE_ID
 	fi
 }
 

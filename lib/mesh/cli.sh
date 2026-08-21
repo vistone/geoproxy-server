@@ -145,11 +145,14 @@ gps_mesh_cmd_show() {
 	msg "$(_cyan "Mesh")"
 	msg "  MESH_ROLE:   ${MESH_ROLE:-?}"
 	msg "  NODE_ID:     ${NODE_ID:-（未设置）}"
-	msg "  overlay:     ${MESH_OVERLAY_IP:-?}  prefix=${MESH_OVERLAY_PREFIX:-10.66.0.0/16}"
+	msg "  overlay:     ${MESH_OVERLAY_IP:-?}  prefix=${MESH_OVERLAY_PREFIX:-10.66.0.0/16}  （WG 内部虚拟网，非公网）"
 	msg "  WG listen:   ${WG_LISTEN_PORT:-51820}"
 	msg "  WG public:   ${WG_PUBLIC_KEY:-（未生成）}"
 	msg "  master host: ${MESH_MASTER_HOST:-（未设置，可用 change mesh-master-host）}"
 	msg "  master URL:  ${primary:-${MESH_MASTER_URL:-?}}"
+	if [[ -n ${PUBLIC_IP:-} || -n ${PUBLIC_IP6:-} ]]; then
+		msg "  公网地址:    ${PUBLIC_IP:-—} / ${PUBLIC_IP6:-—}"
+	fi
 	if [[ ${MESH_ROLE:-} == master ]]; then
 		gps_mesh_print_join_hints
 	fi
