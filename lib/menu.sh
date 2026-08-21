@@ -40,8 +40,9 @@ gps_menu() {
 		msg " 23) 健康检查 doctor"
 		msg " 24) 列出协议"
 		msg " 25) Mesh 状态"
-		msg " 26) 设置 mesh-exit 跳板"
-		msg " 27) 卸载"
+		msg " 26) Mesh 角色（Master / Node，相互发现）"
+		msg " 27) 设置 mesh-exit 跳板"
+		msg " 28) 卸载"
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
@@ -121,10 +122,13 @@ gps_menu() {
 			gps_mesh_cmd_show || true
 			;;
 		26)
+			gps_mesh_menu_role || true
+			;;
+		27)
 			read -r -p "mesh-exit node_id (none=清除): " eid
 			[[ -n $eid ]] && gps_cmd_change mesh-exit "$eid"
 			;;
-		27)
+		28)
 			gps_cmd_uninstall || true
 			;;
 		0 | q | quit | exit) exit 0 ;;

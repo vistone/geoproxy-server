@@ -146,6 +146,110 @@ gps_mesh_print_join_hints() {
 	done < <(gps_mesh_join_urls)
 }
 
+# 把用户输入规范成 http://host:port（支持域名 / IPv4 / IPv6 / 已带 http）
+gps_mesh_normalize_master_url() {
+	local raw=${1:-}
+	raw=$(printf '%s' "$raw" | tr -d '[:space:]')
+	[[ -n $raw ]] || err "Master 地址不能为空"
+	gps_mesh_defaults
+	local port=${MESH_MASTER_PORT:-19527}
+	if [[ $raw == http://* || $raw == https://* ]]; then
+		printf '%s\n' "${raw%/}"
+		return 0
+	fi
+	# [v6] 或 [v6]:port
+	if [[ $raw == \[*\]* ]]; then
+		if [[ $raw == \[*\]:* ]]; then
+			printf 'http://%s\n' "$raw"
+		else
+			printf 'http://%s:%s\n' "$raw" "$port"
+		fi
+		return 0
+	fi
+	# 含多个冒号 → 当作裸 IPv6（无端口）
+	local colons=${raw//[^:]/}
+	if ((${#colons} >= 2)); then
+		printf 'http://[%s]:%s\n' "$raw" "$port"
+		return 0
+	fi
+	# host:port 或 host（IPv4 / 域名）
+	if [[ $raw == *:* ]]; then
+		printf 'http://%s\n' "$raw"
+	else
+		printf 'http://%s:%s\n' "$raw" "$port"
+	fi
+}
+
+gps_mesh_become_master() {
+	load_state 2>/dev/null || true
+	MESH_ROLE=master
+	gps_mesh_role_normalize
+	PROFILE=mesh-member
+	MESH_OVERLAY_IP=${MESH_OVERLAY_IP:-10.66.0.1}
+	gps_mesh_defaults
+	gps_mesh_ensure_cluster_token
+	gps_mesh_resolve_master_host
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	gps_install_mesh_units 2>/dev/null || true
+	gps_restart_svc
+	msg "$(_green "本机已设为 Master")"
+	gps_mesh_print_join_hints
+}
+
+gps_mesh_become_member() {
+	local url=${1:-}
+	local token=${2:-}
+	[[ -n $url ]] || err "用法: mesh join <Master地址> <TOKEN>"
+	[[ -n $token ]] || err "需要集群 TOKEN（在 Master 的 mesh show 中查看）"
+	load_state 2>/dev/null || true
+	MESH_ROLE=member
+	gps_mesh_role_normalize
+	PROFILE=mesh-member
+	MESH_MASTER_URL=$(gps_mesh_normalize_master_url "$url")
+	MESH_CLUSTER_TOKEN=$token
+	gps_mesh_ensure_dirs
+	umask 077
+	printf '%s\n' "$MESH_CLUSTER_TOKEN" >"$GPS_MESH_TOKEN_FILE"
+	chmod 600 "$GPS_MESH_TOKEN_FILE" 2>/dev/null || true
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	gps_install_mesh_units 2>/dev/null || true
+	gps_restart_svc
+	msg "$(_green "本机已设为 Node/成员") Master=$MESH_MASTER_URL"
+	msg "将向 Master 注册并拉取 peers，实现相互发现"
+}
+
+# 菜单：选择 Master 或 Node 并填写
+gps_mesh_menu_role() {
+	load_state 2>/dev/null || true
+	msg "$(_cyan "Mesh 角色")"
+	msg "  当前: MESH_ROLE=${MESH_ROLE:-?}  Master=${MESH_MASTER_URL:-—}"
+	msg "  1) 本机作为 Master（其它机器来加入）"
+	msg "  2) 本机作为 Node（填写 Master 公网地址/域名 + TOKEN）"
+	msg "  0) 返回"
+	local c
+	read -r -p "请选择: " c
+	case $c in
+	1)
+		gps_mesh_become_master
+		;;
+	2)
+		local url token
+		msg "Master 地址示例:"
+		msg "  域名: tile3.zeromaps.cn"
+		msg "  IPv4: 65.49.192.85"
+		msg "  IPv6: 2607:8700:5500:e639::2   或  [2607:...]:19527"
+		msg "  完整: http://tile3.zeromaps.cn:19527"
+		read -r -p "Master 地址: " url
+		read -r -p "集群 TOKEN: " token
+		gps_mesh_become_member "$url" "$token"
+		;;
+	0 | "") ;;
+	*) warn "无效选项" ;;
+	esac
+}
+
 # 安装时根据环境决定角色（零菜单）
 gps_mesh_bootstrap_from_env() {
 	# 显式 GPS_MESH_MASTER → 成员；否则已有 MESH_ROLE 保留；全新默认 master

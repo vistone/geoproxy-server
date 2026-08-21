@@ -14,11 +14,26 @@ gps_cmd_mesh() {
 		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 		save_state
 		;;
+	join)
+		gps_mesh_become_member "$@"
+		;;
+	role | set-role)
+		local r=${1:-}
+		shift || true
+		case $r in
+		master) gps_mesh_become_master ;;
+		member | node)
+			gps_mesh_become_member "$@"
+			;;
+		*) err "用法: mesh role master | mesh role member <Master地址> <TOKEN>" ;;
+		esac
+		;;
 	sync-master | sync_master)
 		GPS_MESH_SYNC_RESTART=1 gps_mesh_sync_master
 		;;
 	init) gps_mesh_cmd_init "$@" ;;
 	show | status) gps_mesh_cmd_show "$@" ;;
+	menu-role) gps_mesh_menu_role ;;
 	peer)
 		local op=${1:-}
 		shift || true
@@ -73,14 +88,14 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh ensure              # 开机/ExecStartPre：密钥 + 注册/拉 peers + 写配置
   mesh sync-master         # 周期：再注册并拉 peers（有变更则重启）
   mesh show
+  mesh role master         # 本机升为 Master
+  mesh role member <地址> <TOKEN>   # 本机加入为 Node
+  mesh join <地址> <TOKEN> # 同上
   mesh export | import | sync <url-or-file>
-  mesh peer add|rm ...     # 排障手工改 peers
+  mesh peer add|rm ...
   mesh hop <json-file|none>
-  mesh init ...            # 兼容旧命令（等同 ensure + 可选覆盖）
 
-安装：无 GPS_MESH_MASTER → 本机为 Master；成员：
-  GPS_MESH_MASTER=http://IP或域名或[IPv6]:19527 GPS_MESH_TOKEN=... bash install.sh
-Master 域名: change mesh-master-host <域名|none>（默认可沿用节点名若含点）
+Master 地址支持域名 / IPv4 / IPv6。菜单: 26) Mesh 角色
 跳板: change mesh-exit <node_id|none>
 EOF
 }

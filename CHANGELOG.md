@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.30 - 2026-08-21
+
+功能：菜单填写 Master / Node，相互发现。
+
+- 菜单 **26) Mesh 角色**：选本机为 Master，或选 Node 并填写 Master 公网地址（域名/IPv4/IPv6）+ TOKEN。
+- CLI：`mesh role master`、`mesh role member <地址> <TOKEN>` / `mesh join ...`
+- Node 加入后向 Master 注册并拉 peers，双方自动出现在 `peers.json`。
+
 ## v0.2.29 - 2026-08-21
 
 体验：分清公网地址与 WG overlay；NODE_ID 域名自动作 Master host。

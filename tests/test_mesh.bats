@@ -188,6 +188,52 @@ setup() {
 	[[ "$primary" == "http://mesh.example.com:19527" ]]
 }
 
+@test "normalize master url supports domain v4 v6" {
+	[[ "$(gps_mesh_normalize_master_url tile3.zeromaps.cn)" == "http://tile3.zeromaps.cn:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url 65.49.192.85)" == "http://65.49.192.85:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url '2607:8700::2')" == "http://[2607:8700::2]:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url 'http://ex.com:19527')" == "http://ex.com:19527" ]]
+}
+
+@test "mesh role member registers via join url" {
+	export PORT=43011
+	export UUID="00000000-0000-4000-8000-000000000110"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.70"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="join-token-xyz"
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	local master_peers=$GPS_MESH_PEERS
+	local mport
+	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	MESH_CLUSTER_TOKEN=join-token-xyz GPS_MESH_PEERS="$master_peers" \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >/tmp/gps-mesh-join-test.log 2>&1 &
+	local mpid=$!
+	disown "$mpid" 2>/dev/null || true
+	local i
+	for i in 1 2 3 4 5 6; do
+		curl -fsS --max-time 1 "http://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
+		sleep 0.4
+	done
+	# 切换为 member（同前缀；换 NODE_ID 以在 Master peers 中出现新节点）
+	gps_restart_svc() { :; }
+	NODE_ID=tile-node-b
+	# become_member 内 load_state 会盖掉 NODE_ID，先写入 state
+	save_state
+	gps_mesh_become_member "127.0.0.1:${mport}" "join-token-xyz"
+	[ "$MESH_ROLE" = "member" ]
+	[[ "$MESH_MASTER_URL" == http://127.0.0.1:${mport} ]]
+	# load_state 后 NODE_ID 仍为写入 state 的 tile-node-b
+	grep -q tile-node-b "$master_peers"
+	kill -TERM "$mpid" >/dev/null 2>&1 || true
+	sleep 0.2
+	kill -KILL "$mpid" >/dev/null 2>&1 || true
+}
+
 @test "tuic unit template includes mesh ensure ExecStartPre" {
 	grep -q 'mesh ensure' "$REPO_ROOT/templates/geoproxy-tuic.service"
 	grep -q '__BIN__' "$REPO_ROOT/templates/geoproxy-tuic.service"
