@@ -10,7 +10,7 @@ gps_menu() {
 			gps_traffic_defaults 2>/dev/null || true
 			local trip=""
 			[[ ${TRAFFIC_TRIPPED:-0} == 1 ]] && trip=" $(_red TRIPPED)"
-			msg "  状态: $(gps_svc_status_line)  协议: ${PROTOCOL:-tuic}  端口: ${PORT:-?}  流量: ${TRAFFIC_LAST_PCT:-?}%${trip}  v4: ${PUBLIC_IP:-?}"
+			msg "  状态: $(gps_svc_status_line)  协议: ${PROTOCOL:-tuic}  配置: ${PROFILE:-edge}  端口: ${PORT:-?}  流量: ${TRAFFIC_LAST_PCT:-?}%${trip}"
 		else
 			msg " 状态: $(_yellow "未安装")"
 		fi
@@ -39,7 +39,9 @@ gps_menu() {
 		msg " 22) 启用 BBR"
 		msg " 23) 健康检查 doctor"
 		msg " 24) 列出协议"
-		msg " 25) 卸载"
+		msg " 25) Mesh 状态 / 初始化"
+		msg " 26) 切换 PROFILE (edge|mesh-member)"
+		msg " 27) 卸载"
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
@@ -116,7 +118,15 @@ gps_menu() {
 		23) gps_doctor || true ;;
 		24) gps_cmd_protocols ;;
 		25)
-			# 成功卸载会在 gps_cmd_uninstall 里 exit 0；取消则 return 1 留在菜单
+			gps_mesh_cmd_show || true
+			read -r -p "执行 mesh init? [y/N] " yn
+			[[ $yn == y || $yn == Y ]] && gps_mesh_cmd_init
+			;;
+		26)
+			read -r -p "edge / mesh-member: " pr
+			[[ -n $pr ]] && gps_cmd_change profile "$pr"
+			;;
+		27)
 			gps_cmd_uninstall || true
 			;;
 		0 | q | quit | exit) exit 0 ;;

@@ -1,15 +1,16 @@
 # GeoProxy Server（VPS 端）
 
-面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**入站协议可切换（默认 TUIC）→ direct 出站**。
+面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例；默认 **TUIC → direct**，可选 **WireGuard mesh** 多机互连与跳转。
 
 发布号以仓库内 [`VERSION`](./VERSION) 和 [GitHub Releases](https://github.com/vistone/geoproxy-server/releases/latest) 为准。  
 **README 不写死版本号**；安装 / 升级默认拉取最新 Release。
 
 设计说明：
 
-- [`docs/design.md`](./docs/design.md)（产品模型、协议矩阵、非目标、KiwiVM）
-- 协议插件（Phase 0）：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./docs/superpowers/specs/2026-08-21-protocol-plugin-design.md)
-- 多协议（Phase 1–3）：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./docs/superpowers/specs/2026-08-21-multi-protocol-design.md)
+- [`docs/design.md`](./docs/design.md)（产品模型、协议矩阵、Mesh、KiwiVM）
+- 协议插件：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./docs/superpowers/specs/2026-08-21-protocol-plugin-design.md)
+- 多协议：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./docs/superpowers/specs/2026-08-21-multi-protocol-design.md)
+- Mesh 组网：[`docs/superpowers/specs/2026-08-21-mesh-design.md`](./docs/superpowers/specs/2026-08-21-mesh-design.md)
 - 加固：[`docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md`](./docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md)
 
 ## 特点
@@ -19,8 +20,8 @@
 - 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
 - **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
 - 自签 TLS（按协议）；TUIC 默认 UUID=密码、BBR
-- 入站协议：`tuic` / `hysteria2` / `vless`（Reality）/ `trojan` / `shadowsocks` / `vmess` / `anytls` / `hysteria` / `naive` / `snell` / `shadowtls`（`change protocol` / `install --protocol` / `protocols`）
-- **非目标**：tun/tproxy/redirect、cloudflared、公网 socks/http/mixed、多出站路由（详见 [`docs/design.md`](./docs/design.md)）
+- 入站协议可切换（`change protocol` / `protocols`）
+- **Mesh（可选）**：`mesh init` → 节点 `export/import/sync` 互知；`change mesh-exit` 多级跳板；`mesh hop` L7 detour
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
 
@@ -123,11 +124,29 @@ geoproxy-server url
 
 ```text
 geoproxy-server install | uninstall | status | start | stop | restart
-geoproxy-server info | url | qr | log | doctor | bbr | protocols
+geoproxy-server info | url | qr | log | doctor | bbr | protocols | mesh
 geoproxy-server upgrade [self|core|all]
 geoproxy-server change …
 geoproxy-server traffic [status|check|resume]
 geoproxy-server version
+```
+
+## Mesh 组网（多机互知 / 跳转）
+
+```bash
+# 节点 A
+geoproxy-server mesh init --node-id tile-a --overlay-ip 10.66.0.1
+geoproxy-server mesh export > /tmp/a.json
+
+# 节点 B
+geoproxy-server mesh init --node-id tile-b --overlay-ip 10.66.0.2
+geoproxy-server mesh import /tmp/a.json
+geoproxy-server mesh export > /tmp/b.json
+# 回到 A
+geoproxy-server mesh import /tmp/b.json
+
+# 可选：B 作为 L3 出口跳板
+geoproxy-server change mesh-exit tile-b
 ```
 
 ## 路径

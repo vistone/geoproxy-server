@@ -17,6 +17,8 @@ source "$GPS_ROOT/lib/download.sh"
 source "$GPS_ROOT/lib/tls.sh"
 # shellcheck source=lib/protocols/_registry.sh
 source "$GPS_ROOT/lib/protocols/_registry.sh"
+# shellcheck source=lib/mesh/_registry.sh
+source "$GPS_ROOT/lib/mesh/_registry.sh"
 # shellcheck source=lib/config.sh
 source "$GPS_ROOT/lib/config.sh"
 # shellcheck source=lib/systemd.sh
@@ -70,6 +72,10 @@ main() {
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		load_state 2>/dev/null || true
 		gps_cmd_protocols
+		;;
+	mesh)
+		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
+		gps_cmd_mesh "$@"
 		;;
 	log)
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths

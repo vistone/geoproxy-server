@@ -497,6 +497,42 @@ gps_cmd_change() {
 		gps_cmd_url
 		return 0
 		;;
+	profile)
+		local pr=${1:-}
+		[[ -n $pr ]] || err "用法: change profile edge|mesh-member"
+		PROFILE=$pr
+		gps_profile_normalize
+		if [[ $PROFILE == mesh-member ]]; then
+			gps_mesh_ensure_node_id
+			gps_mesh_defaults
+			gps_mesh_ensure_wg_keys
+			gps_mesh_ensure_overlay_ip
+			gps_mesh_peers_upsert_self
+		fi
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "PROFILE") → $PROFILE"
+		return 0
+		;;
+	mesh-exit | exit-node)
+		local eid=${1:-}
+		[[ -n $eid ]] || err "用法: change mesh-exit <node_id|none>"
+		if [[ $eid == none || $eid == off || $eid == - ]]; then
+			MESH_EXIT_NODE_ID=""
+		else
+			gps_validate_single_line "$eid" || err "node_id 非法"
+			[[ $eid != "${NODE_ID:-}" ]] || err "不能将自己设为 mesh-exit（防环）"
+			MESH_EXIT_NODE_ID=$eid
+		fi
+		gps_profile_normalize
+		[[ $PROFILE == mesh-member ]] || warn "当前 PROFILE=$PROFILE；mesh-exit 仅在 mesh-member 生效"
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "mesh-exit") → ${MESH_EXIT_NODE_ID:-none}"
+		return 0
+		;;
 	log | loglevel | level)
 		local lv=${1:-debug}
 		gps_set_log_level "$lv"
@@ -555,7 +591,7 @@ gps_cmd_change() {
 		return 0
 		;;
 	*)
-		err "用法: change port|uuid|passwd|protocol|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
+		err "用法: change port|uuid|passwd|protocol|profile|mesh-exit|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config
@@ -671,7 +707,8 @@ Usage: $GPS_NAME [command] [args...]
   status | start | stop | restart
   info | url | qr | log [--once]
   protocols
-  change port|uuid|passwd|protocol|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  mesh init|show|peer|export|import|sync
+  change port|uuid|passwd|protocol|profile|mesh-exit|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor
@@ -686,6 +723,7 @@ Usage: $GPS_NAME [command] [args...]
   - systemd timer 每 TRAFFIC_CHECK_SEC 秒执行 traffic check
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
   - 默认日志 debug；分享 URL 节点名在 #fragment（change name）
-  - 入站协议: protocols / change protocol <id>（默认 tuic；见 docs/design.md）
+  - 入站协议: protocols / change protocol <id>（默认 tuic）
+  - 组网: mesh init → change profile mesh-member；互知: mesh export/import/sync；跳板: change mesh-exit
 EOF
 }

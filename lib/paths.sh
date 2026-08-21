@@ -54,6 +54,8 @@ gps_apply_paths() {
 	GPS_KEY="${GPS_TLS_DIR}/key.pem"
 	GPS_LOG="${GPS_LOG_DIR}/sing-box.log"
 	GPS_TRAFFIC_LOG="${GPS_LOG_DIR}/traffic.log"
+	GPS_MESH_DIR="${GPS_ETC}/mesh"
+	GPS_MESH_PEERS="${GPS_MESH_DIR}/peers.json"
 }
 
 gps_apply_paths

@@ -128,6 +128,30 @@ gps_doctor() {
 			warn_item "未配置 KiwiVM（流量熔断未启用）— change kiwivm <veid> <api_key>"
 		fi
 	fi
+	# Mesh
+	if load_state 2>/dev/null; then
+		gps_profile_normalize 2>/dev/null || true
+		if [[ ${PROFILE:-edge} == mesh-member ]]; then
+			check "mesh peers 文件" test -f "$GPS_MESH_PEERS"
+			check "WG 公钥已设置" test -n "${WG_PUBLIC_KEY:-}"
+			check "overlay IP 已设置" test -n "${MESH_OVERLAY_IP:-}"
+			if [[ -n ${MESH_EXIT_NODE_ID:-} && $MESH_EXIT_NODE_ID == "${NODE_ID:-}" ]]; then
+				msg "  $(_red FAIL) mesh-exit 指向自己（环路风险）"
+				fail=$((fail + 1))
+			elif [[ -n ${MESH_EXIT_NODE_ID:-} ]]; then
+				msg "  $(_green OK)  mesh-exit=$MESH_EXIT_NODE_ID"
+				ok=$((ok + 1))
+			fi
+			if [[ -n ${WG_LISTEN_PORT:-} ]] && have_cmd ss; then
+				if ss -lun 2>/dev/null | grep -qE ":${WG_LISTEN_PORT}\\b"; then
+					msg "  $(_green OK)  WG UDP 监听 :$WG_LISTEN_PORT"
+					ok=$((ok + 1))
+				else
+					warn_item "WG UDP :${WG_LISTEN_PORT} 未看到（服务未起或未 mesh-member）"
+				fi
+			fi
+		fi
+	fi
 	msg
 	msg "结果: ok=$ok fail=$fail"
 	((fail == 0))

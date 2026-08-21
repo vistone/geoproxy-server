@@ -372,6 +372,7 @@ load_state() {
 	PUBLIC_IP6=${PUBLIC_IP6:-}
 	# 旧安装无 PROTOCOL → tuic；未知值在写配置前由 gps_protocol_normalize 拒绝
 	PROTOCOL=${PROTOCOL:-tuic}
+	PROFILE=${PROFILE:-edge}
 	# 恢复测试前缀路径
 	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_apply_paths
@@ -451,6 +452,16 @@ gps_save_state_unlocked() {
 		gps_env_assign SHADOWTLS_VERSION "${SHADOWTLS_VERSION:-}"
 		gps_env_assign SHADOWTLS_HANDSHAKE "${SHADOWTLS_HANDSHAKE:-}"
 		gps_env_assign SHADOWTLS_INNER_PORT "${SHADOWTLS_INNER_PORT:-}"
+		gps_env_assign PROFILE "${PROFILE:-edge}"
+		gps_env_assign NODE_ID "${NODE_ID:-}"
+		gps_env_assign WG_PRIVATE_KEY "${WG_PRIVATE_KEY:-}"
+		gps_env_assign WG_PUBLIC_KEY "${WG_PUBLIC_KEY:-}"
+		gps_env_assign WG_LISTEN_PORT "${WG_LISTEN_PORT:-}"
+		gps_env_assign MESH_OVERLAY_IP "${MESH_OVERLAY_IP:-}"
+		gps_env_assign MESH_OVERLAY_PREFIX "${MESH_OVERLAY_PREFIX:-}"
+		gps_env_assign MESH_EXIT_NODE_ID "${MESH_EXIT_NODE_ID:-}"
+		gps_env_assign MESH_ROLES "${MESH_ROLES:-}"
+		gps_env_assign MESH_L7_OUTBOUNDS_JSON "${MESH_L7_OUTBOUNDS_JSON:-}"
 	} | gps_atomic_write_env "$GPS_STATE"
 	gps_kiwi_save_persist
 }

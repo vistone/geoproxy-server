@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.24 - 2026-08-21
+
+功能：WireGuard mesh 组网（计划 Phase A–D 一次性落地）。
+
+- `PROFILE=edge|mesh-member`：默认 edge 与既有「入站→direct」兼容；mesh-member 启用 `endpoints.wireguard` + overlay `route`。
+- Mesh CLI：`mesh init|show|peer add/rm|export|import|sync|hop`；`change profile` / `change mesh-exit`。
+- 节点互知：`/etc/geoproxy-server/mesh/peers.json`（schema=1）；sync 支持本地文件或 HTTP(S) URL。
+- L3 跳板：`MESH_EXIT_NODE_ID` 仅给该 peer 注入 `0.0.0.0/0`（防环，禁止指向自己）。
+- L7：`mesh hop <json-file>` 注入额外 outbound（可含 `detour`）。
+- doctor：mesh-member 下检查 peers/WG/overlay/exit 环路。
+- 文档：[`docs/superpowers/specs/2026-08-21-mesh-design.md`](./docs/superpowers/specs/2026-08-21-mesh-design.md)。
+
 ## v0.2.23 - 2026-08-21
 
 功能：Phase 2 扩展入站协议 + Phase 3 非目标文档固化。

@@ -25,6 +25,8 @@ source "$REPO_ROOT/lib/common.sh"
 source "$REPO_ROOT/lib/tls.sh"
 # shellcheck source=lib/protocols/_registry.sh
 source "$REPO_ROOT/lib/protocols/_registry.sh"
+# shellcheck source=lib/mesh/_registry.sh
+source "$REPO_ROOT/lib/mesh/_registry.sh"
 # shellcheck source=lib/config.sh
 source "$REPO_ROOT/lib/config.sh"
 # Create fake sing-box binary that supports 'check'
@@ -44,8 +46,12 @@ if [[ "$1" == "generate" && "$2" == "reality-keypair" ]]; then
   echo "PublicKey: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBEE"
   exit 0
 fi
+if [[ "$1" == "generate" && "$2" == "wg-keypair" ]]; then
+  echo "PrivateKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE="
+  echo "PublicKey: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBEE="
+  exit 0
+fi
 if [[ "$1" == "generate" && "$2" == "rand" ]]; then
-  # generate rand --base64 16
   echo "AAAAAAAAAAAAAAAAAAAAAA=="
   exit 0
 fi

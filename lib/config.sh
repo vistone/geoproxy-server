@@ -1,11 +1,11 @@
 #!/bin/bash
-# 生成 / 校验代理配置（IPv4/IPv6 自适应监听；入站由协议插件渲染）
+# 生成 / 校验代理配置（入站插件 + 可选 mesh endpoints/route）
 
 gps_write_config() {
 	gps_protocol_normalize
 	gps_protocol_defaults
+	gps_profile_normalize
 	[[ -n ${PORT:-} ]] || err "PORT 未设置"
-	# 多数协议仍用 UUID/PASSWORD；Shadowsocks 等由 defaults 填齐
 	gps_ensure_tls
 	mkdir -p "$GPS_ETC" "$GPS_LOG_DIR"
 	detect_local_stack
@@ -24,7 +24,6 @@ gps_write_config() {
 $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
 			msg "$(_cyan "监听模式") STACK_MODE=dual bindv6only=1 → 0.0.0.0 + ::"
 		else
-			# 单一 :: 双栈 socket，同时接 IPv4-mapped 与 IPv6
 			inbounds="$(gps_proto_inbound_json "${PROTOCOL}-in-dual" ::)"
 			msg "$(_cyan "监听模式") STACK_MODE=dual bindv6only=0 → ::（双栈）"
 		fi
@@ -39,7 +38,6 @@ $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
 		;;
 	esac
 
-	# debug：可看到进站/出站连接；info 仅启动信息；warn 几乎为空
 	local log_level=${LOG_LEVEL:-debug}
 	case $log_level in
 	trace | debug | info | warn | error | fatal | panic) ;;
@@ -57,6 +55,22 @@ $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
 ${extra}"
 	fi
 
+	local endpoints_block=""
+	endpoints_block=$(gps_mesh_endpoints_json 2>/dev/null || true)
+	local outbounds_block
+	outbounds_block=$(gps_mesh_outbounds_json)
+	local route_block=""
+	route_block=$(gps_mesh_route_json 2>/dev/null || true)
+
+	# 组装：edge 无 endpoints/route 字段，保持与历史兼容
+	local endpoints_section="" route_comma=""
+	if [[ -n ${endpoints_block//[[:space:]]/} ]]; then
+		endpoints_section=$(printf '  "endpoints": [\n%s\n  ],\n' "$endpoints_block")
+	fi
+	if [[ -n ${route_block//[[:space:]]/} ]]; then
+		route_comma=","
+	fi
+
 	cat >"$GPS_CONFIG" <<EOF
 {
   "log": {
@@ -64,18 +78,20 @@ ${extra}"
     "timestamp": true,
     "output": "${log_out}"
   },
-  "inbounds": [
+${endpoints_section}  "inbounds": [
 ${inbounds_block}
   ],
   "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_block}
+  ]${route_comma}
+${route_block}
 }
 EOF
+	# 若无 route，上面可能留下多余空行；清理尾部孤立逗号已用 route_comma 处理
+	# 无 route 时 JSON 以 outbounds 闭合；有 route 时 route_block 自带 "route":{...}
 	chmod 600 "$GPS_CONFIG"
+	# 无 route 时文件末尾可能是 `  ]\n}` — OK
+	# 有 route 时 `  ],\n  "route": {...}\n}` — OK；但 route_block 缩进需正确
 	gps_check_config
 }
 
@@ -89,7 +105,6 @@ gps_config_log_level() {
 		sed -E 's/.*"([a-z]+)".*/\1/' || echo "${LOG_LEVEL:-debug}"
 }
 
-# 写入日志级别并校验；调用方负责 save_state / restart
 gps_set_log_level() {
 	local level=${1:-debug}
 	case $level in
@@ -107,7 +122,6 @@ gps_set_log_level() {
 	msg "$(_green "日志级别") → $level（进站/出站连接建议 debug）"
 }
 
-# 旧安装默认 warn/info → 抬到 debug（用户显式设置过级别则不动）
 gps_bump_log_level_if_quiet() {
 	[[ ${LOG_LEVEL_EXPLICIT:-0} == 1 ]] && return 0
 	[[ -f ${GPS_CONFIG:-} ]] || return 0

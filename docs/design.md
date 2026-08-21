@@ -3,7 +3,9 @@
 ## 产品模型
 
 - 每台 VPS **一个** sing-box 实例；**一次只激活一个**入站协议（`PROTOCOL`）。
-- 入站由 `lib/protocols/*` 插件渲染，出站固定为 `direct`（出口节点，不是客户端分流器）。
+- **PROFILE**
+  - `edge`（默认）：入站 → `direct`（与历史行为一致）
+  - `mesh-member`：入站 + WireGuard `endpoints` 互连 + `route`（overlay / 可选 L3 跳板）
 - **默认协议仍为 TUIC**；可通过 `change protocol` / `install --protocol` 切换。
 
 ### 已注册入站协议
@@ -14,15 +16,34 @@
 | v0.2.22+ | `hysteria2` · `vless`（Reality）· `trojan` · `shadowsocks` |
 | v0.2.23+ | `vmess` · `anytls` · `hysteria` · `naive` · `snell` · `shadowtls`（+ 内层 SS） |
 
+### Mesh 组网（v0.2.24+）
+
+- 规格：[`docs/superpowers/specs/2026-08-21-mesh-design.md`](./superpowers/specs/2026-08-21-mesh-design.md)
+- CLI：`mesh init|show|peer|export|import|sync|hop`；`change profile` / `change mesh-exit`
+- 登记面：`peers.json`（文件/URL 同步）；数据面无单点流量中心
+- L3 跳板：仅一个 peer 可带 `0.0.0.0/0`；禁止 exit=自己
+- L7：`mesh hop` 注入带 `detour` 的 outbound 片段
+
+### sing-box 能力对照（本产品启用范围）
+
+| 模块 | 状态 |
+|------|------|
+| inbounds | 已插件化 |
+| outbounds | edge=`direct`；mesh 可加 hop/`detour` |
+| endpoints | mesh-member 下 WireGuard |
+| route | mesh-member 下 overlay→wg-ep |
+| dns / services(DERP, realm) / Tailscale | 未默认启用（后续可选） |
+
 ### 明确不支持（非目标）
 
-- 本机透明/虚拟网卡：`tun` · `tproxy` · `redirect`
+- 本机透明/虚拟网卡默认劫持：`tun` · `tproxy` · `redirect`（WG 用 endpoint，非系统全局 tun 抢路由）
 - 非出口入站：`direct` inbound · `cloudflared`
-- 对公网暴露的 `mixed` / `socks` / `http`（本地调试请自行改配置且勿用本脚本托管）
-- 多出站路由、DNS 劫持、把 VPS 改成链式客户端
+- 对公网暴露的 `mixed` / `socks` / `http`
+- 无登记的纯 DHT 自动发现；默认不捆绑 Tailscale/Headscale 云
 
 协议插件：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./superpowers/specs/2026-08-21-protocol-plugin-design.md)
 多协议：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./superpowers/specs/2026-08-21-multi-protocol-design.md)
+Mesh：[`docs/superpowers/specs/2026-08-21-mesh-design.md`](./superpowers/specs/2026-08-21-mesh-design.md)
 
 ## KiwiVM 流量熔断
 

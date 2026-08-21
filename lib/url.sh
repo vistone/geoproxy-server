@@ -52,6 +52,7 @@ gps_cmd_info() {
 	msg "  配置:     $GPS_CONFIG"
 	msg "  端口:     $PORT"
 	msg "  入站协议: ${PROTOCOL:-tuic}"
+	msg "  PROFILE:   ${PROFILE:-edge}"
 	msg "  协议栈:   ${STACK_MODE:-?}（本机 v4=${HAS_V4} v6=${HAS_V6}）"
 	msg "  UUID:     ${UUID:-（无）}"
 	if [[ -n ${PASSWORD:-} ]]; then
