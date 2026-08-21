@@ -128,16 +128,37 @@ gps_mesh_cmd_init() {
 }
 
 gps_mesh_cmd_show() {
+	# 展示前自动 ensure，避免「未初始化」假象
+	if [[ -n ${PORT:-} ]] || [[ -f ${GPS_STATE:-} ]]; then
+		load_state 2>/dev/null || true
+		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+		save_state
+	fi
 	gps_mesh_role_normalize 2>/dev/null || true
 	gps_profile_normalize 2>/dev/null || true
 	gps_mesh_ensure_node_id 2>/dev/null || true
+	gps_mesh_defaults 2>/dev/null || true
+	local join_url=${MESH_MASTER_URL:-}
+	if [[ ${MESH_ROLE:-} == master ]]; then
+		if [[ -n ${PUBLIC_IP:-} ]]; then
+			join_url="http://${PUBLIC_IP}:${MESH_MASTER_PORT:-19527}"
+		elif [[ -n ${PUBLIC_IP6:-} ]]; then
+			join_url="http://[${PUBLIC_IP6}]:${MESH_MASTER_PORT:-19527}"
+		else
+			join_url=${join_url:-http://127.0.0.1:${MESH_MASTER_PORT:-19527}}
+		fi
+	fi
 	msg "$(_cyan "Mesh")"
 	msg "  MESH_ROLE:   ${MESH_ROLE:-?}"
 	msg "  NODE_ID:     ${NODE_ID:-（未设置）}"
 	msg "  overlay:     ${MESH_OVERLAY_IP:-?}  prefix=${MESH_OVERLAY_PREFIX:-10.66.0.0/16}"
 	msg "  WG listen:   ${WG_LISTEN_PORT:-51820}"
 	msg "  WG public:   ${WG_PUBLIC_KEY:-（未生成）}"
-	msg "  master URL:  ${MESH_MASTER_URL:-local}"
+	msg "  master URL:  ${join_url:-?}"
+	if [[ ${MESH_ROLE:-} == master && -n ${MESH_CLUSTER_TOKEN:-} ]]; then
+		msg "  其它节点加入:"
+		msg "    GPS_MESH_MASTER=${join_url} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
+	fi
 	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
 	msg "  peers file:  ${GPS_MESH_PEERS:-}"
 	if [[ -f ${GPS_MESH_PEERS:-} ]]; then

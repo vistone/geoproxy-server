@@ -164,6 +164,11 @@ gps_pid_running() {
 }
 
 gps_start_foreground_bg() {
+	load_state 2>/dev/null || true
+	if declare -F gps_mesh_ensure_boot >/dev/null 2>&1; then
+		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+		save_state 2>/dev/null || true
+	fi
 	gps_bump_log_level_if_quiet
 	gps_check_config
 	mkdir -p "$(dirname "$GPS_PID_FILE")" "$GPS_LOG_DIR"
@@ -251,6 +256,12 @@ gps_svc_halt() {
 
 # 重新加载 unit 后全新 start（不调用 restart）
 gps_svc_boot() {
+	# 启动前强制组网身份/配置就绪（不依赖 unit 是否已含 ExecStartPre）
+	load_state 2>/dev/null || true
+	if declare -F gps_mesh_ensure_boot >/dev/null 2>&1; then
+		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+		save_state 2>/dev/null || true
+	fi
 	gps_bump_log_level_if_quiet
 	gps_check_config
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then

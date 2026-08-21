@@ -149,7 +149,28 @@ setup() {
 	kill -KILL "$mpid" >/dev/null 2>&1 || true
 }
 
+@test "mesh show auto-ensures keys and join url" {
+	export PORT=43009
+	export UUID="00000000-0000-4000-8000-000000000108"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.50"
+	export MESH_ROLE=master
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	save_state
+	# 故意不手动 ensure，仅 show（不要用 run：子 shell 丢变量）
+	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/mesh-show.out"
+	grep -q '203.0.113.50:19527' "$GPS_TEST_PREFIX/mesh-show.out"
+	! grep -q 'master URL:  local' "$GPS_TEST_PREFIX/mesh-show.out"
+	grep -q 'WG public:' "$GPS_TEST_PREFIX/mesh-show.out"
+	! grep -q 'WG public:   （未生成）' "$GPS_TEST_PREFIX/mesh-show.out"
+	grep -q 'overlay:     10.66.0' "$GPS_TEST_PREFIX/mesh-show.out"
+	[ -f "$GPS_MESH_PEERS" ]
+}
+
 @test "tuic unit template includes mesh ensure ExecStartPre" {
 	grep -q 'mesh ensure' "$REPO_ROOT/templates/geoproxy-tuic.service"
 	grep -q '__BIN__' "$REPO_ROOT/templates/geoproxy-tuic.service"
+	# 不得用 '-' 忽略 ensure 失败（启动必须初始化组网）
+	! grep -qE 'ExecStartPre=-' "$REPO_ROOT/templates/geoproxy-tuic.service"
 }

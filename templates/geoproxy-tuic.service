@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStartPre=-__BIN__ mesh ensure
+ExecStartPre=__BIN__ mesh ensure
 ExecStart=__CORE_BIN__ run -c __CONFIG__
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

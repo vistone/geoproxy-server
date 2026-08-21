@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.26 - 2026-08-21
+
+修复：组网必须在启动时自动初始化，无需手工 `mesh ensure`。
+
+- `gps_svc_boot` / 无 systemd 前台启动：启动前强制 `mesh ensure` 并落盘（密钥、overlay、peers、config）。
+- `geoproxy-tuic` 的 `ExecStartPre` 改为硬依赖 ensure（去掉 `-` 忽略失败）。
+- `mesh show`：展示前自动 ensure；Master 显示公网 join URL + TOKEN 加入命令（不再显示无意义的 `local`）。
+
 ## v0.2.25 - 2026-08-21
 
 功能：组网随主服务开机 + Master 发现（零菜单）。
