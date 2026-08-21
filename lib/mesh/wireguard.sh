@@ -74,11 +74,28 @@ gps_mesh_peers_endpoint_json() {
 	fi
 	have_cmd python3 || err "mesh peers 渲染需要 python3"
 	NODE_ID="${NODE_ID:-}" MESH_EXIT_NODE_ID="${MESH_EXIT_NODE_ID:-}" \
+		MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
+		MESH_WG_LIVE_ONLY="${MESH_WG_LIVE_ONLY:-1}" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys
+from datetime import datetime, timezone
 path = sys.argv[1]
 self_id = os.environ.get("NODE_ID") or ""
 exit_id = os.environ.get("MESH_EXIT_NODE_ID") or ""
+stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
+live_only = (os.environ.get("MESH_WG_LIVE_ONLY") or "1") != "0"
+now = datetime.now(timezone.utc)
+
+def alive(n):
+    ls = n.get("last_seen") or ""
+    if not ls:
+        return True  # 手工 peer / 旧条目：无心跳字段仍纳入 WG
+    try:
+        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return (now - ts).total_seconds() <= stale
+
 with open(path, "r", encoding="utf-8") as f:
     doc = json.load(f)
 nodes = doc.get("nodes") or []
@@ -88,6 +105,8 @@ for n in nodes:
     nid = n.get("node_id") or ""
     if not nid or nid == self_id:
         continue
+    if live_only and not alive(n):
+        continue
     pk = n.get("public_key") or ""
     if not pk:
         continue
@@ -96,19 +115,15 @@ for n in nodes:
         continue
     endpoint = n.get("endpoint") or ""
     keepalive = int(n.get("keepalive") or 25)
-    roles = n.get("roles") or []
     allowed = [overlay + "/32"]
-    # 仅当本机指定该 peer 为 exit 时，才给该 peer 加默认路由（防环）
     if exit_id and nid == exit_id:
         if default_count:
             raise SystemExit("anti-loop: multiple default-route peers")
         allowed.extend(["0.0.0.0/0", "::/0"])
         default_count += 1
-    # exit 节点自身不应再把别人当 default（由 CLI 校验）；此处仍只信任 MESH_EXIT_NODE_ID
     ep_host, ep_port = "", 0
     if endpoint:
         if endpoint.startswith("["):
-            # [v6]:port
             br = endpoint.rfind("]")
             ep_host = endpoint[1:br]
             ep_port = int(endpoint[br+2:])
@@ -123,9 +138,8 @@ for n in nodes:
     if ep_host and ep_port:
         peer["address"] = ep_host
         peer["port"] = ep_port
-    # compact JSON object with indent for embedding
     blob = json.dumps(peer, ensure_ascii=False, indent=2)
-    indented = "\n".join("        " + line if i else "        " + line for i, line in enumerate(blob.splitlines()))
+    indented = "\n".join("        " + line for line in blob.splitlines())
     parts.append(indented)
 print(",\n".join(parts))
 PY

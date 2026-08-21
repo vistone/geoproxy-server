@@ -459,6 +459,8 @@ gps_save_state_unlocked() {
 		gps_env_assign MESH_CLUSTER_TOKEN "${MESH_CLUSTER_TOKEN:-}"
 		gps_env_assign MESH_MASTER_PORT "${MESH_MASTER_PORT:-}"
 		gps_env_assign MESH_SYNC_SEC "${MESH_SYNC_SEC:-}"
+		gps_env_assign MESH_PEER_STALE_SEC "${MESH_PEER_STALE_SEC:-}"
+		gps_env_assign MESH_WG_LIVE_ONLY "${MESH_WG_LIVE_ONLY:-}"
 		gps_env_assign NODE_ID "${NODE_ID:-}"
 		gps_env_assign WG_PRIVATE_KEY "${WG_PRIVATE_KEY:-}"
 		gps_env_assign WG_PUBLIC_KEY "${WG_PUBLIC_KEY:-}"

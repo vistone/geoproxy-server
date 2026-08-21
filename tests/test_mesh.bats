@@ -234,6 +234,25 @@ setup() {
 	kill -KILL "$mpid" >/dev/null 2>&1 || true
 }
 
+@test "register sets last_seen and show lists online nodes" {
+	export PORT=43012
+	export UUID="00000000-0000-4000-8000-000000000111"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.80"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="hb-token"
+	export NODE_ID=tile-master-hb
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	grep -q last_seen "$GPS_MESH_PEERS"
+	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/hb-show.out"
+	grep -q '节点列表' "$GPS_TEST_PREFIX/hb-show.out"
+	grep -q '在线' "$GPS_TEST_PREFIX/hb-show.out"
+	grep -q tile-master-hb "$GPS_TEST_PREFIX/hb-show.out"
+}
+
 @test "tuic unit template includes mesh ensure ExecStartPre" {
 	grep -q 'mesh ensure' "$REPO_ROOT/templates/geoproxy-tuic.service"
 	grep -q '__BIN__' "$REPO_ROOT/templates/geoproxy-tuic.service"

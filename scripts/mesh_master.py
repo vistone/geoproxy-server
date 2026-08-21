@@ -16,11 +16,42 @@ TOKEN = os.environ.get("MESH_CLUSTER_TOKEN", "")
 HOST = os.environ.get("GPS_MESH_MASTER_BIND", "0.0.0.0")
 PORT = int(os.environ.get("GPS_MESH_MASTER_PORT", "19527"))
 PREFIX = os.environ.get("MESH_OVERLAY_PREFIX", "10.66.0.0/16")
+STALE_SEC = int(os.environ.get("MESH_PEER_STALE_SEC", "180"))
 LOCK = threading.Lock()
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_utc(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def is_alive(last_seen: str | None, now: datetime | None = None) -> bool:
+    ts = parse_utc(last_seen)
+    if ts is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    return (now - ts).total_seconds() <= STALE_SEC
+
+
+def annotate_alive(doc: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    out = dict(doc)
+    nodes = []
+    for n in doc.get("nodes") or []:
+        nn = dict(n)
+        nn["alive"] = is_alive(n.get("last_seen"), now)
+        nodes.append(nn)
+    out["nodes"] = nodes
+    out["stale_sec"] = STALE_SEC
+    return out
 
 
 def empty_doc() -> dict:
@@ -88,19 +119,50 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/v1/health":
-            self._send(200, {"ok": True, "role": "master", "prefix": PREFIX})
+            self._send(200, {"ok": True, "role": "master", "prefix": PREFIX, "stale_sec": STALE_SEC})
             return
         if path == "/v1/peers":
             if not auth_ok(self):
                 self._send(401, {"error": "unauthorized"})
                 return
             with LOCK:
-                self._send(200, load_doc())
+                self._send(200, annotate_alive(load_doc()))
             return
         self._send(404, {"error": "not found"})
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/v1/heartbeat":
+            if not auth_ok(self):
+                self._send(401, {"error": "unauthorized"})
+                return
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                req = json.loads(raw.decode() or "{}")
+            except json.JSONDecodeError:
+                self._send(400, {"error": "invalid json"})
+                return
+            nid = (req.get("node_id") or "").strip()
+            if not nid:
+                self._send(400, {"error": "node_id required"})
+                return
+            with LOCK:
+                doc = load_doc()
+                found = False
+                for n in doc.get("nodes") or []:
+                    if n.get("node_id") == nid:
+                        n["last_seen"] = utc_now()
+                        if req.get("endpoint"):
+                            n["endpoint"] = req["endpoint"]
+                        found = True
+                        break
+                if not found:
+                    self._send(404, {"error": "unknown node; register first"})
+                    return
+                save_doc(doc)
+                self._send(200, {"ok": True, "peers": annotate_alive(doc)})
+            return
         if path != "/v1/register":
             self._send(404, {"error": "not found"})
             return
@@ -145,11 +207,12 @@ class Handler(BaseHTTPRequestHandler):
                 "overlay_ip": overlay,
                 "roles": roles,
                 "keepalive": keepalive,
+                "last_seen": utc_now(),
             }
             nodes.append(entry)
             doc["nodes"] = nodes
             save_doc(doc)
-            self._send(200, {"node": entry, "peers": doc})
+            self._send(200, {"node": entry, "peers": annotate_alive(doc)})
 
 
 def main() -> None:

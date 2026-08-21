@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.31 - 2026-08-21
+
+功能：Node 自动发现列表 + 心跳在线状态。
+
+- 登记/upsert 写入 `last_seen`；Master 提供 `POST /v1/heartbeat`；成员周期 `sync-master` 即心跳。
+- `mesh show`（菜单 25）显示节点列表：`在线` / `离线` / `在线(本机)`，并统计心跳活动可用数。
+- WireGuard 默认只纳入心跳窗口内（`MESH_PEER_STALE_SEC`，默认 180s）的在线节点（`MESH_WG_LIVE_ONLY=1`）。
+
 ## v0.2.30 - 2026-08-21
 
 功能：菜单填写 Master / Node，相互发现。

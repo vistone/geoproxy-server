@@ -172,15 +172,55 @@ gps_mesh_cmd_show() {
 		gps_mesh_print_join_hints
 	fi
 	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
+	msg "  心跳窗口:   ${MESH_PEER_STALE_SEC:-180}s（超时视为离线；仅在线节点写入 WG）"
 	msg "  peers file:  ${GPS_MESH_PEERS:-}"
 	if [[ -f ${GPS_MESH_PEERS:-} ]]; then
-		msg "  peers:"
-		python3 - "$GPS_MESH_PEERS" <<'PY' 2>/dev/null || msg "    （无法解析）"
-import json, sys
-doc = json.load(open(sys.argv[1], encoding="utf-8"))
-for n in doc.get("nodes") or []:
-    roles = ",".join(n.get("roles") or [])
-    print(f"    - {n.get('node_id')} overlay={n.get('overlay_ip')} endpoint={n.get('endpoint') or '-'} roles={roles}")
+		msg "  节点列表（自动发现）:"
+		NODE_ID="${NODE_ID:-}" MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
+			python3 - "$GPS_MESH_PEERS" <<'PY' 2>/dev/null || msg "    （无法解析）"
+import json, os, sys
+from datetime import datetime, timezone
+path = sys.argv[1]
+self_id = os.environ.get("NODE_ID") or ""
+stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
+now = datetime.now(timezone.utc)
+doc = json.load(open(path, encoding="utf-8"))
+nodes = doc.get("nodes") or []
+if not nodes:
+    print("    （尚无节点；Node 在菜单 26 加入后会出现在此）")
+for n in nodes:
+    nid = n.get("node_id") or "?"
+    ls = n.get("last_seen") or ""
+    if nid == self_id:
+        status = "在线(本机)"
+    elif not ls:
+        status = "未知"
+    else:
+        try:
+            ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            age = (now - ts).total_seconds()
+            status = "在线" if age <= stale else "离线"
+        except ValueError:
+            status = "未知"
+    roles = ",".join(n.get("roles") or []) or "-"
+    ep = n.get("endpoint") or "-"
+    print(f"    - [{status}] {nid}  overlay={n.get('overlay_ip')}  endpoint={ep}  last_seen={ls or '-'}  roles={roles}")
+alive = 0
+for n in nodes:
+    nid = n.get("node_id") or ""
+    if nid == self_id:
+        alive += 1
+        continue
+    ls = n.get("last_seen") or ""
+    if not ls:
+        continue
+    try:
+        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        if (now - ts).total_seconds() <= stale:
+            alive += 1
+    except ValueError:
+        pass
+print(f"    合计: {len(nodes)} 节点，心跳活动可用: {alive}")
 PY
 	fi
 }
