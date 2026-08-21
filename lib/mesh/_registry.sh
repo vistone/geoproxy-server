@@ -8,6 +8,8 @@ source "${_gps_mesh_dir}/_common.sh"
 source "${_gps_mesh_dir}/wireguard.sh"
 # shellcheck source=lib/mesh/peers.sh
 source "${_gps_mesh_dir}/peers.sh"
+# shellcheck source=lib/mesh/discovery.sh
+source "${_gps_mesh_dir}/discovery.sh"
 # shellcheck source=lib/mesh/cli.sh
 source "${_gps_mesh_dir}/cli.sh"
 unset _gps_mesh_dir

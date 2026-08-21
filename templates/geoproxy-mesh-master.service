@@ -1,0 +1,17 @@
+[Unit]
+Description=GeoProxy mesh master registry
+Documentation=https://github.com/vistone/geoproxy-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-__GPS_STATE__
+Environment=GPS_MESH_PEERS=__GPS_MESH_PEERS__
+ExecStart=/usr/bin/env python3 __MESH_MASTER_PY__
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

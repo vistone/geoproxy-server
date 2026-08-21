@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.25 - 2026-08-21
+
+功能：组网随主服务开机 + Master 发现（零菜单）。
+
+- 每台机器安装后配置始终含 WireGuard `endpoints` + overlay `route`（不再依赖 `change profile`）。
+- **Master**：无 `GPS_MESH_MASTER` 时自动升主；`geoproxy-mesh-master.service` 提供 `POST /v1/register`、`GET /v1/peers`、`GET /v1/health`（Bearer `MESH_CLUSTER_TOKEN`，端口 19527）。
+- **Member**：`GPS_MESH_MASTER=http://IP:19527 GPS_MESH_TOKEN=...` 安装；开机 `ExecStartPre: mesh ensure` 注册并拉 peers；`geoproxy-mesh-sync.timer` 周期同步。
+- CLI：`mesh ensure` / `mesh sync-master`；`mesh show|export` 保留排障；PROFILE 切换废弃。
+- 文档：更新 mesh 规格与 `docs/design.md`。
+
 ## v0.2.24 - 2026-08-21
 
 功能：WireGuard mesh 组网（计划 Phase A–D 一次性落地）。

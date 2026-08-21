@@ -10,6 +10,13 @@ gps_cmd_mesh() {
 	local sub=${1:-show}
 	shift || true
 	case $sub in
+	ensure | boot)
+		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+		save_state
+		;;
+	sync-master | sync_master)
+		GPS_MESH_SYNC_RESTART=1 gps_mesh_sync_master
+		;;
 	init) gps_mesh_cmd_init "$@" ;;
 	show | status) gps_mesh_cmd_show "$@" ;;
 	peer)
@@ -20,74 +27,65 @@ gps_cmd_mesh() {
 		rm | remove | del) gps_mesh_peer_rm "$@" ;;
 		*) err "用法: mesh peer add|rm ..." ;;
 		esac
-		gps_profile_normalize
-		if [[ $PROFILE == mesh-member ]]; then
-			gps_write_config
-			save_state
-			gps_restart_svc
-		else
-			save_state
-			msg "peers 已更新；启用组网: change profile mesh-member"
-		fi
-		;;
-	export) gps_mesh_export ;;
-	import) gps_mesh_import "$@" ;;
-	sync)
-		gps_mesh_sync "$@"
-		gps_profile_normalize
-		if [[ $PROFILE == mesh-member ]]; then
-			gps_write_config
-			save_state
-			gps_restart_svc
-		else
-			save_state
-		fi
-		;;
-	hop)
-		# L7：写入额外 outbound JSON 片段（高级）；空参数清除
-		local frag=${1:-}
-		if [[ -z $frag || $frag == none || $frag == clear ]]; then
-			# shellcheck disable=SC2034  # 由 gps_mesh_outbounds_json / save_state 读取
-			MESH_L7_OUTBOUNDS_JSON=""
-			msg "$(_green "已清除 L7 hop outbounds")"
-		else
-			[[ -f $frag ]] || err "用法: mesh hop <json-file|none>（文件内容为 outbound 对象，可多个逗号分隔）"
-			# shellcheck disable=SC2034
-			MESH_L7_OUTBOUNDS_JSON=$(cat "$frag")
-			msg "$(_green "已加载 L7 outbounds 片段")"
-		fi
 		gps_write_config
 		save_state
 		gps_restart_svc
 		;;
+	export) gps_mesh_export ;;
+	import)
+		gps_mesh_import "$@"
+		gps_write_config
+		save_state
+		gps_restart_svc
+		;;
+	sync)
+		gps_mesh_sync "$@"
+		gps_write_config
+		save_state
+		gps_restart_svc
+		;;
+	hop)
+		local frag=${1:-}
+		if [[ -z $frag || $frag == none || $frag == clear ]]; then
+			# shellcheck disable=SC2034
+			MESH_L7_OUTBOUNDS_JSON=""
+		else
+			[[ -f $frag ]] || err "找不到文件: $frag"
+			MESH_L7_OUTBOUNDS_JSON=$(cat "$frag")
+		fi
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "mesh hop") 已更新"
+		;;
 	help | -h | --help) gps_mesh_help ;;
 	*)
-		warn "未知 mesh 子命令: $sub"
 		gps_mesh_help
-		exit 1
+		err "未知 mesh 子命令: $sub"
 		;;
 	esac
 }
 
 gps_mesh_help() {
 	cat <<EOF
-$GPS_NAME mesh — WireGuard 节点互连（PROFILE=mesh-member）
+$GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
 
-  mesh init [--overlay-ip IP] [--wg-port N] [--node-id ID]
+  mesh ensure              # 开机/ExecStartPre：密钥 + 注册/拉 peers + 写配置
+  mesh sync-master         # 周期：再注册并拉 peers（有变更则重启）
   mesh show
-  mesh peer add <id> --pubkey K --overlay-ip IP [--endpoint H:P] [--exit]
-  mesh peer rm <id>
-  mesh export
-  mesh import <file|->
-  mesh sync <url-or-file>
-  mesh hop <json-file|none>   # L7 额外 outbound（可含 detour）
+  mesh export | import | sync <url-or-file>
+  mesh peer add|rm ...     # 排障手工改 peers
+  mesh hop <json-file|none>
+  mesh init ...            # 兼容旧命令（等同 ensure + 可选覆盖）
 
-启用: change profile mesh-member
-指定 L3 出口跳板: change mesh-exit <node_id|none>
+安装：无 GPS_MESH_MASTER → 本机为 Master；成员：
+  GPS_MESH_MASTER=http://IP:19527 GPS_MESH_TOKEN=... bash install.sh
+跳板: change mesh-exit <node_id|none>
 EOF
 }
 
 gps_mesh_cmd_init() {
+	# 兼容旧 CLI：参数覆盖后走 ensure
 	local overlay="" wgport="" nid=""
 	while [[ $# -gt 0 ]]; do
 		case $1 in
@@ -109,30 +107,37 @@ gps_mesh_cmd_init() {
 	[[ -n $nid ]] && NODE_ID=$nid
 	[[ -n $overlay ]] && MESH_OVERLAY_IP=$overlay
 	[[ -n $wgport ]] && WG_LISTEN_PORT=$wgport
-	gps_mesh_ensure_node_id
-	gps_mesh_defaults
-	gps_mesh_ensure_wg_keys
-	gps_mesh_ensure_overlay_ip
-	gps_mesh_peers_upsert_self
-	PROFILE=mesh-member
-	gps_profile_normalize
-	gps_write_config
+	MESH_ROLE=${MESH_ROLE:-master}
+	gps_mesh_bootstrap_from_env 2>/dev/null || {
+		gps_mesh_role_normalize
+		PROFILE=mesh-member
+		gps_mesh_defaults
+		if [[ $MESH_ROLE == master ]]; then
+			MESH_OVERLAY_IP=${MESH_OVERLAY_IP:-10.66.0.1}
+			gps_mesh_ensure_cluster_token
+		fi
+	}
+	[[ -n $nid ]] && NODE_ID=$nid
+	[[ -n $overlay ]] && MESH_OVERLAY_IP=$overlay
+	[[ -n $wgport ]] && WG_LISTEN_PORT=$wgport
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
 	gps_restart_svc
-	msg "$(_green "mesh init 完成") node_id=$NODE_ID overlay=$MESH_OVERLAY_IP wg_port=$WG_LISTEN_PORT"
+	msg "$(_green "mesh init 完成") role=$MESH_ROLE node_id=$NODE_ID overlay=$MESH_OVERLAY_IP wg_port=$WG_LISTEN_PORT"
 	msg "公钥: $WG_PUBLIC_KEY"
-	msg "导出给其它节点: $GPS_NAME mesh export"
 }
 
 gps_mesh_cmd_show() {
-	gps_profile_normalize
+	gps_mesh_role_normalize 2>/dev/null || true
+	gps_profile_normalize 2>/dev/null || true
 	gps_mesh_ensure_node_id 2>/dev/null || true
 	msg "$(_cyan "Mesh")"
-	msg "  PROFILE:     ${PROFILE:-edge}"
+	msg "  MESH_ROLE:   ${MESH_ROLE:-?}"
 	msg "  NODE_ID:     ${NODE_ID:-（未设置）}"
 	msg "  overlay:     ${MESH_OVERLAY_IP:-?}  prefix=${MESH_OVERLAY_PREFIX:-10.66.0.0/16}"
 	msg "  WG listen:   ${WG_LISTEN_PORT:-51820}"
 	msg "  WG public:   ${WG_PUBLIC_KEY:-（未生成）}"
+	msg "  master URL:  ${MESH_MASTER_URL:-local}"
 	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
 	msg "  peers file:  ${GPS_MESH_PEERS:-}"
 	if [[ -f ${GPS_MESH_PEERS:-} ]]; then

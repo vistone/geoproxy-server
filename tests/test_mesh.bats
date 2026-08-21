@@ -9,20 +9,22 @@ setup() {
 	gps_restart_svc() { :; }
 }
 
-@test "edge profile config has no endpoints or route" {
+@test "default ensure boot always has wireguard endpoints" {
 	export PORT=43001
 	export UUID="00000000-0000-4000-8000-000000000100"
-	export PASSWORD="edge-pass"
+	export PASSWORD="mesh-pass"
 	export PROTOCOL=tuic
-	export PROFILE=edge
+	export PUBLIC_IP="203.0.113.10"
+	export MESH_ROLE=master
 	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
-	run gps_write_config
-	[ "$status" -eq 0 ]
-	run grep -q '"endpoints"' "$GPS_CONFIG"
-	[ "$status" -ne 0 ]
-	run grep -q '"route"' "$GPS_CONFIG"
-	[ "$status" -ne 0 ]
-	grep -q '"type": "direct"' "$GPS_CONFIG"
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	grep -q '"type": "wireguard"' "$GPS_CONFIG"
+	grep -q '"tag": "wg-ep"' "$GPS_CONFIG"
+	grep -q '"route"' "$GPS_CONFIG"
+	grep -q '10.66.0.0/16' "$GPS_CONFIG"
+	[ -f "$GPS_MESH_PEERS" ]
+	[ -n "$MESH_CLUSTER_TOKEN" ]
+	[ "$MESH_OVERLAY_IP" = "10.66.0.1" ]
 	run python3 -m json.tool "$GPS_CONFIG"
 	[ "$status" -eq 0 ]
 }
@@ -37,12 +39,9 @@ setup() {
 	gps_write_config
 	save_state
 	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1 --wg-port 51820
-	[ "$PROFILE" = "mesh-member" ]
+	[ "$MESH_ROLE" = "master" ]
 	[ -f "$GPS_MESH_PEERS" ]
 	grep -q '"type": "wireguard"' "$GPS_CONFIG"
-	grep -q '"tag": "wg-ep"' "$GPS_CONFIG"
-	grep -q '"route"' "$GPS_CONFIG"
-	grep -q '10.66.0.0/16' "$GPS_CONFIG"
 	run python3 -m json.tool "$GPS_CONFIG"
 	[ "$status" -eq 0 ]
 }
@@ -53,6 +52,7 @@ setup() {
 	export PASSWORD="mesh-pass"
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.11"
+	export MESH_ROLE=master
 	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
 	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1
 	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
@@ -61,7 +61,6 @@ setup() {
 	[[ "$output" == *tile-b* ]]
 	local dump=$GPS_TEST_PREFIX/peers-out.json
 	gps_mesh_export >"$dump"
-	# wipe remote peer and re-import
 	gps_mesh_peer_rm tile-b
 	run grep tile-b "$GPS_MESH_PEERS"
 	[ "$status" -ne 0 ]
@@ -75,6 +74,7 @@ setup() {
 	export PASSWORD="mesh-pass"
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.13"
+	export MESH_ROLE=master
 	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
 	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1
 	gps_mesh_peer_add tile-exit --pubkey "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=" --overlay-ip 10.66.0.9 --endpoint 203.0.113.99:51820 --exit
@@ -85,28 +85,71 @@ setup() {
 	[ "$status" -eq 0 ]
 }
 
-@test "change profile mesh-member persists" {
-	export PORT=43005
-	export UUID="00000000-0000-4000-8000-000000000104"
-	export PASSWORD="mesh-pass"
-	export PROTOCOL=tuic
-	export PROFILE=edge
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
-	gps_write_config
-	save_state
-	run gps_cmd_change profile mesh-member
-	[ "$status" -eq 0 ]
-	grep -q '^PROFILE=mesh-member$' "$GPS_STATE"
-	grep -q wireguard "$GPS_CONFIG"
-}
-
 @test "anti-loop rejects self as mesh-exit" {
 	export PORT=43006
 	export UUID="00000000-0000-4000-8000-000000000105"
 	export PASSWORD="mesh-pass"
 	export PROTOCOL=tuic
+	export MESH_ROLE=master
 	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
 	gps_mesh_cmd_init --node-id tile-self --overlay-ip 10.66.0.7
 	run gps_cmd_change mesh-exit tile-self
 	[ "$status" -ne 0 ]
+}
+
+@test "master registry register and member pull" {
+	export PORT=43007
+	export UUID="00000000-0000-4000-8000-000000000106"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.20"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="test-token-aabb"
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+
+	local master_peers=$GPS_MESH_PEERS
+	local mport
+	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	MESH_CLUSTER_TOKEN=test-token-aabb GPS_MESH_PEERS="$master_peers" \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >/tmp/gps-mesh-master-test.log 2>&1 &
+	local mpid=$!
+	disown "$mpid" 2>/dev/null || true
+	# wait until health responds (max ~3s)
+	local i
+	for i in 1 2 3 4 5 6; do
+		curl -fsS --max-time 1 "http://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
+		sleep 0.5
+	done
+	curl -fsS --max-time 2 "http://127.0.0.1:${mport}/v1/health" | grep -q '"ok": true'
+
+	# member-like register via API (same as gps_mesh_register_and_pull)
+	local resp
+	resp=$(mktemp)
+	curl -fsS --max-time 5 \
+		-H "Authorization: Bearer test-token-aabb" \
+		-H "Content-Type: application/json" \
+		-d '{"node_id":"tile-member","public_key":"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=","endpoint":"203.0.113.21:51820","overlay_ip":"10.66.0.5","roles":["edge"]}' \
+		"http://127.0.0.1:${mport}/v1/register" -o "$resp"
+	grep -q tile-member "$resp"
+	grep -q tile-member "$master_peers"
+	# member pull
+	MESH_ROLE=member MESH_MASTER_URL="http://127.0.0.1:${mport}" MESH_CLUSTER_TOKEN=test-token-aabb \
+		NODE_ID=tile-member WG_PUBLIC_KEY="EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=" \
+		WG_PRIVATE_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE=" \
+		MESH_OVERLAY_IP=10.66.0.5 \
+		gps_mesh_register_and_pull
+	grep -q tile-member "$GPS_MESH_PEERS"
+	rm -f "$resp"
+
+	kill -TERM "$mpid" >/dev/null 2>&1 || true
+	sleep 0.2
+	kill -KILL "$mpid" >/dev/null 2>&1 || true
+}
+
+@test "tuic unit template includes mesh ensure ExecStartPre" {
+	grep -q 'mesh ensure' "$REPO_ROOT/templates/geoproxy-tuic.service"
+	grep -q '__BIN__' "$REPO_ROOT/templates/geoproxy-tuic.service"
 }

@@ -372,7 +372,7 @@ load_state() {
 	PUBLIC_IP6=${PUBLIC_IP6:-}
 	# 旧安装无 PROTOCOL → tuic；未知值在写配置前由 gps_protocol_normalize 拒绝
 	PROTOCOL=${PROTOCOL:-tuic}
-	PROFILE=${PROFILE:-edge}
+	PROFILE=${PROFILE:-mesh-member}
 	# 恢复测试前缀路径
 	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_apply_paths
@@ -452,7 +452,12 @@ gps_save_state_unlocked() {
 		gps_env_assign SHADOWTLS_VERSION "${SHADOWTLS_VERSION:-}"
 		gps_env_assign SHADOWTLS_HANDSHAKE "${SHADOWTLS_HANDSHAKE:-}"
 		gps_env_assign SHADOWTLS_INNER_PORT "${SHADOWTLS_INNER_PORT:-}"
-		gps_env_assign PROFILE "${PROFILE:-edge}"
+		gps_env_assign PROFILE "${PROFILE:-mesh-member}"
+		gps_env_assign MESH_ROLE "${MESH_ROLE:-master}"
+		gps_env_assign MESH_MASTER_URL "${MESH_MASTER_URL:-}"
+		gps_env_assign MESH_CLUSTER_TOKEN "${MESH_CLUSTER_TOKEN:-}"
+		gps_env_assign MESH_MASTER_PORT "${MESH_MASTER_PORT:-}"
+		gps_env_assign MESH_SYNC_SEC "${MESH_SYNC_SEC:-}"
 		gps_env_assign NODE_ID "${NODE_ID:-}"
 		gps_env_assign WG_PRIVATE_KEY "${WG_PRIVATE_KEY:-}"
 		gps_env_assign WG_PUBLIC_KEY "${WG_PUBLIC_KEY:-}"

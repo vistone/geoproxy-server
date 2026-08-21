@@ -1,90 +1,73 @@
-# GeoProxy Mesh Design (WireGuard + Route + Multi-hop)
+# GeoProxy Mesh Design (Always-on WG + Master Discovery)
 
 ## Goal
 
-Evolve GeoProxy Server from single-node `inbound → direct` into an optional **mesh-member** profile: nodes discover each other via a peer registry, interconnect with a WireGuard **endpoint**, and forward traffic with `route` / `detour`—without changing the default **edge** install behavior.
-
-Versions (patch bumps only):
+每台 VPS 随 `geoproxy-tuic` **开机即带 WireGuard mesh**；集群中恰好一台 **Master** 做节点登记与 peer 下发，成员开机自动注册并拉取名单。数据面去中心（WG 全互连）；Master 不转发业务流量。
 
 | Version | Scope |
 |---------|--------|
-| **v0.2.24** | Config skeleton: `PROFILE`, optional `endpoints`/`route`/`outbounds` hooks; edge byte-compatible |
-| **v0.2.25** | WireGuard endpoint + `mesh init` / `peer add` / `show` + overlay route |
-| **v0.2.26** | Peer export / import / sync (mutual awareness) |
-| **v0.2.27** | L3 exit hop + L7 outbound detour + doctor checks |
+| **v0.2.24** | 手工 peers / PROFILE 门控的 WG（过渡） |
+| **v0.2.25** | Always-on mesh + Master HTTP 登记 + sync timer |
 
 ## Product invariants
 
-1. One sing-box process per host.
-2. Default `PROFILE=edge`: one inbound protocol → `direct`; no endpoints; no complex route (same as v0.2.23).
-3. `PROFILE=mesh-member`: same public inbound + WireGuard endpoint + route to overlay/peers.
-4. Hardening (JSON escape, atomic state, checksum upgrades, KiwiVM) unchanged.
-5. Data plane has no single traffic hub; registry is control-plane only (file/URL).
+1. One sing-box process per host（入站 + WG endpoint）。
+2. 组网默认开启；无需 `mesh init` / `change profile`。
+3. 控制面：仅 Master 跑 `geoproxy-mesh-master`（HTTP + token）。
+4. Hardening（JSON escape、atomic state、checksum 升级、KiwiVM）不变。
+5. Master 宕机：已有 peers 的节点继续互通；新节点无法加入直至恢复。
 
-## Profiles
+## Roles
 
-| PROFILE | endpoints | outbounds | route |
-|---------|-----------|-----------|-------|
-| `edge` | omitted | `[direct]` | omitted (sing-box default → first outbound) |
-| `mesh-member` | `wg-ep` | `direct` (+ optional hop outbounds later) | overlay → `wg-ep`; `final` → `direct` or exit peer |
+| Role | Install | Control plane |
+|------|---------|---------------|
+| **master** | 无 `GPS_MESH_MASTER` | enable `geoproxy-mesh-master`；token 自动生成 |
+| **member** | `GPS_MESH_MASTER` + `GPS_MESH_TOKEN` | 不启 master unit；`mesh ensure` 注册+拉 peers |
+
+## Discovery API
+
+- Listen: `0.0.0.0:19527`（`MESH_MASTER_PORT` / `GPS_MESH_MASTER_PORT`）
+- Auth: `Authorization: Bearer <MESH_CLUSTER_TOKEN>`
+- `POST /v1/register` — upsert；overlay 冲突则 Master 分配；响应含 peers 快照
+- `GET /v1/peers` — 完整 `peers.json` schema
+- `GET /v1/health` — 无鉴权
+
+实现：`scripts/mesh_master.py`。
+
+## Boot sequence
+
+1. `geoproxy-tuic` `ExecStartPre=-… mesh ensure`
+2. ensure：密钥 / overlay →（member）register+pull → 写 `config.json`
+3. sing-box 启动
+4. `geoproxy-mesh-sync.timer`（默认 60s）→ `mesh sync-master`
 
 ## WireGuard overlay
 
 - Prefix default: `10.66.0.0/16`
-- Each node: `MESH_OVERLAY_IP` (e.g. `10.66.0.N/32`), `WG_PRIVATE_KEY` / `WG_PUBLIC_KEY`, `WG_LISTEN_PORT` (default `51820`)
+- Master 默认 overlay：`10.66.0.1`
 - Endpoint tag: `wg-ep`
-- Peer `allowed_ips`: peer overlay `/32` (and optionally advertised routes); **never** mutual `0.0.0.0/0` between two non-exit peers (loop prevention)
+- Peer `allowed_ips`：peer `/32`；仅当 `MESH_EXIT_NODE_ID` 指向该 peer 时附加 `0.0.0.0/0`
 
-## Peer schema (`peers.json` / sync document)
+## Peer schema
 
-```json
-{
-  "schema": 1,
-  "updated_at": "2026-08-21T00:00:00Z",
-  "nodes": [
-    {
-      "node_id": "tile1",
-      "public_key": "...",
-      "endpoint": "1.2.3.4:51820",
-      "overlay_ip": "10.66.0.1",
-      "roles": ["edge", "exit"],
-      "keepalive": 25
-    }
-  ]
-}
-```
+同 v0.2.24：`/etc/geoproxy-server/mesh/peers.json`（schema=1）。Token 文件：`mesh/token`。
 
-Local path: `/etc/geoproxy-server/mesh/peers.json` (mode 600).
+## Multi-hop / anti-loop
 
-## Multi-hop
+与 v0.2.24 相同：`change mesh-exit`；禁止 exit=自己；至多一个 default-route peer。
 
-- **L3**: mark one peer `roles` contains `exit`; members set `MESH_EXIT_NODE_ID` → route default via that peer’s overlay (allowed_ips includes `0.0.0.0/0` **only on the member→exit peer entry**, never exit→member).
-- **L7**: optional outbounds with `detour` pointing at another proxy outbound; stored as mesh hop stubs in state (Phase D).
-
-## Anti-loop rules
-
-1. At most one peer entry per local config may carry `0.0.0.0/0` / `::/0`.
-2. Exit nodes must not set `MESH_EXIT_NODE_ID` to themselves.
-3. `mesh sync` rejects documents that would create bidirectional default routes.
-4. doctor warns if WG listen down or peer endpoint empty.
-
-## CLI surface
+## CLI
 
 ```text
-geoproxy-server mesh init [--overlay-ip 10.66.0.N] [--wg-port 51820]
-geoproxy-server mesh show
-geoproxy-server mesh peer add <node_id> --pubkey K --endpoint H:P --overlay-ip IP [--exit]
-geoproxy-server mesh peer rm <node_id>
-geoproxy-server mesh export
-geoproxy-server mesh import <file|->
-geoproxy-server mesh sync <url-or-file>
-geoproxy-server change profile edge|mesh-member
+geoproxy-server mesh ensure | sync-master | show | export | import | sync | peer | hop
+# 安装成员:
+GPS_MESH_MASTER=http://IP:19527 GPS_MESH_TOKEN=... bash install.sh
 geoproxy-server change mesh-exit <node_id|none>
 ```
 
-## Non-goals (this track)
+## Non-goals (this version)
 
-- Tailscale/Headscale (optional later)
-- System-wide TUN hijack as default
-- DHT / zero-registry discovery
-- Changing systemd unit name
+- Master HA / 多 Master
+- DHT、无 Master 公网发现
+- Tailscale/Headscale
+- 默认把 Master 当流量跳板

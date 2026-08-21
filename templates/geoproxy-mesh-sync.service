@@ -1,0 +1,7 @@
+[Unit]
+Description=GeoProxy mesh sync (register + pull peers)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=__BIN__ mesh sync-master

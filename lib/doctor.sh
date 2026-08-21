@@ -128,27 +128,41 @@ gps_doctor() {
 			warn_item "未配置 KiwiVM（流量熔断未启用）— change kiwivm <veid> <api_key>"
 		fi
 	fi
-	# Mesh
+	# Mesh（始终启用）
 	if load_state 2>/dev/null; then
-		gps_profile_normalize 2>/dev/null || true
-		if [[ ${PROFILE:-edge} == mesh-member ]]; then
-			check "mesh peers 文件" test -f "$GPS_MESH_PEERS"
-			check "WG 公钥已设置" test -n "${WG_PUBLIC_KEY:-}"
-			check "overlay IP 已设置" test -n "${MESH_OVERLAY_IP:-}"
-			if [[ -n ${MESH_EXIT_NODE_ID:-} && $MESH_EXIT_NODE_ID == "${NODE_ID:-}" ]]; then
-				msg "  $(_red FAIL) mesh-exit 指向自己（环路风险）"
-				fail=$((fail + 1))
-			elif [[ -n ${MESH_EXIT_NODE_ID:-} ]]; then
-				msg "  $(_green OK)  mesh-exit=$MESH_EXIT_NODE_ID"
-				ok=$((ok + 1))
-			fi
-			if [[ -n ${WG_LISTEN_PORT:-} ]] && have_cmd ss; then
-				if ss -lun 2>/dev/null | grep -qE ":${WG_LISTEN_PORT}\\b"; then
-					msg "  $(_green OK)  WG UDP 监听 :$WG_LISTEN_PORT"
+		gps_mesh_role_normalize 2>/dev/null || true
+		check "mesh peers 文件" test -f "$GPS_MESH_PEERS"
+		check "WG 公钥已设置" test -n "${WG_PUBLIC_KEY:-}"
+		check "overlay IP 已设置" test -n "${MESH_OVERLAY_IP:-}"
+		msg "  $(_green OK)  MESH_ROLE=${MESH_ROLE:-?}"
+		ok=$((ok + 1))
+		if [[ ${MESH_ROLE:-} == master ]]; then
+			check "mesh cluster token" test -n "${MESH_CLUSTER_TOKEN:-}"
+			if have_cmd curl; then
+				local hp=${MESH_MASTER_PORT:-19527}
+				if curl -fsS --max-time 2 "http://127.0.0.1:${hp}/v1/health" >/dev/null 2>&1; then
+					msg "  $(_green OK)  mesh-master health :$hp"
 					ok=$((ok + 1))
 				else
-					warn_item "WG UDP :${WG_LISTEN_PORT} 未看到（服务未起或未 mesh-member）"
+					warn_item "mesh-master :$hp 未响应（unit 未起或测试前缀）"
 				fi
+			fi
+		elif [[ ${MESH_ROLE:-} == member ]]; then
+			check "MESH_MASTER_URL 已设置" test -n "${MESH_MASTER_URL:-}"
+		fi
+		if [[ -n ${MESH_EXIT_NODE_ID:-} && $MESH_EXIT_NODE_ID == "${NODE_ID:-}" ]]; then
+			msg "  $(_red FAIL) mesh-exit 指向自己（环路风险）"
+			fail=$((fail + 1))
+		elif [[ -n ${MESH_EXIT_NODE_ID:-} ]]; then
+			msg "  $(_green OK)  mesh-exit=$MESH_EXIT_NODE_ID"
+			ok=$((ok + 1))
+		fi
+		if [[ -n ${WG_LISTEN_PORT:-} ]] && have_cmd ss; then
+			if ss -lun 2>/dev/null | grep -qE ":${WG_LISTEN_PORT}\\b"; then
+				msg "  $(_green OK)  WG UDP 监听 :$WG_LISTEN_PORT"
+				ok=$((ok + 1))
+			else
+				warn_item "WG UDP :${WG_LISTEN_PORT} 未看到（服务未起）"
 			fi
 		fi
 	fi

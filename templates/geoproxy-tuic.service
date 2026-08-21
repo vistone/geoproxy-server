@@ -1,11 +1,12 @@
 [Unit]
-Description=GeoProxy VPS TUIC (sing-box)
+Description=GeoProxy VPS proxy (sing-box)
 Documentation=https://github.com/
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStartPre=-__BIN__ mesh ensure
 ExecStart=__CORE_BIN__ run -c __CONFIG__
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

@@ -159,6 +159,9 @@ gps_cmd_install() {
 	gps_protocol_normalize
 	gps_protocol_defaults
 
+	# 组网：无 GPS_MESH_MASTER → Master；有则成员（需 token）
+	gps_mesh_bootstrap_from_env
+
 	# 落盘前统一校验所有边界输入
 	gps_validate_port "$PORT" || err "无效端口: $PORT（需 1-65535）"
 	# UUID：仅当本协议使用时强制（tuic/vless/vmess）；其它协议可空
@@ -184,7 +187,7 @@ gps_cmd_install() {
 		fi
 	fi
 
-	gps_write_config
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
 	gps_install_unit
 	gps_install_entrypoint
@@ -202,6 +205,12 @@ gps_cmd_install() {
 	gps_cmd_info
 	msg
 	gps_cmd_url
+	if [[ ${MESH_ROLE:-} == master ]]; then
+		local join_host=${PUBLIC_IP:-<公网IP>}
+		msg
+		msg "$(_cyan "其它节点加入组网:")"
+		msg "  GPS_MESH_MASTER=http://${join_host}:${MESH_MASTER_PORT:-19527} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
+	fi
 }
 
 # 重装时从 GitHub 拉取最新管理脚本（避免从已安装目录拷贝自己）
@@ -290,8 +299,10 @@ gps_cmd_uninstall() {
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_stop_bg 2>/dev/null || true
 		gps_remove_traffic_timer 2>/dev/null || true
+		gps_remove_mesh_units 2>/dev/null || true
 	elif have_cmd systemctl; then
 		gps_remove_traffic_timer 2>/dev/null || true
+		gps_remove_mesh_units 2>/dev/null || true
 		systemctl stop "$GPS_SERVICE" 2>/dev/null || true
 		systemctl disable "$GPS_SERVICE" 2>/dev/null || true
 		rm -f "$GPS_UNIT_PATH"
@@ -498,21 +509,13 @@ gps_cmd_change() {
 		return 0
 		;;
 	profile)
-		local pr=${1:-}
-		[[ -n $pr ]] || err "用法: change profile edge|mesh-member"
-		PROFILE=$pr
+		warn "PROFILE 已废弃：组网始终随主服务启用"
+		PROFILE=mesh-member
 		gps_profile_normalize
-		if [[ $PROFILE == mesh-member ]]; then
-			gps_mesh_ensure_node_id
-			gps_mesh_defaults
-			gps_mesh_ensure_wg_keys
-			gps_mesh_ensure_overlay_ip
-			gps_mesh_peers_upsert_self
-		fi
-		gps_write_config
+		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 		save_state
 		gps_restart_svc
-		msg "$(_green "PROFILE") → $PROFILE"
+		msg "$(_green "组网已确保") MESH_ROLE=${MESH_ROLE:-master}"
 		return 0
 		;;
 	mesh-exit | exit-node)
@@ -525,8 +528,6 @@ gps_cmd_change() {
 			[[ $eid != "${NODE_ID:-}" ]] || err "不能将自己设为 mesh-exit（防环）"
 			MESH_EXIT_NODE_ID=$eid
 		fi
-		gps_profile_normalize
-		[[ $PROFILE == mesh-member ]] || warn "当前 PROFILE=$PROFILE；mesh-exit 仅在 mesh-member 生效"
 		gps_write_config
 		save_state
 		gps_restart_svc
@@ -707,8 +708,8 @@ Usage: $GPS_NAME [command] [args...]
   status | start | stop | restart
   info | url | qr | log [--once]
   protocols
-  mesh init|show|peer|export|import|sync
-  change port|uuid|passwd|protocol|profile|mesh-exit|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  mesh ensure|show|export|import|sync|sync-master|peer|hop
+  change port|uuid|passwd|protocol|mesh-exit|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor
@@ -724,6 +725,6 @@ Usage: $GPS_NAME [command] [args...]
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
   - 默认日志 debug；分享 URL 节点名在 #fragment（change name）
   - 入站协议: protocols / change protocol <id>（默认 tuic）
-  - 组网: mesh init → change profile mesh-member；互知: mesh export/import/sync；跳板: change mesh-exit
+  - 组网随主服务开机；首台为 Master，成员: GPS_MESH_MASTER=... GPS_MESH_TOKEN=...；跳板: change mesh-exit
 EOF
 }

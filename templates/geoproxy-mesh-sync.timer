@@ -1,0 +1,12 @@
+[Unit]
+Description=GeoProxy mesh sync timer
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=__SYNC_SEC__
+AccuracySec=5s
+Persistent=true
+Unit=geoproxy-mesh-sync.service
+
+[Install]
+WantedBy=timers.target

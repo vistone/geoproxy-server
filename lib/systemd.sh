@@ -6,23 +6,88 @@ gps_install_unit() {
 		msg "$(_cyan "跳过 systemd")（--no-systemd / 测试前缀模式）"
 		mkdir -p "$(dirname "$GPS_PID_FILE")"
 		gps_install_logrotate
+		gps_install_mesh_units_files_only
 		return 0
 	fi
 	need_systemd
 	local tpl="${GPS_TMPL}/geoproxy-tuic.service"
 	[[ -f $tpl ]] || err "缺少 unit 模板: $tpl"
 	mkdir -p "$(dirname "$GPS_UNIT_PATH")"
+	local bin=${GPS_BIN_LINK:-/usr/local/bin/geoproxy-server}
 	sed -e "s|__CORE_BIN__|${GPS_CORE_BIN}|g" \
 		-e "s|__CONFIG__|${GPS_CONFIG}|g" \
 		-e "s|__LOG__|${GPS_LOG}|g" \
+		-e "s|__BIN__|${bin}|g" \
 		"$tpl" >"$GPS_UNIT_PATH"
 	gps_install_traffic_timer
+	gps_install_mesh_units
 	gps_install_logrotate
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		systemctl daemon-reload
 		systemctl enable "$GPS_SERVICE" >/dev/null
 	else
 		msg "$(_yellow "测试前缀下已写入 unit 文件，未 enable 系统 systemd")"
+	fi
+}
+
+# 仅写 unit 文件（测试前缀 / no-systemd）
+gps_install_mesh_units_files_only() {
+	gps_mesh_defaults 2>/dev/null || true
+	local bin=${GPS_BIN_LINK:-/usr/local/bin/geoproxy-server}
+	local mtpl="${GPS_TMPL}/geoproxy-mesh-master.service"
+	local stpl="${GPS_TMPL}/geoproxy-mesh-sync.service"
+	local ttpl="${GPS_TMPL}/geoproxy-mesh-sync.timer"
+	mkdir -p "$(dirname "${GPS_MESH_MASTER_UNIT_PATH:-/tmp/x}")" 2>/dev/null || true
+	if [[ -f $mtpl && -n ${GPS_MESH_MASTER_UNIT_PATH:-} ]]; then
+		sed -e "s|__GPS_STATE__|${GPS_STATE}|g" \
+			-e "s|__GPS_MESH_PEERS__|${GPS_MESH_PEERS}|g" \
+			-e "s|__MESH_MASTER_PY__|${GPS_MESH_MASTER_PY}|g" \
+			"$mtpl" >"$GPS_MESH_MASTER_UNIT_PATH"
+	fi
+	if [[ -f $stpl && -n ${GPS_MESH_SYNC_UNIT_PATH:-} ]]; then
+		sed -e "s|__BIN__|${bin}|g" "$stpl" >"$GPS_MESH_SYNC_UNIT_PATH"
+	fi
+	if [[ -f $ttpl && -n ${GPS_MESH_SYNC_TIMER_PATH:-} ]]; then
+		local sec=${MESH_SYNC_SEC:-60}
+		[[ $sec =~ ^[0-9]+$ ]] || sec=60
+		((sec < 15)) && sec=15
+		sed -e "s|__SYNC_SEC__|${sec}|g" "$ttpl" >"$GPS_MESH_SYNC_TIMER_PATH"
+	fi
+}
+
+gps_install_mesh_units() {
+	gps_mesh_role_normalize 2>/dev/null || MESH_ROLE=${MESH_ROLE:-master}
+	gps_mesh_defaults 2>/dev/null || true
+	gps_install_mesh_units_files_only
+	if [[ -n ${GPS_TEST_PREFIX:-} || ${GPS_NO_SYSTEMD:-0} == 1 ]]; then
+		return 0
+	fi
+	systemctl daemon-reload 2>/dev/null || true
+	if [[ ${MESH_ROLE:-master} == master ]]; then
+		systemctl enable --now "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 || \
+			systemctl enable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
+		msg "$(_cyan "mesh-master") 已启用（登记面 :${MESH_MASTER_PORT:-19527}）"
+	else
+		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
+	fi
+	systemctl enable --now "$GPS_MESH_SYNC_TIMER" >/dev/null 2>&1 || \
+		systemctl enable --now geoproxy-mesh-sync.timer >/dev/null 2>&1 || true
+	msg "$(_cyan "mesh-sync") timer 已启用（每 ${MESH_SYNC_SEC:-60}s）"
+}
+
+gps_remove_mesh_units() {
+	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
+		rm -f "${GPS_MESH_MASTER_UNIT_PATH:-}" "${GPS_MESH_SYNC_UNIT_PATH:-}" "${GPS_MESH_SYNC_TIMER_PATH:-}"
+		return 0
+	fi
+	if have_cmd systemctl; then
+		systemctl disable --now geoproxy-mesh-sync.timer >/dev/null 2>&1 || true
+		systemctl disable --now geoproxy-mesh-sync.service >/dev/null 2>&1 || true
+		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/geoproxy-mesh-master.service \
+			/etc/systemd/system/geoproxy-mesh-sync.service \
+			/etc/systemd/system/geoproxy-mesh-sync.timer
+		systemctl daemon-reload 2>/dev/null || true
 	fi
 }
 

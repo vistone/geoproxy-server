@@ -230,17 +230,21 @@ EOF
 	if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]]; then
 		local tpl="${GPS_TMPL}/geoproxy-tuic.service"
 		if [[ -f $tpl ]]; then
+			local bin=${GPS_BIN_LINK:-/usr/local/bin/geoproxy-server}
 			sed -e "s|__CORE_BIN__|${GPS_CORE_BIN}|g" \
 				-e "s|__CONFIG__|${GPS_CONFIG}|g" \
 				-e "s|__LOG__|${GPS_LOG}|g" \
+				-e "s|__BIN__|${bin}|g" \
 				"$tpl" >"$GPS_UNIT_PATH"
 		fi
 		gps_install_traffic_timer 2>/dev/null || true
+		gps_install_mesh_units 2>/dev/null || true
 		gps_install_logrotate
 		systemctl daemon-reload 2>/dev/null || true
 	elif [[ -n ${GPS_TEST_PREFIX:-} || ${GPS_NO_SYSTEMD:-0} == 1 ]]; then
 		# 测试前缀也写 timer 文件（不 enable）
 		gps_install_traffic_timer 2>/dev/null || true
+		gps_install_mesh_units_files_only 2>/dev/null || true
 		gps_install_logrotate
 	fi
 	SCRIPT_VER=$(cat "${GPS_ROOT}/VERSION" 2>/dev/null || echo "$GPS_SH_VER")

@@ -62,7 +62,7 @@ ${extra}"
 	local route_block=""
 	route_block=$(gps_mesh_route_json 2>/dev/null || true)
 
-	# 组装：edge 无 endpoints/route 字段，保持与历史兼容
+	# 组装：始终含 endpoints/route（WireGuard mesh）
 	local endpoints_section="" route_comma=""
 	if [[ -n ${endpoints_block//[[:space:]]/} ]]; then
 		endpoints_section=$(printf '  "endpoints": [\n%s\n  ],\n' "$endpoints_block")

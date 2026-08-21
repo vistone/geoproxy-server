@@ -38,10 +38,9 @@ gps_mesh_ensure_overlay_ip() {
 	gps_validate_ipv4 "$MESH_OVERLAY_IP" || err "无效 MESH_OVERLAY_IP: $MESH_OVERLAY_IP"
 }
 
-# 渲染 endpoints 数组内容（可为空）；不含外层 key
+# 渲染 endpoints 数组内容；组网始终启用
 gps_mesh_endpoints_json() {
 	gps_profile_normalize
-	[[ $PROFILE == mesh-member ]] || return 0
 	gps_mesh_ensure_node_id
 	gps_mesh_ensure_wg_keys
 	gps_mesh_ensure_overlay_ip
@@ -132,10 +131,9 @@ print(",\n".join(parts))
 PY
 }
 
-# route 片段：mesh-member 时 overlay → wg-ep
+# route 片段：overlay → wg-ep（始终启用）
 gps_mesh_route_json() {
 	gps_profile_normalize
-	[[ $PROFILE == mesh-member ]] || return 0
 	gps_mesh_defaults
 	local prefix final_tag
 	prefix=$(gps_json_escape "${MESH_OVERLAY_PREFIX}")

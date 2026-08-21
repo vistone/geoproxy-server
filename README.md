@@ -21,7 +21,7 @@
 - **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
 - 自签 TLS（按协议）；TUIC 默认 UUID=密码、BBR
 - 入站协议可切换（`change protocol` / `protocols`）
-- **Mesh（可选）**：`mesh init` → 节点 `export/import/sync` 互知；`change mesh-exit` 多级跳板；`mesh hop` L7 detour
+- **Mesh**：随主服务开机；首台为 Master，成员用 `GPS_MESH_MASTER`+`GPS_MESH_TOKEN` 加入；`change mesh-exit` 跳板
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
 
@@ -131,22 +131,22 @@ geoproxy-server traffic [status|check|resume]
 geoproxy-server version
 ```
 
-## Mesh 组网（多机互知 / 跳转）
+## Mesh 组网（开机自动 + Master 发现）
 
 ```bash
-# 节点 A
-geoproxy-server mesh init --node-id tile-a --overlay-ip 10.66.0.1
-geoproxy-server mesh export > /tmp/a.json
+# 首台（Master）— 普通安装即可
+bash install.sh
+# 安装结束会打印加入命令，含 TOKEN
 
-# 节点 B
-geoproxy-server mesh init --node-id tile-b --overlay-ip 10.66.0.2
-geoproxy-server mesh import /tmp/a.json
-geoproxy-server mesh export > /tmp/b.json
-# 回到 A
-geoproxy-server mesh import /tmp/b.json
+# 其它节点（Member）
+GPS_MESH_MASTER=http://MASTER_IP:19527 GPS_MESH_TOKEN=... bash install.sh
 
-# 可选：B 作为 L3 出口跳板
-geoproxy-server change mesh-exit tile-b
+# 排障
+geoproxy-server mesh show
+geoproxy-server mesh export
+
+# 可选：指定 L3 出口跳板
+geoproxy-server change mesh-exit <node_id>
 ```
 
 ## 路径
@@ -155,7 +155,10 @@ geoproxy-server change mesh-exit tile-b
 |------|------|
 | `/usr/local/bin/geoproxy-server` | 入口 |
 | `/etc/geoproxy-server/state.env` | 状态（含 KiwiVM，600） |
+| `/etc/geoproxy-server/mesh/peers.json` | 组网 peers |
 | `/var/log/geoproxy-server/sing-box.log` | 代理日志 |
 | `/var/log/geoproxy-server/traffic.log` | 熔断日志 |
-| `geoproxy-tuic.service` | 代理 |
+| `geoproxy-tuic.service` | 代理（含 mesh ensure） |
+| `geoproxy-mesh-master.service` | 仅 Master：登记 API |
+| `geoproxy-mesh-sync.timer` | 周期注册/拉 peers |
 | `geoproxy-traffic.timer` | 流量检查 |
