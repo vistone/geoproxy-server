@@ -35,12 +35,20 @@ cat >"$GPS_LIB_DIR/sing-box" <<'EOF'
 if [[ "$1" == "check" ]]; then
   exit 0
 fi
-# mimic generate uuid if asked
 if [[ "$1" == "generate" && "$2" == "uuid" ]]; then
-  echo "00000000-0000-0000-0000-000000000000"
+  echo "00000000-0000-4000-8000-000000000000"
   exit 0
 fi
-# default: exit 0
+if [[ "$1" == "generate" && "$2" == "reality-keypair" ]]; then
+  echo "PrivateKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE"
+  echo "PublicKey: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBEE"
+  exit 0
+fi
+if [[ "$1" == "generate" && "$2" == "rand" ]]; then
+  # generate rand --base64 16
+  echo "AAAAAAAAAAAAAAAAAAAAAA=="
+  exit 0
+fi
 exit 0
 EOF
 chmod +x "$GPS_LIB_DIR/sing-box"

@@ -2,15 +2,27 @@
 
 ## 产品模型
 
-- 每台 VPS **一个** sing-box 实例。
-- 入站由协议插件渲染，出站固定为 `direct`（出口节点，不是客户端分流器）。
-- **当前（v0.2.21 / Phase 0）** 已注册协议仅有 **TUIC**；`state.env` 中 `PROTOCOL` 缺省为 `tuic`（旧安装无该字段时同样按 tuic 加载）。
-- 运维骨架（双栈监听、自签 TLS、KiwiVM 熔断、自升级与核心校验、输入/JSON/state 加固）与具体协议解耦。
+- 每台 VPS **一个** sing-box 实例；**一次只激活一个**入站协议（`PROTOCOL`）。
+- 入站由 `lib/protocols/*` 插件渲染，出站固定为 `direct`（出口节点，不是客户端分流器）。
+- **默认协议仍为 TUIC**；可通过 `change protocol` / `install --protocol` 切换。
 
-协议插件设计：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./superpowers/specs/2026-08-21-protocol-plugin-design.md)
-Phase 0 实施计划：[`docs/superpowers/plans/2026-08-21-protocol-plugin-phase0.md`](./superpowers/plans/2026-08-21-protocol-plugin-phase0.md)
+### 已注册入站协议
 
-后续阶段（未实施）：Hysteria2 / VLESS+Reality 等服务端入站；明确不支持将本产品改造成 tun/tproxy 客户端。
+| 版本 | 协议 |
+|------|------|
+| v0.2.21+ | `tuic` |
+| v0.2.22+ | `hysteria2` · `vless`（Reality）· `trojan` · `shadowsocks` |
+| v0.2.23+ | `vmess` · `anytls` · `hysteria` · `naive` · `snell` · `shadowtls`（+ 内层 SS） |
+
+### 明确不支持（非目标）
+
+- 本机透明/虚拟网卡：`tun` · `tproxy` · `redirect`
+- 非出口入站：`direct` inbound · `cloudflared`
+- 对公网暴露的 `mixed` / `socks` / `http`（本地调试请自行改配置且勿用本脚本托管）
+- 多出站路由、DNS 劫持、把 VPS 改成链式客户端
+
+协议插件：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./superpowers/specs/2026-08-21-protocol-plugin-design.md)  
+多协议：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./superpowers/specs/2026-08-21-multi-protocol-design.md)
 
 ## KiwiVM 流量熔断
 

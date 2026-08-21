@@ -1,14 +1,28 @@
 #!/bin/bash
-# 协议注册表（Phase 0：仅 tuic）
+# 协议注册表
 # 设计：docs/superpowers/specs/2026-08-21-protocol-plugin-design.md
+#       docs/superpowers/specs/2026-08-21-multi-protocol-design.md
 
-# shellcheck disable=SC2034  # 白名单供 list / 未来 CLI 使用
-GPS_PROTOCOL_IDS=(tuic)
+# 服务端入站白名单（Phase 1 / v0.4.0；Phase 2 在 v0.5.0 启用）
+# shellcheck disable=SC2034
+GPS_PROTOCOL_IDS=(
+	tuic
+	hysteria2
+	vless
+	trojan
+	shadowsocks
+)
 
 # 规范化 PROTOCOL；缺省 tuic；未知 id 失败（落盘前调用）
 gps_protocol_normalize() {
 	PROTOCOL=${PROTOCOL:-tuic}
 	PROTOCOL=$(printf '%s' "$PROTOCOL" | tr '[:upper:]' '[:lower:]')
+	# 别名
+	case $PROTOCOL in
+	hy2 | hy) PROTOCOL=hysteria2 ;;
+	ss) PROTOCOL=shadowsocks ;;
+	st | shadow-tls) PROTOCOL=shadowtls ;;
+	esac
 	local id
 	for id in "${GPS_PROTOCOL_IDS[@]}"; do
 		if [[ $PROTOCOL == "$id" ]]; then
@@ -25,7 +39,14 @@ gps_protocol_list() {
 	done
 }
 
-# 按当前 PROTOCOL 做字段校验（install / change 落盘前）
+gps_protocol_defaults() {
+	gps_protocol_normalize
+	local fn="gps_proto_${PROTOCOL}_defaults"
+	if declare -F "$fn" >/dev/null 2>&1; then
+		"$fn"
+	fi
+}
+
 gps_protocol_validate() {
 	gps_protocol_normalize
 	local fn="gps_proto_${PROTOCOL}_validate"
@@ -36,7 +57,6 @@ gps_protocol_validate() {
 	fi
 }
 
-# 生成单个 inbound JSON 片段（不含尾逗号）
 gps_proto_inbound_json() {
 	gps_protocol_normalize
 	local fn="gps_proto_${PROTOCOL}_inbound_json"
@@ -47,7 +67,15 @@ gps_proto_inbound_json() {
 	fi
 }
 
-# 分享链接（多行）；协议模块应实现 gps_proto_<id>_share_urls
+# 可选：额外 inbound（如 ShadowTLS 内层），只调用一次
+gps_proto_extra_inbounds() {
+	gps_protocol_normalize
+	local fn="gps_proto_${PROTOCOL}_extra_inbounds"
+	if declare -F "$fn" >/dev/null 2>&1; then
+		"$fn"
+	fi
+}
+
 gps_proto_share_urls() {
 	gps_protocol_normalize
 	local fn="gps_proto_${PROTOCOL}_share_urls"
@@ -69,8 +97,12 @@ gps_proto_share_url() {
 	printf '%s\n' "$first"
 }
 
-# ---------- 加载已注册协议模块 ----------
+# ---------- 加载共享助手与已注册协议模块 ----------
 _gps_protocols_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/protocols/tuic.sh
-source "${_gps_protocols_dir}/tuic.sh"
-unset _gps_protocols_dir
+# shellcheck source=lib/protocols/_common.sh
+source "${_gps_protocols_dir}/_common.sh"
+for _gps_proto_id in "${GPS_PROTOCOL_IDS[@]}"; do
+	# shellcheck disable=SC1090
+	source "${_gps_protocols_dir}/${_gps_proto_id}.sh"
+done
+unset _gps_protocols_dir _gps_proto_id

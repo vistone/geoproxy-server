@@ -3,8 +3,9 @@
 
 gps_write_config() {
 	gps_protocol_normalize
-	# 与历史行为一致：此处只要求凭证非空；严格格式由 install/change 校验
-	[[ -n ${PORT:-} && -n ${UUID:-} && -n ${PASSWORD:-} ]] || err "PORT/UUID/PASSWORD 未设置"
+	gps_protocol_defaults
+	[[ -n ${PORT:-} ]] || err "PORT 未设置"
+	# 多数协议仍用 UUID/PASSWORD；Shadowsocks 等由 defaults 填齐
 	gps_ensure_tls
 	mkdir -p "$GPS_ETC" "$GPS_LOG_DIR"
 	detect_local_stack
@@ -47,6 +48,15 @@ $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
 	LOG_LEVEL=$log_level
 	local log_out
 	log_out=$(gps_json_escape "$GPS_LOG")
+
+	local extra=""
+	extra=$(gps_proto_extra_inbounds 2>/dev/null || true)
+	local inbounds_block=$inbounds
+	if [[ -n ${extra//[[:space:]]/} ]]; then
+		inbounds_block="${inbounds},
+${extra}"
+	fi
+
 	cat >"$GPS_CONFIG" <<EOF
 {
   "log": {
@@ -55,7 +65,7 @@ $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
     "output": "${log_out}"
   },
   "inbounds": [
-${inbounds}
+${inbounds_block}
   ],
   "outbounds": [
     {

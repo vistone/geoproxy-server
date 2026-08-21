@@ -1,15 +1,15 @@
 # GeoProxy Server（VPS 端）
 
-面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**入站协议可插件化扩展，当前默认 TUIC → direct 出站**。
+面向 **GeoProxy** 的 VPS 一键部署与管理脚本：每台机器只跑 **一个** sing-box 实例，**入站协议可切换（默认 TUIC）→ direct 出站**。
 
 发布号以仓库内 [`VERSION`](./VERSION) 和 [GitHub Releases](https://github.com/vistone/geoproxy-server/releases/latest) 为准。  
 **README 不写死版本号**；安装 / 升级默认拉取最新 Release。
 
 设计说明：
 
-- [`docs/design.md`](./docs/design.md)（产品模型 + KiwiVM）
+- [`docs/design.md`](./docs/design.md)（产品模型、协议矩阵、非目标、KiwiVM）
 - 协议插件（Phase 0）：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./docs/superpowers/specs/2026-08-21-protocol-plugin-design.md)
-- 流量熔断：见 [`docs/design.md`](./docs/design.md) 中 KiwiVM 章节
+- 多协议（Phase 1–3）：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./docs/superpowers/specs/2026-08-21-multi-protocol-design.md)
 - 加固：[`docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md`](./docs/superpowers/specs/2026-08-19-geoproxy-server-hardening-design.md)
 
 ## 特点
@@ -18,10 +18,10 @@
 - **可自升级管理脚本**（`upgrade self`）与 **sing-box 核心**（`upgrade core`）
 - 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
 - **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
-- 自签 TLS（TUIC：`alpn=h3`），默认 UUID=密码、BBR
+- 自签 TLS（按协议）；TUIC 默认 UUID=密码、BBR
+- 入站协议：`tuic` / `hysteria2` / `vless`（Reality）/ `trojan` / `shadowsocks`（`change protocol` / `install --protocol`）
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
-- 入站协议框架：`PROTOCOL` 写入 `state.env`（v0.2.21 起；当前仅 `tuic`）
 
 ## 要求
 
@@ -101,28 +101,28 @@ geoproxy-server change traffic-interval 300
 ≥告警写日志；≥停服则 `stop geoproxy-tuic` 并置 `TRAFFIC_TRIPPED=1`。  
 用量低于停服线后（含月流量重置），`traffic check` / `start` / `restart` 会**自动清除熔断并恢复服务**；仍可用 `traffic resume` 手动恢复。
 
-## TUIC 分享链接
+## TUIC / 分享链接
 
-节点名写在 URL **fragment**（`#` 后面），不要用 query 的 `name=`：
+节点名写在 URL **fragment**（`#` 后面）。TUIC 示例：
 
 ```text
 tuic://UUID:PASSWORD@IP:PORT/?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr&udp_relay_mode=native#tile1.spacexway.com
 ```
 
-默认用本机 `hostname -f`。自定义：
+其它协议由 `geoproxy-server url` 按当前 `PROTOCOL` 生成（如 `hy2://`、`vless://`、`trojan://`、`ss://`）。
 
 ```bash
+geoproxy-server protocols
+geoproxy-server change protocol hysteria2
 geoproxy-server change name tile1.spacexway.com
 geoproxy-server url
 ```
-
-自签证书仍带 `insecure=1`（GeoProxy / 多数客户端需要）。有正式证书时再自行改 `allow_insecure=false`。
 
 ## CLI
 
 ```text
 geoproxy-server install | uninstall | status | start | stop | restart
-geoproxy-server info | url | qr | log | doctor | bbr
+geoproxy-server info | url | qr | log | doctor | bbr | protocols
 geoproxy-server upgrade [self|core|all]
 geoproxy-server change …
 geoproxy-server traffic [status|check|resume]

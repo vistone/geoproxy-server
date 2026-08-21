@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.22 - 2026-08-21
+
+功能：Phase 1 多协议入站（在 v0.2.21 插件框架之上）。
+
+- 新增协议模块：`hysteria2`、`vless`（Reality）、`trojan`、`shadowsocks`（默认 2022-blake3-aes-128-gcm）。
+- CLI / 菜单：`change protocol <id>`、`install --protocol <id>`、`protocols`；分享 URL / 二维码按当前协议分发。
+- 共享助手 `lib/protocols/_common.sh`（TLS 片段、公网 host 迭代、Reality / SS2022 凭证生成）。
+- state 持久化 Reality / SS / Hysteria 等相关字段；旧安装仍默认 `PROTOCOL=tuic`。
+- 文档：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./docs/superpowers/specs/2026-08-21-multi-protocol-design.md)。
+
 ## v0.2.21 - 2026-08-21
 
 架构：入站协议插件框架（Phase 0），运行时行为与 v0.2.20 的 TUIC 单协议安装兼容。

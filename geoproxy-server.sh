@@ -66,6 +66,11 @@ main() {
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		gps_cmd_qr
 		;;
+	protocols | proto)
+		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
+		load_state 2>/dev/null || true
+		gps_cmd_protocols
+		;;
 	log)
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		gps_cmd_log "$@"

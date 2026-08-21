@@ -2,6 +2,9 @@
 
 setup() {
 	source "$BATS_TEST_DIRNAME/_setup.bash"
+	# shellcheck source=../lib/cmd.sh
+	source "$REPO_ROOT/lib/cmd.sh"
+	gps_restart_svc() { :; }
 }
 
 @test "legacy state without PROTOCOL loads as tuic" {
@@ -9,7 +12,6 @@ setup() {
 	export UUID="00000000-0000-4000-8000-000000000000"
 	export PASSWORD="pass-1"
 	unset PROTOCOL || true
-	# 模拟旧 state：无 PROTOCOL 行
 	umask 077
 	mkdir -p "$GPS_ETC"
 	{
@@ -46,9 +48,6 @@ setup() {
 	export PASSWORD="pass-plugin"
 	export PROTOCOL=tuic
 	export LOG_LEVEL=info
-	STACK_MODE=v4only
-	HAS_V4=1
-	HAS_V6=0
 	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
 	run gps_write_config
 	[ "$status" -eq 0 ]
@@ -58,10 +57,14 @@ setup() {
 	[ "$status" -eq 0 ]
 }
 
-@test "gps_protocol_list includes tuic only" {
+@test "phase1 protocol list includes hy2 vless trojan ss" {
 	run gps_protocol_list
 	[ "$status" -eq 0 ]
-	[ "$output" = "tuic" ]
+	[[ "$output" == *tuic* ]]
+	[[ "$output" == *hysteria2* ]]
+	[[ "$output" == *vless* ]]
+	[[ "$output" == *trojan* ]]
+	[[ "$output" == *shadowsocks* ]]
 }
 
 @test "gps_proto_tuic_validate rejects bad uuid" {
@@ -70,4 +73,72 @@ setup() {
 	PASSWORD=pass
 	run gps_proto_tuic_validate
 	[ "$status" -ne 0 ]
+}
+
+@test "hysteria2 config renders and shares hy2 URL" {
+	export PORT=41234
+	export PASSWORD="hy2-secret"
+	export PROTOCOL=hysteria2
+	export PUBLIC_IP="1.2.3.4"
+	export PUBLIC_IP6=""
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	gps_protocol_defaults
+	gps_protocol_validate
+	run gps_write_config
+	[ "$status" -eq 0 ]
+	grep -q '"type": "hysteria2"' "$GPS_CONFIG"
+	save_state
+	run gps_proto_share_urls
+	[ "$status" -eq 0 ]
+	[[ "$output" == hy2://* ]]
+}
+
+@test "vless reality config renders" {
+	export PORT=41235
+	export UUID="00000000-0000-4000-8000-000000000001"
+	export PROTOCOL=vless
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	gps_protocol_defaults
+	gps_protocol_validate
+	run gps_write_config
+	[ "$status" -eq 0 ]
+	grep -q '"type": "vless"' "$GPS_CONFIG"
+	grep -q '"reality"' "$GPS_CONFIG"
+	run python3 -m json.tool "$GPS_CONFIG"
+	[ "$status" -eq 0 ]
+}
+
+@test "trojan and shadowsocks configs render" {
+	export PORT=41236
+	export PASSWORD="trojan-pass"
+	export PROTOCOL=trojan
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	gps_protocol_defaults
+	run gps_write_config
+	[ "$status" -eq 0 ]
+	grep -q '"type": "trojan"' "$GPS_CONFIG"
+
+	export PROTOCOL=shadowsocks
+	gps_protocol_defaults
+	gps_protocol_validate
+	run gps_write_config
+	[ "$status" -eq 0 ]
+	grep -q '"type": "shadowsocks"' "$GPS_CONFIG"
+	grep -q '2022-blake3-aes-128-gcm' "$GPS_CONFIG"
+}
+
+@test "change protocol switches inbound type" {
+	export PORT=41237
+	export UUID="00000000-0000-4000-8000-000000000002"
+	export PASSWORD="switch-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="8.8.8.8"
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	gps_write_config
+	save_state
+	gps_cmd_url() { :; }
+	run gps_cmd_change protocol hysteria2
+	[ "$status" -eq 0 ]
+	grep -q '^PROTOCOL=hysteria2$' "$GPS_STATE"
+	grep -q '"type": "hysteria2"' "$GPS_CONFIG"
 }

@@ -9,6 +9,7 @@ gps_parse_install_args() {
 	PUBLIC_IP6=""
 	CORE_VER_ARG=""
 	INSTALL_PREFIX=""
+	PROTOCOL_ARG=""
 	while [[ $# -gt 0 ]]; do
 		case $1 in
 		--port)
@@ -30,6 +31,10 @@ gps_parse_install_args() {
 			;;
 		--ip6)
 			PUBLIC_IP6=$2
+			shift 2
+			;;
+		--protocol | --proto)
+			PROTOCOL_ARG=$2
 			shift 2
 			;;
 		--ver)
@@ -58,16 +63,17 @@ gps_parse_install_args() {
 gps_help_install() {
 	cat <<EOF
 Usage: $GPS_NAME install [options]
-  --port N       UDP 端口（默认随机）
-  --uuid U       UUID（默认自动生成；密码默认与 UUID 相同）
-  --passwd P     密码（默认等于 UUID）
-  --ip IP        公网 IPv4（默认自动探测）
-  --ip6 IP       公网 IPv6（默认自动探测）
-  --prefix DIR   安装到 DIR（本地测试，可无 root）
-  --no-systemd   不用 systemd，前台后台拉起 sing-box（配合 --prefix）
-  --ver TAG      仅排障：指定 sing-box 版本；默认省略，始终装最新稳定版
+  --port N         UDP/TCP 端口（默认随机）
+  --uuid U         UUID（默认自动生成；密码默认与 UUID 相同）
+  --passwd P       密码（默认等于 UUID）
+  --protocol ID    入站协议（默认 tuic；见: $GPS_NAME protocols）
+  --ip IP          公网 IPv4（默认自动探测）
+  --ip6 IP         公网 IPv6（默认自动探测）
+  --prefix DIR     安装到 DIR（本地测试，可无 root）
+  --no-systemd     不用 systemd，前台后台拉起 sing-box（配合 --prefix）
+  --ver TAG        仅排障：指定 sing-box 版本；默认省略，始终装最新稳定版
 
-说明: 本机双栈时自动监听 0.0.0.0 + ::；有哪个公网地址就输出哪个 TUIC URL。
+说明: 本机双栈时自动监听；有哪个公网地址就输出哪个分享 URL。
 EOF
 }
 
@@ -105,7 +111,7 @@ gps_cmd_install() {
 	ensure_deps
 
 	# CLI 显式参数优先；其余从已有 state.env 继承，避免重装抹掉 UUID/KiwiVM
-	local cli_port=$PORT cli_uuid=$UUID cli_pw=$PASSWORD cli_ip=$PUBLIC_IP cli_ip6=$PUBLIC_IP6
+	local cli_port=$PORT cli_uuid=$UUID cli_pw=$PASSWORD cli_ip=$PUBLIC_IP cli_ip6=$PUBLIC_IP6 cli_proto=$PROTOCOL_ARG
 	local had_state=0
 	if [[ -f $GPS_STATE ]]; then
 		had_state=1
@@ -115,6 +121,7 @@ gps_cmd_install() {
 		[[ -n $cli_pw ]] && PASSWORD=$cli_pw
 		[[ -n $cli_ip ]] && PUBLIC_IP=$cli_ip
 		[[ -n $cli_ip6 ]] && PUBLIC_IP6=$cli_ip6
+		[[ -n $cli_proto ]] && PROTOCOL=$cli_proto
 		warn "检测到已安装配置: $GPS_STATE（保留端口/UUID/KiwiVM 凭证）"
 		if [[ -t 0 ]]; then
 			confirm_yes "保留配置并重装脚本与服务?" || err "已取消"
@@ -145,13 +152,24 @@ gps_cmd_install() {
 	# shellcheck disable=SC2034  # INSTALLED_AT 由 url.sh 的 gps_cmd_info 读取
 	INSTALLED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 	LOG_LEVEL=${LOG_LEVEL:-debug}
+	if [[ -n ${PROTOCOL_ARG:-} ]]; then
+		PROTOCOL=$PROTOCOL_ARG
+	fi
 	PROTOCOL=${PROTOCOL:-tuic}
 	gps_protocol_normalize
+	gps_protocol_defaults
 
 	# 落盘前统一校验所有边界输入
 	gps_validate_port "$PORT" || err "无效端口: $PORT（需 1-65535）"
-	gps_validate_uuid "$UUID" || err "无效 UUID: $UUID（示例: $(gen_uuid)）"
-	gps_validate_single_line "$PASSWORD" || err "密码不能包含换行/回车/NUL"
+	# UUID：仅当本协议使用时强制（tuic/vless/vmess）；其它协议可空
+	case $PROTOCOL in
+	tuic | vless | vmess)
+		gps_validate_uuid "$UUID" || err "无效 UUID: $UUID（示例: $(gen_uuid)）"
+		;;
+	esac
+	if [[ -n ${PASSWORD:-} ]]; then
+		gps_validate_single_line "$PASSWORD" || err "密码不能包含换行/回车/NUL"
+	fi
 	gps_validate_single_line "${TUIC_NAME:-}" || err "节点名不能包含换行/回车/NUL"
 	gps_protocol_validate
 	if [[ -n ${PUBLIC_IP:-} ]]; then
@@ -457,11 +475,25 @@ gps_cmd_change() {
 		;;
 	name | remark | alias)
 		local n=${1:-}
-		[[ -n $n ]] || err "用法: change name <节点名>（写入 TUIC URL 的 #fragment，如 tile1.spacexway.com）"
+		[[ -n $n ]] || err "用法: change name <节点名>（写入分享 URL 的 #fragment，如 tile1.spacexway.com）"
 		gps_validate_single_line "$n" || err "节点名不能包含换行/回车/NUL"
 		TUIC_NAME=$n
 		save_state
 		msg "$(_green "节点名") → $TUIC_NAME"
+		gps_cmd_url
+		return 0
+		;;
+	protocol | proto)
+		local p=${1:-}
+		[[ -n $p ]] || err "用法: change protocol <id>（可选: $(gps_protocol_list | tr '\n' ' ')）"
+		PROTOCOL=$p
+		gps_protocol_normalize
+		gps_protocol_defaults
+		gps_protocol_validate
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "入站协议") → $PROTOCOL"
 		gps_cmd_url
 		return 0
 		;;
@@ -523,13 +555,26 @@ gps_cmd_change() {
 		return 0
 		;;
 	*)
-		err "用法: change port|uuid|passwd|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
+		err "用法: change port|uuid|passwd|protocol|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config
 	save_state
 	gps_restart_svc
 	gps_cmd_url
+}
+
+gps_cmd_protocols() {
+	msg "$(_cyan "已注册入站协议")（单实例；当前: ${PROTOCOL:-tuic}）:"
+	local id
+	for id in "${GPS_PROTOCOL_IDS[@]}"; do
+		if [[ $id == "${PROTOCOL:-tuic}" ]]; then
+			msg "  * $id"
+		else
+			msg "    $id"
+		fi
+	done
+	msg "切换: $GPS_NAME change protocol <id>"
 }
 
 gps_cmd_log() {
@@ -614,18 +659,19 @@ gps_cmd_log() {
 
 gps_help() {
 	cat <<EOF
-$GPS_NAME $GPS_SH_VER — GeoProxy VPS 端（单实例；默认入站 TUIC → direct）
+$GPS_NAME $GPS_SH_VER — GeoProxy VPS 端（单实例；入站协议插件化 → direct）
 
 Usage: $GPS_NAME [command] [args...]
 
 无参数时进入交互菜单。
 
 命令:
-  install [--port N] [--uuid U] [--passwd P] [--ip V4] [--ip6 V6]
+  install [--port N] [--uuid U] [--passwd P] [--protocol ID] [--ip V4] [--ip6 V6]
   uninstall [-y] [--purge]
   status | start | stop | restart
   info | url | qr | log [--once]
-  change port|uuid|passwd|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  protocols
+  change port|uuid|passwd|protocol|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor
@@ -640,6 +686,6 @@ Usage: $GPS_NAME [command] [args...]
   - systemd timer 每 TRAFFIC_CHECK_SEC 秒执行 traffic check
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
   - 默认日志 debug；分享 URL 节点名在 #fragment（change name）
-  - 入站协议由插件框架管理（当前仅 tuic；见 docs/design.md）
+  - 入站协议: protocols / change protocol <id>（默认 tuic；见 docs/design.md）
 EOF
 }

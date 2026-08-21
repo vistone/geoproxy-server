@@ -1,5 +1,10 @@
 #!/bin/bash
-# TUIC 入站协议模块（Phase 0 唯一注册协议）
+# TUIC 入站协议模块
+
+gps_proto_tuic_defaults() {
+	gps_proto_ensure_uuid
+	PASSWORD=${PASSWORD:-$UUID}
+}
 
 # 生成单个 TUIC inbound JSON 片段（不含尾逗号）；用户可控值一律 JSON 转义
 gps_proto_tuic_inbound_json() {
