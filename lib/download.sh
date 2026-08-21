@@ -311,10 +311,7 @@ gps_cmd_upgrade_self() {
 	msg "配置/证书/凭证未改动；已停止旧进程并用新脚本重新拉起服务"
 	if [[ ${MESH_ROLE:-master} == master ]]; then
 		load_state 2>/dev/null || true
-		local join_host=${PUBLIC_IP:-<公网IP>}
 		msg "$(_cyan "组网 Master") overlay=${MESH_OVERLAY_IP:-?} wg=${WG_PUBLIC_KEY:-(未生成)}"
-		if [[ -n ${MESH_CLUSTER_TOKEN:-} ]]; then
-			msg "其它节点加入: GPS_MESH_MASTER=http://${join_host}:${MESH_MASTER_PORT:-19527} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
-		fi
+		gps_mesh_print_join_hints 2>/dev/null || true
 	fi
 }

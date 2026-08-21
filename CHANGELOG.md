@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.28 - 2026-08-21
+
+功能：Master 加入地址双栈 + 域名。
+
+- 对外 join 同时给出 IPv4 / IPv6 / 域名（任选可通即可）；`10.66.0.0/16` 仍为内部 WG overlay，不手填。
+- `MESH_MASTER_HOST`：`change mesh-master-host <域名>`；若未设置且节点名（`change name`）含点，自动沿用为域名。
+- `mesh show` / 安装 / 菜单升级后打印全部加入命令。
+
 ## v0.2.27 - 2026-08-21
 
 修复：菜单「升级管理脚本」后组网立刻就绪。

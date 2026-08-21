@@ -206,10 +206,8 @@ gps_cmd_install() {
 	msg
 	gps_cmd_url
 	if [[ ${MESH_ROLE:-} == master ]]; then
-		local join_host=${PUBLIC_IP:-<公网IP>}
 		msg
-		msg "$(_cyan "其它节点加入组网:")"
-		msg "  GPS_MESH_MASTER=http://${join_host}:${MESH_MASTER_PORT:-19527} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
+		gps_mesh_print_join_hints
 	fi
 }
 
@@ -534,6 +532,25 @@ gps_cmd_change() {
 		msg "$(_green "mesh-exit") → ${MESH_EXIT_NODE_ID:-none}"
 		return 0
 		;;
+	mesh-master-host | master-host | mesh-host)
+		local h=${1:-}
+		[[ -n $h ]] || err "用法: change mesh-master-host <域名|none>"
+		if [[ $h == none || $h == off || $h == - || $h == clear ]]; then
+			MESH_MASTER_HOST=""
+		else
+			gps_validate_single_line "$h" || err "主机名非法"
+			gps_mesh_looks_like_hostname "$h" || err "请使用域名（含点），例如 mesh.example.com"
+			MESH_MASTER_HOST=$h
+		fi
+		gps_mesh_role_normalize
+		if [[ ${MESH_ROLE:-} == master ]]; then
+			MESH_MASTER_URL=$(gps_mesh_primary_join_url)
+		fi
+		save_state
+		msg "$(_green "mesh-master-host") → ${MESH_MASTER_HOST:-none}"
+		gps_mesh_print_join_hints 2>/dev/null || true
+		return 0
+		;;
 	log | loglevel | level)
 		local lv=${1:-debug}
 		gps_set_log_level "$lv"
@@ -709,7 +726,7 @@ Usage: $GPS_NAME [command] [args...]
   info | url | qr | log [--once]
   protocols
   mesh ensure|show|export|import|sync|sync-master|peer|hop
-  change port|uuid|passwd|protocol|mesh-exit|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  change port|uuid|passwd|protocol|mesh-exit|mesh-master-host|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor
@@ -725,6 +742,6 @@ Usage: $GPS_NAME [command] [args...]
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
   - 默认日志 debug；分享 URL 节点名在 #fragment（change name）
   - 入站协议: protocols / change protocol <id>（默认 tuic）
-  - 组网随主服务开机；首台为 Master，成员: GPS_MESH_MASTER=... GPS_MESH_TOKEN=...；跳板: change mesh-exit
+  - 组网随主服务开机；Master 加入地址支持 IPv4/IPv6/域名（change mesh-master-host）；跳板: change mesh-exit
 EOF
 }

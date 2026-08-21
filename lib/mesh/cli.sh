@@ -79,7 +79,8 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh init ...            # 兼容旧命令（等同 ensure + 可选覆盖）
 
 安装：无 GPS_MESH_MASTER → 本机为 Master；成员：
-  GPS_MESH_MASTER=http://IP:19527 GPS_MESH_TOKEN=... bash install.sh
+  GPS_MESH_MASTER=http://IP或域名或[IPv6]:19527 GPS_MESH_TOKEN=... bash install.sh
+Master 域名: change mesh-master-host <域名|none>（默认可沿用节点名若含点）
 跳板: change mesh-exit <node_id|none>
 EOF
 }
@@ -138,26 +139,19 @@ gps_mesh_cmd_show() {
 	gps_profile_normalize 2>/dev/null || true
 	gps_mesh_ensure_node_id 2>/dev/null || true
 	gps_mesh_defaults 2>/dev/null || true
-	local join_url=${MESH_MASTER_URL:-}
-	if [[ ${MESH_ROLE:-} == master ]]; then
-		if [[ -n ${PUBLIC_IP:-} ]]; then
-			join_url="http://${PUBLIC_IP}:${MESH_MASTER_PORT:-19527}"
-		elif [[ -n ${PUBLIC_IP6:-} ]]; then
-			join_url="http://[${PUBLIC_IP6}]:${MESH_MASTER_PORT:-19527}"
-		else
-			join_url=${join_url:-http://127.0.0.1:${MESH_MASTER_PORT:-19527}}
-		fi
-	fi
+	gps_mesh_resolve_master_host 2>/dev/null || true
+	local primary
+	primary=$(gps_mesh_primary_join_url 2>/dev/null || true)
 	msg "$(_cyan "Mesh")"
 	msg "  MESH_ROLE:   ${MESH_ROLE:-?}"
 	msg "  NODE_ID:     ${NODE_ID:-（未设置）}"
 	msg "  overlay:     ${MESH_OVERLAY_IP:-?}  prefix=${MESH_OVERLAY_PREFIX:-10.66.0.0/16}"
 	msg "  WG listen:   ${WG_LISTEN_PORT:-51820}"
 	msg "  WG public:   ${WG_PUBLIC_KEY:-（未生成）}"
-	msg "  master URL:  ${join_url:-?}"
-	if [[ ${MESH_ROLE:-} == master && -n ${MESH_CLUSTER_TOKEN:-} ]]; then
-		msg "  其它节点加入:"
-		msg "    GPS_MESH_MASTER=${join_url} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
+	msg "  master host: ${MESH_MASTER_HOST:-（未设置，可用 change mesh-master-host）}"
+	msg "  master URL:  ${primary:-${MESH_MASTER_URL:-?}}"
+	if [[ ${MESH_ROLE:-} == master ]]; then
+		gps_mesh_print_join_hints
 	fi
 	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
 	msg "  peers file:  ${GPS_MESH_PEERS:-}"

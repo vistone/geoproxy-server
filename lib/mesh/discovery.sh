@@ -131,14 +131,8 @@ gps_mesh_ensure_boot() {
 		gps_mesh_ensure_overlay_ip
 		gps_mesh_ensure_cluster_token
 		gps_mesh_peers_upsert_self
-		# 对外 join URL（成员用）；本机 API 仍听 0.0.0.0:port
-		if [[ -n ${PUBLIC_IP:-} ]]; then
-			MESH_MASTER_URL="http://${PUBLIC_IP}:${MESH_MASTER_PORT}"
-		elif [[ -n ${PUBLIC_IP6:-} ]]; then
-			MESH_MASTER_URL="http://[${PUBLIC_IP6}]:${MESH_MASTER_PORT}"
-		else
-			MESH_MASTER_URL=${MESH_MASTER_URL:-http://127.0.0.1:${MESH_MASTER_PORT}}
-		fi
+		gps_mesh_resolve_master_host
+		MESH_MASTER_URL=$(gps_mesh_primary_join_url)
 	else
 		if gps_mesh_register_and_pull; then
 			msg "$(_cyan "mesh") 已向 Master 注册并拉取 peers"
