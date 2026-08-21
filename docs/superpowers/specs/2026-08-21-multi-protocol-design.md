@@ -8,6 +8,7 @@ Extend the Phase 0 registry so GeoProxy Server can configure **all sing-box serv
 
 | Version | Scope |
 |---------|--------|
+| **v0.2.21** Phase 0 | Protocol plugin registry; only `tuic` registered |
 | **v0.2.22** Phase 1 | `hysteria2`, `vless` (Reality), `trojan`, `shadowsocks` (2022) + `change protocol` / menu / `install --protocol` |
 | **v0.2.23** Phase 2 | `vmess`, `anytls`, `hysteria`, `naive`, `snell`, `shadowtls` (+ inner SS when needed) |
 | **v0.2.23** Phase 3 | Document non-goals: `tun`/`tproxy`/`redirect`/`cloudflared`/`direct` inbound; local-only `mixed`/`socks`/`http` not exposed on public installs |

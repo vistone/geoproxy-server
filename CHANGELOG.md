@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.23 - 2026-08-21
+
+功能：Phase 2 扩展入站协议 + Phase 3 非目标文档固化。
+
+- 启用协议：`vmess`、`anytls`、`hysteria`（v1）、`naive`、`snell`、`shadowtls`（外层 v3 + 本机 `ss-inner` detour）。
+- 文档：`docs/design.md` 协议矩阵与明确非目标（tun/tproxy/redirect/cloudflared/direct inbound、公网 mixed/socks/http、多出站路由）。
+- 测试：扩展协议列表、各 type 渲染、ShadowTLS 双 inbound JSON。
+
 ## v0.2.22 - 2026-08-21
 
 功能：Phase 1 多协议入站（在 v0.2.21 插件框架之上）。

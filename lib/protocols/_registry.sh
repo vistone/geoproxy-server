@@ -3,7 +3,7 @@
 # 设计：docs/superpowers/specs/2026-08-21-protocol-plugin-design.md
 #       docs/superpowers/specs/2026-08-21-multi-protocol-design.md
 
-# 服务端入站白名单（Phase 1 / v0.4.0；Phase 2 在 v0.5.0 启用）
+# 服务端入站白名单（不含 tun/tproxy/redirect/cloudflared/direct/mixed）
 # shellcheck disable=SC2034
 GPS_PROTOCOL_IDS=(
 	tuic
@@ -11,6 +11,12 @@ GPS_PROTOCOL_IDS=(
 	vless
 	trojan
 	shadowsocks
+	vmess
+	anytls
+	hysteria
+	naive
+	snell
+	shadowtls
 )
 
 # 规范化 PROTOCOL；缺省 tuic；未知 id 失败（落盘前调用）

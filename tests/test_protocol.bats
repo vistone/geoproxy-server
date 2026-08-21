@@ -67,6 +67,44 @@ setup() {
 	[[ "$output" == *shadowsocks* ]]
 }
 
+@test "phase2 protocol list includes vmess anytls hysteria naive snell shadowtls" {
+	run gps_protocol_list
+	[ "$status" -eq 0 ]
+	for id in vmess anytls hysteria naive snell shadowtls; do
+		[[ "$output" == *"$id"* ]]
+	done
+}
+
+@test "vmess anytls hysteria naive snell configs render" {
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	export PORT=42001 UUID="00000000-0000-4000-8000-000000000010" PASSWORD="p2-pass"
+
+	for proto in vmess anytls hysteria naive snell; do
+		export PROTOCOL=$proto
+		gps_protocol_defaults
+		gps_protocol_validate
+		run gps_write_config
+		[ "$status" -eq 0 ]
+		grep -q "\"type\": \"$proto\"" "$GPS_CONFIG"
+		run python3 -m json.tool "$GPS_CONFIG"
+		[ "$status" -eq 0 ]
+	done
+}
+
+@test "shadowtls emits outer shadowtls and inner shadowsocks" {
+	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	export PORT=42002 PASSWORD="st-pass" PROTOCOL=shadowtls
+	gps_protocol_defaults
+	gps_protocol_validate
+	run gps_write_config
+	[ "$status" -eq 0 ]
+	grep -q '"type": "shadowtls"' "$GPS_CONFIG"
+	grep -q '"tag": "ss-inner"' "$GPS_CONFIG"
+	grep -q '"detour": "ss-inner"' "$GPS_CONFIG"
+	run python3 -m json.tool "$GPS_CONFIG"
+	[ "$status" -eq 0 ]
+}
+
 @test "gps_proto_tuic_validate rejects bad uuid" {
 	PORT=12345
 	UUID=not-a-uuid

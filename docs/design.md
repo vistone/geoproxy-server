@@ -21,7 +21,7 @@
 - 对公网暴露的 `mixed` / `socks` / `http`（本地调试请自行改配置且勿用本脚本托管）
 - 多出站路由、DNS 劫持、把 VPS 改成链式客户端
 
-协议插件：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./superpowers/specs/2026-08-21-protocol-plugin-design.md)  
+协议插件：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./superpowers/specs/2026-08-21-protocol-plugin-design.md)
 多协议：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./superpowers/specs/2026-08-21-multi-protocol-design.md)
 
 ## KiwiVM 流量熔断

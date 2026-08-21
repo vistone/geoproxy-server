@@ -19,7 +19,8 @@
 - 自动下载最新稳定版 sing-box（不锁定 sing-box 版本号）
 - **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
 - 自签 TLS（按协议）；TUIC 默认 UUID=密码、BBR
-- 入站协议：`tuic` / `hysteria2` / `vless`（Reality）/ `trojan` / `shadowsocks`（`change protocol` / `install --protocol`）
+- 入站协议：`tuic` / `hysteria2` / `vless`（Reality）/ `trojan` / `shadowsocks` / `vmess` / `anytls` / `hysteria` / `naive` / `snell` / `shadowtls`（`change protocol` / `install --protocol` / `protocols`）
+- **非目标**：tun/tproxy/redirect、cloudflared、公网 socks/http/mixed、多出站路由（详见 [`docs/design.md`](./docs/design.md)）
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
 
