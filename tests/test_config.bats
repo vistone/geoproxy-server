@@ -29,6 +29,30 @@ setup() {
 	check_perm_600 "$GPS_CONFIG"
 }
 
+@test "gps_write_config log goes to stderr not a sandbox file" {
+	export PORT=43211
+	export UUID="test-uuid-stderr"
+	export PASSWORD="test-pass-stderr"
+	export LOG_LEVEL="debug"
+	run gps_write_config
+	[ "$status" -eq 0 ]
+	# 文件路径在 ProtectSystem=strict 下打不开会让 run 静默 exit 1；stderr 才能进 journal
+	! grep -qE '"output"[[:space:]]*:[[:space:]]*".*sing-box\.log"' "$GPS_CONFIG"
+}
+
+@test "gps_cmd_log --once reads journal under systemd even if log file has stale lines" {
+	GPS_NO_SYSTEMD=0
+	GPS_TEST_PREFIX=
+	mkdir -p "$GPS_LOG_DIR"
+	echo "stale file line" >"$GPS_LOG"
+	have_cmd() { [[ $1 == journalctl ]]; }
+	journalctl() { echo "journal: inbound/tuic[debug]"; }
+	gps_config_log_level() { echo debug; }
+	run gps_cmd_log --once
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"journal: inbound/tuic"* ]]
+}
+
 @test "config escapes quote and backslash in password" {
 	export PORT=12345
 	export UUID="00000000-0000-4000-8000-000000000000"

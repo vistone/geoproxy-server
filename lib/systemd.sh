@@ -217,18 +217,19 @@ gps_stop_bg() {
 	fi
 }
 
-# systemctl 失败时把 status/journal 打到终端，避免菜单只剩一句 Job failed
+# systemctl 失败时把 status/journal/日志文件打到终端，避免只剩 systemd 套话
 gps_svc_dump_failure() {
-	msg "$(_red "服务启动失败") $GPS_SERVICE — systemctl / journal 关键输出:"
+	msg "$(_red "服务启动失败") $GPS_SERVICE — systemctl / journal / sing-box 日志:"
 	if have_cmd systemctl; then
 		systemctl status --no-pager -l "$GPS_SERVICE" 2>&1 || true
 	fi
 	if have_cmd journalctl; then
-		msg "$(_cyan "journalctl") -u $GPS_SERVICE -n 40 --no-pager"
-		journalctl -u "$GPS_SERVICE" -n 40 --no-pager 2>&1 || true
-	elif [[ -n ${GPS_LOG:-} && -f $GPS_LOG ]]; then
-		msg "$(_cyan "最近日志") $GPS_LOG"
-		tail -n 20 "$GPS_LOG" 2>/dev/null || true
+		msg "$(_cyan "journalctl") -u $GPS_SERVICE -n 80 --no-pager"
+		journalctl -u "$GPS_SERVICE" -n 80 --no-pager --output=cat 2>&1 || true
+	fi
+	if [[ -n ${GPS_LOG:-} && -f $GPS_LOG ]]; then
+		msg "$(_cyan "sing-box 日志") $GPS_LOG"
+		tail -n 40 "$GPS_LOG" 2>/dev/null || true
 	fi
 }
 

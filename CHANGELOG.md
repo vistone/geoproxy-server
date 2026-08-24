@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.35 - 2026-08-24
+
+修复：v0.2.33 沙箱过紧导致 Master 上 `sing-box check` 过但 `run` 立刻 exit 1（mesh WG/netlink）。
+
+- `geoproxy-tuic` unit 补 `AF_NETLINK`、`CAP_NET_ADMIN`、`DeviceAllow=/dev/net/tun`、`ReadWritePaths` 含 `/run`。
+- sing-box 运行日志改走 journal（不再只写文件导致 journal 看不到原文）。
+- 启动失败 dump 同时打 journal 和 `sing-box.log` 文件尾。
+
 ## v0.2.34 - 2026-08-24
 
 体验：Master 自动放行组网控制面；TUIC 启动失败打印 journal。

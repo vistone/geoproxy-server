@@ -44,8 +44,6 @@ $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
 	*) log_level=debug ;;
 	esac
 	LOG_LEVEL=$log_level
-	local log_out
-	log_out=$(gps_json_escape "$GPS_LOG")
 
 	local extra=""
 	extra=$(gps_proto_extra_inbounds 2>/dev/null || true)
@@ -75,8 +73,7 @@ ${extra}"
 {
   "log": {
     "level": "${log_level}",
-    "timestamp": true,
-    "output": "${log_out}"
+    "timestamp": true
   },
 ${endpoints_section}  "inbounds": [
 ${inbounds_block}

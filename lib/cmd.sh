@@ -681,24 +681,36 @@ gps_cmd_log() {
 	[[ -f $GPS_LOG ]] && has_file=1
 	local nonempty=0
 	[[ $has_file -eq 1 && -s $GPS_LOG ]] && nonempty=1
+	local use_journal=0
+	if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]] && have_cmd journalctl; then
+		use_journal=1
+	fi
 
-	msg "$(_cyan "日志") level=$(gps_config_log_level)  file=$GPS_LOG"
+	msg "$(_cyan "日志") level=$(gps_config_log_level)  journal=$GPS_SERVICE  file=$GPS_LOG"
 	msg "有流量时可见: inbound/tuic[...] / outbound/direct[...] （Ctrl+C 退出跟随）"
 
 	if ((follow)); then
-		if [[ $has_file -eq 1 ]]; then
+		if ((use_journal)); then
+			journalctl -u "$GPS_SERVICE" -f --output=cat
+		elif [[ $has_file -eq 1 ]]; then
 			[[ $nonempty -eq 0 ]] && warn "文件暂空：请用客户端连一下，进/出站才会刷出来"
 			tail -n 30 -f "$GPS_LOG"
-		elif [[ ${GPS_NO_SYSTEMD:-0} != 1 ]] && have_cmd journalctl; then
-			journalctl -u "$GPS_SERVICE" -f
 		else
 			err "找不到日志: $GPS_LOG"
 		fi
 		return 0
 	fi
 
+	if ((use_journal)); then
+		msg "$(_cyan "journalctl") -u $GPS_SERVICE -n $once_lines"
+		journalctl -u "$GPS_SERVICE" -n "$once_lines" --no-pager --output=cat 2>/dev/null || true
+	fi
 	if [[ $nonempty -eq 1 ]]; then
+		msg "$(_cyan "日志文件") $GPS_LOG"
 		tail -n "$once_lines" "$GPS_LOG"
+		return 0
+	fi
+	if ((use_journal)); then
 		return 0
 	fi
 
@@ -706,11 +718,6 @@ gps_cmd_log() {
 		warn "日志文件为空 — 无客户端连接时不会有进/出站记录"
 	else
 		warn "日志文件不存在: $GPS_LOG"
-	fi
-
-	if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]] && have_cmd journalctl; then
-		msg "$(_cyan "journalctl") -u $GPS_SERVICE -n 40"
-		journalctl -u "$GPS_SERVICE" -n 40 --no-pager 2>/dev/null || true
 	fi
 }
 

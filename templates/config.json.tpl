@@ -2,8 +2,7 @@
   "_comment": "参考模板；实际由 lib/config.sh + lib/protocols/* 按本机双栈与 PROTOCOL 生成（默认 tuic；dual=0.0.0.0+::）",
   "log": {
     "level": "debug",
-    "timestamp": true,
-    "output": "/var/log/geoproxy-server/sing-box.log"
+    "timestamp": true
   },
   "inbounds": [
     {
