@@ -66,6 +66,7 @@ gps_cmd_mesh() {
 			MESH_L7_OUTBOUNDS_JSON=""
 		else
 			[[ -f $frag ]] || err "找不到文件: $frag"
+			# shellcheck disable=SC2034  # MESH_L7_OUTBOUNDS_JSON 由 config 渲染读取
 			MESH_L7_OUTBOUNDS_JSON=$(cat "$frag")
 		fi
 		gps_write_config
@@ -126,6 +127,7 @@ gps_mesh_cmd_init() {
 	MESH_ROLE=${MESH_ROLE:-master}
 	gps_mesh_bootstrap_from_env 2>/dev/null || {
 		gps_mesh_role_normalize
+		# shellcheck disable=SC2034  # PROFILE 由 gps_profile_normalize 读取
 		PROFILE=mesh-member
 		gps_mesh_defaults
 		if [[ $MESH_ROLE == master ]]; then

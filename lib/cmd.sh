@@ -509,6 +509,7 @@ gps_cmd_change() {
 		;;
 	profile)
 		warn "PROFILE 已废弃：组网始终随主服务启用"
+		# shellcheck disable=SC2034  # PROFILE 由 gps_profile_normalize 读取
 		PROFILE=mesh-member
 		gps_profile_normalize
 		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
@@ -545,6 +546,7 @@ gps_cmd_change() {
 		fi
 		gps_mesh_role_normalize
 		if [[ ${MESH_ROLE:-} == master ]]; then
+			# shellcheck disable=SC2034  # MESH_MASTER_URL 由 mesh 模块与 state.env 持久化读取
 			MESH_MASTER_URL=$(gps_mesh_primary_join_url)
 		fi
 		save_state

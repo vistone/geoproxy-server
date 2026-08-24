@@ -118,6 +118,7 @@ gps_mesh_pull_peers() {
 # 开机 / ExecStartPre：始终准备 WG + peers（不重启服务）
 gps_mesh_ensure_boot() {
 	gps_mesh_role_normalize
+	# shellcheck disable=SC2034  # PROFILE 由 gps_profile_normalize 读取
 	PROFILE=mesh-member
 	gps_profile_normalize
 	gps_mesh_ensure_node_id
