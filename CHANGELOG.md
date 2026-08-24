@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.35 - 2026-08-24
+
+工程：新增 Cloud Agent 开发环境（`.cursor/`），随分支/PR 生效。
+
+- 新增 `.cursor/environment.json` 与幂等的 `.cursor/install.sh`：按官方 sha256 digest 安装开发三件套 `shfmt v3.13.1` / `shellcheck v0.11.0` / `bats v1.14.0`，版本与校验和与 `.github/workflows/ci.yml` 完全一致（同一信任模型）。
+- 新增 `tests/test_env.bats`：断言 `.cursor/install.sh` 固定的工具版本与 sha256 与 CI 保持一致，`environment.json` 合法且经 `.cursor/install.sh` 安装，防止开发环境与 CI 漂移。
+
 ## v0.2.34 - 2026-08-24
 
 体验：Master 自动放行组网控制面；TUIC 启动失败打印 journal。
