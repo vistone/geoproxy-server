@@ -147,7 +147,8 @@ setup() {
 		curl -fsS --max-time 1 "http://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
 		sleep 0.5
 	done
-	curl -fsS --max-time 2 "http://127.0.0.1:${mport}/v1/health" | grep -q '"ok": true'
+	curl -fsS --max-time 2 "http://127.0.0.1:${mport}/v1/health" >"$GPS_TEST_PREFIX/health.json"
+	grep -q '"ok": true' "$GPS_TEST_PREFIX/health.json"
 
 	# member-like register via API (same as gps_mesh_register_and_pull)
 	local resp

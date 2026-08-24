@@ -31,7 +31,10 @@ setup() {
 	[ -f "$GPS_MESH_TLS_FP" ]
 	check_perm_600 "$GPS_MESH_TLS_FP"
 	grep -q '^sha256//' "$GPS_MESH_TLS_FP"
-	gps_mesh_print_join_hints 2>&1 | grep -q 'GPS_MESH_TLS_PIN=sha256//'
+	# 捕获后再 grep：管道 grep -q 提前退出会 SIGPIPE（pipefail 下 CI 必现）
+	local hints
+	hints=$(gps_mesh_print_join_hints 2>&1)
+	echo "$hints" | grep -q 'GPS_MESH_TLS_PIN=sha256//'
 	[[ "$(gps_mesh_primary_join_url)" == https://203.0.113.90:19527 ]]
 }
 
@@ -70,7 +73,9 @@ setup() {
 		sleep 0.3
 	done
 	# 正确指纹放行；错误指纹必须被拒（curl 90）
-	curl -sS -k --pinnedpubkey "$pin" --max-time 3 "https://127.0.0.1:${mport}/v1/health" | grep -q '"ok": true'
+	local health
+	health=$(curl -sS -k --pinnedpubkey "$pin" --max-time 3 "https://127.0.0.1:${mport}/v1/health")
+	echo "$health" | grep -q '"ok": true'
 	if curl -ksS --pinnedpubkey "sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
 		--max-time 3 "https://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1; then
 		kill -KILL "$mpid" 2>/dev/null || true
