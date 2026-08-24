@@ -18,11 +18,28 @@ setup() {
 	! grep -qE 'ExecStartPre=-' "$tpl"
 }
 
-@test "tuic unit template ReadWritePaths includes etc and log dir" {
-	grep -qE '^ReadWritePaths=__ETC_DIR__ __LOG_DIR__$' "$REPO_ROOT/templates/geoproxy-tuic.service"
+@test "tuic unit template lets WireGuard/TUN work under sandbox" {
+	local tpl="$REPO_ROOT/templates/geoproxy-tuic.service"
+	# Go/sing-box 列举网卡与 WG 需要 netlink；仅 AF_INET 会让 run 立刻失败而 check 仍过
+	grep -qE '^RestrictAddressFamilies=.*AF_NETLINK' "$tpl"
+	# userspace WG 在无 gVisor 时强制系统 TUN；PrivateDevices 必须放行 /dev/net/tun
+	grep -qE '^DeviceAllow=/dev/net/tun' "$tpl"
+	grep -qE '^AmbientCapabilities=.*CAP_NET_ADMIN' "$tpl"
+	grep -qE '^CapabilityBoundingSet=.*CAP_NET_ADMIN' "$tpl"
 }
 
-@test "gps_install_unit renders ExecStartPre plus and log dir ReadWritePaths" {
+@test "tuic unit template ReadWritePaths includes etc, log dir and /run" {
+	grep -qE '^ReadWritePaths=__ETC_DIR__ __LOG_DIR__ /run$' "$REPO_ROOT/templates/geoproxy-tuic.service"
+}
+
+@test "tuic unit template sends stdout/stderr to journal not a log file" {
+	local tpl="$REPO_ROOT/templates/geoproxy-tuic.service"
+	grep -qE '^StandardOutput=journal$' "$tpl"
+	grep -qE '^StandardError=journal$' "$tpl"
+	! grep -qE '^Standard(Output|Error)=append:' "$tpl"
+}
+
+@test "gps_install_unit renders ExecStartPre plus sandbox paths and capabilities" {
 	GPS_NO_SYSTEMD=0
 	need_systemd() { :; }
 	gps_install_traffic_timer() { :; }
@@ -30,7 +47,11 @@ setup() {
 	gps_install_logrotate() { :; }
 	gps_install_unit
 	grep -F "ExecStartPre=+${GPS_BIN_LINK} mesh ensure" "$GPS_UNIT_PATH"
-	grep -F "ReadWritePaths=${GPS_ETC} ${GPS_LOG_DIR}" "$GPS_UNIT_PATH"
+	grep -F "ReadWritePaths=${GPS_ETC} ${GPS_LOG_DIR} /run" "$GPS_UNIT_PATH"
+	grep -qE '^DeviceAllow=/dev/net/tun' "$GPS_UNIT_PATH"
+	grep -qE 'CAP_NET_ADMIN' "$GPS_UNIT_PATH"
+	grep -qE 'AF_NETLINK' "$GPS_UNIT_PATH"
+	grep -qE '^StandardOutput=journal$' "$GPS_UNIT_PATH"
 }
 
 @test "gps_svc_dump_failure prints systemctl status and journalctl" {
@@ -48,6 +69,23 @@ setup() {
 	[[ "$output" == *"Active: failed"* ]]
 	[[ "$output" == *"Permission denied"* ]]
 	[[ "$output" == *"journalctl"* ]]
+}
+
+@test "gps_svc_dump_failure cats sing-box log file even when journalctl exists" {
+	have_cmd() { [[ $1 == systemctl || $1 == journalctl ]]; }
+	mkdir -p "$GPS_LOG_DIR"
+	printf '%s\n' 'FATAL[0000] create WireGuard device: open /dev/net/tun: no such file or directory' >"$GPS_LOG"
+	systemctl() {
+		echo "Main process exited, code=exited, status=1/FAILURE"
+		return 3
+	}
+	journalctl() {
+		echo "systemd: Main process exited, code=exited, status=1/FAILURE"
+	}
+	run gps_svc_dump_failure
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"create WireGuard device"* ]]
+	[[ "$output" == *"/dev/net/tun"* ]]
 }
 
 @test "gps_svc start dumps journal when systemctl fails" {
