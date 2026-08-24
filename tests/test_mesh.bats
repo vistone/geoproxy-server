@@ -353,3 +353,112 @@ setup() {
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"拒绝明文"* ]]
 }
+
+@test "mesh show member displays remote MESH_MASTER_URL not local hostname" {
+	export PORT=43014
+	export UUID="00000000-0000-4000-8000-000000000113"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.10"
+	export TUIC_NAME="www.member.example"
+	export NODE_ID="www"
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="https://tile3.zeromaps.cn:19527"
+	export MESH_CLUSTER_TOKEN="member-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_register_and_pull() { return 1; }
+	save_state
+	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/member-show.out" 2>&1
+	grep -q 'master URL:  https://tile3.zeromaps.cn:19527' "$GPS_TEST_PREFIX/member-show.out"
+	! grep -q 'master URL:  https://www.member.example' "$GPS_TEST_PREFIX/member-show.out"
+	! grep -q '供其它机器加入' "$GPS_TEST_PREFIX/member-show.out"
+}
+
+@test "master join hints name tcp 19527 control plane and cloud security group" {
+	export PORT=43015
+	export UUID="00000000-0000-4000-8000-000000000114"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.55"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="hint-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	run gps_mesh_print_join_hints
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"TCP 19527"* ]]
+	[[ "$output" == *"mesh 控制面"* ]]
+	[[ "$output" == *"云安全组"* ]]
+	[[ "$output" != *"WG 51820"* ]] || [[ "$output" == *"不是"* ]]
+}
+
+@test "master ensure boot records mesh control plane tcp allow" {
+	export PORT=43016
+	export UUID="00000000-0000-4000-8000-000000000115"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.56"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_FW_LAST_ALLOW=""
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	[ "$GPS_FW_LAST_ALLOW" = "19527/tcp" ]
+}
+
+@test "member ensure boot does not open recruiting port and warns about master 19527" {
+	export PORT=43017
+	export UUID="00000000-0000-4000-8000-000000000116"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.20"
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="http://127.0.0.1:1"
+	export MESH_CLUSTER_TOKEN="member-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_register_and_pull() { return 1; }
+	GPS_FW_LAST_ALLOW=""
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot >"$GPS_TEST_PREFIX/member-boot.out" 2>&1
+	[ -z "${GPS_FW_LAST_ALLOW:-}" ]
+	grep -q '无法联系 Master' "$GPS_TEST_PREFIX/member-boot.out"
+	grep -q 'TCP 19527' "$GPS_TEST_PREFIX/member-boot.out"
+	grep -q '云安全组' "$GPS_TEST_PREFIX/member-boot.out"
+	! grep -q '供其它机器加入' "$GPS_TEST_PREFIX/member-boot.out"
+}
+
+@test "mesh show master reports listen bind firewall and join url" {
+	export PORT=43018
+	export UUID="00000000-0000-4000-8000-000000000117"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.57"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	save_state
+	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/master-show-fw.out" 2>&1
+	grep -q '0.0.0.0:19527' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q 'TCP 19527' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q 'mesh 控制面' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q '云安全组' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q '203.0.113.57:19527' "$GPS_TEST_PREFIX/master-show-fw.out"
+}

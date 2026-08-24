@@ -259,6 +259,42 @@ gps_mesh_primary_join_url() {
 	printf '%s\n' "${urls[0]:-}"
 }
 
+# Master：放行控制面 TCP（幂等；默认安静，避免 sync timer 刷屏）
+gps_mesh_expose_control_plane() {
+	[[ ${MESH_ROLE:-} == master ]] || return 0
+	gps_mesh_defaults 2>/dev/null || true
+	local port=${MESH_MASTER_PORT:-19527}
+	if gps_fw_allow_tcp "$port" "geoproxy-mesh-control"; then
+		return 0
+	fi
+	warn "未能放行 TCP ${port}（mesh 控制面）。请手工放行本机防火墙，并在云安全组放行同一端口。"
+	return 0
+}
+
+# Master：监听地址 / 本机防火墙 / 云安全组（member 不打印招人端口）
+gps_mesh_print_control_plane_status() {
+	[[ ${MESH_ROLE:-} == master ]] || return 0
+	gps_mesh_defaults 2>/dev/null || true
+	local port=${MESH_MASTER_PORT:-19527}
+	local bind=${GPS_MESH_MASTER_BIND:-0.0.0.0}
+	local backend
+	backend=$(gps_fw_backend)
+	msg "  控制面监听: ${bind}:${port}/tcp（mesh 控制面，供其它机器加入；不是代理端口，也不是 WG 51820）"
+	if [[ $bind == 127.0.0.1 || $bind == ::1 ]]; then
+		msg "  $(_yellow "注意") 控制面只绑本机 ${bind}，其它机器无法加入"
+	fi
+	if gps_fw_tcp_allowed "$port"; then
+		if [[ $backend == none ]]; then
+			msg "  本机防火墙: 已放行 TCP ${port}（未检测到 ufw/firewalld/iptables/nft 活动规则；本机无防火墙可拦）"
+		else
+			msg "  本机防火墙: 已放行 TCP ${port}（${backend}）"
+		fi
+	else
+		msg "  本机防火墙: 未放行 TCP ${port}（${backend}）— 其它机器加入会 Connection timed out"
+	fi
+	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 TCP ${port}，否则 Node 会 Connection timed out"
+}
+
 # 打印成员加入命令（全部可用地址）；TLS 开启时附带公钥指纹
 gps_mesh_print_join_hints() {
 	[[ ${MESH_ROLE:-} == master ]] || return 0
@@ -269,11 +305,13 @@ gps_mesh_print_join_hints() {
 		pin=$(tr -d '[:space:]' <"$GPS_MESH_TLS_FP")
 		[[ -n $pin ]] && pin_part="GPS_MESH_TLS_PIN=${pin} "
 	fi
+	gps_mesh_expose_control_plane
 	msg "$(_cyan "其它节点加入组网")（IPv4 / IPv6 / 域名任选其一可通即可）:"
 	while IFS= read -r u; do
 		[[ -n $u ]] || continue
 		msg "  GPS_MESH_MASTER=${u} ${pin_part}GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
 	done < <(gps_mesh_join_urls)
+	gps_mesh_print_control_plane_status
 }
 
 # 从「整行加入命令」或「地址 + TOKEN」解析出 url/token/pin（写入全局 __MESH_PARSE_URL / __MESH_PARSE_TOKEN / __MESH_PARSE_PIN）

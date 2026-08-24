@@ -2,6 +2,8 @@
 # Mesh 模块入口
 
 _gps_mesh_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/firewall.sh
+source "${_gps_mesh_dir}/../firewall.sh"
 # shellcheck source=lib/mesh/_common.sh
 source "${_gps_mesh_dir}/_common.sh"
 # shellcheck source=lib/mesh/wireguard.sh

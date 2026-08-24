@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.34 - 2026-08-24
+
+体验：Master 自动放行组网控制面；TUIC 启动失败打印 journal。
+
+- Master 升主 / 安装 / `mesh ensure` 时自动放行本机防火墙 TCP 19527（活动的 ufw → firewalld → iptables → nft）；`mesh show` / doctor / 加入命令写明监听地址与防火墙状态。云安全组脚本改不了，需在控制台同样放行。
+- Member 的 `mesh show` 显示真实 `MESH_MASTER_URL`，不再把本机域名误显示成 Master；连不上时提示检查 Master 的 19527（本机防火墙 + 云安全组）。
+- `geoproxy-tuic` 启动失败：菜单 12 / systemctl 失败时自动打印 `status` 与 `journalctl -n 40`；`ExecStartPre mesh ensure` 不再套主进程过严沙箱；`ReadWritePaths` 加上日志目录；菜单 12 restart 先在菜单进程做 mesh ensure 再 start。
+
 ## v0.2.33 - 2026-08-24
 
 安全加固（含 **破坏性变更**：mesh 控制面默认 TLS）。

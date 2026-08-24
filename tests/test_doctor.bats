@@ -17,3 +17,24 @@ setup() {
 @test "disk usage percent fails for missing directory" {
 	! gps_disk_usage_pct "$BATS_TEST_TMPDIR/definitely-missing-dir"
 }
+
+@test "doctor master reports mesh control plane listen and cloud security group" {
+	export PORT=43201
+	export UUID="00000000-0000-4000-8000-000000000301"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.77"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="doctor-token-01234567"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	run gps_doctor
+	[[ "$output" == *"0.0.0.0:19527"* ]]
+	[[ "$output" == *"TCP 19527"* ]]
+	[[ "$output" == *"云安全组"* ]]
+}

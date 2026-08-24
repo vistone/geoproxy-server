@@ -81,7 +81,9 @@ gps_menu() {
 		12)
 			read -r -p "start / stop / restart: " a
 			case $a in
-			start | stop | restart) gps_svc "$a" && msg "ok" || true ;;
+			start) gps_svc_boot && msg "ok" || true ;;
+			stop) gps_svc_halt && msg "ok" || true ;;
+			restart) gps_restart_svc && msg "ok" || true ;;
 			*) warn "无效操作" ;;
 			esac
 			;;

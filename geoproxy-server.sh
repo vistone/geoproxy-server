@@ -54,7 +54,11 @@ main() {
 		fi
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		load_state 2>/dev/null || true
-		gps_svc "$cmd"
+		case $cmd in
+		start) gps_svc_boot ;;
+		stop) gps_svc_halt ;;
+		restart) gps_restart_svc ;;
+		esac
 		;;
 	info | i)
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths

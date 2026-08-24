@@ -166,7 +166,11 @@ gps_mesh_cmd_show() {
 	msg "  WG listen:   ${WG_LISTEN_PORT:-51820}"
 	msg "  WG public:   ${WG_PUBLIC_KEY:-（未生成）}"
 	msg "  master host: ${MESH_MASTER_HOST:-（未设置，可用 change mesh-master-host）}"
-	msg "  master URL:  ${primary:-${MESH_MASTER_URL:-?}}"
+	if [[ ${MESH_ROLE:-} == member ]]; then
+		msg "  master URL:  ${MESH_MASTER_URL:-（未设置）}"
+	else
+		msg "  master URL:  ${primary:-${MESH_MASTER_URL:-?}}"
+	fi
 	if [[ -n ${PUBLIC_IP:-} || -n ${PUBLIC_IP6:-} ]]; then
 		msg "  公网地址:    ${PUBLIC_IP:-—} / ${PUBLIC_IP6:-—}"
 	fi

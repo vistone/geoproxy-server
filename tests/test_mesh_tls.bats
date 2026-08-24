@@ -35,7 +35,11 @@ setup() {
 	local hints
 	hints=$(gps_mesh_print_join_hints 2>&1)
 	echo "$hints" | grep -q 'GPS_MESH_TLS_PIN=sha256//'
-	[[ "$(gps_mesh_primary_join_url)" == https://203.0.113.90:19527 ]]
+	# 断言前清空 host 相关：runner 的 hostname -f 可能是含点 FQDN，
+	# 会被 gps_mesh_resolve_master_host 当作 MESH_MASTER_HOST 而改变 primary
+	local primary
+	primary=$(MESH_MASTER_HOST= TUIC_NAME= NODE_ID= gps_mesh_primary_join_url)
+	[[ "$primary" == https://203.0.113.90:19527 ]]
 }
 
 @test "member registers over https with pinned pubkey" {

@@ -47,7 +47,11 @@ gps_install_mesh_units_files_only() {
 		fi
 		if [[ -n $tok ]]; then
 			umask 077
-			printf 'MESH_CLUSTER_TOKEN=%s\n' "$tok" >"$GPS_MESH_ENV"
+			{
+				printf 'MESH_CLUSTER_TOKEN=%s\n' "$tok"
+				printf 'GPS_MESH_MASTER_BIND=%s\n' "${GPS_MESH_MASTER_BIND:-0.0.0.0}"
+				printf 'GPS_MESH_MASTER_PORT=%s\n' "${MESH_MASTER_PORT:-${GPS_MESH_MASTER_PORT:-19527}}"
+			} >"$GPS_MESH_ENV"
 			chmod 600 "$GPS_MESH_ENV" 2>/dev/null || true
 		fi
 	fi
@@ -82,7 +86,7 @@ gps_install_mesh_units() {
 	if [[ ${MESH_ROLE:-master} == master ]]; then
 		systemctl enable --now "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
 			systemctl enable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
-		msg "$(_cyan "mesh-master") 已启用（登记面 :${MESH_MASTER_PORT:-19527}）"
+		msg "$(_cyan "mesh-master") 已启用（登记面 ${GPS_MESH_MASTER_BIND:-0.0.0.0}:${MESH_MASTER_PORT:-19527}/tcp，mesh 控制面）"
 	else
 		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
 	fi
@@ -213,6 +217,21 @@ gps_stop_bg() {
 	fi
 }
 
+# systemctl 失败时把 status/journal 打到终端，避免菜单只剩一句 Job failed
+gps_svc_dump_failure() {
+	msg "$(_red "服务启动失败") $GPS_SERVICE — systemctl / journal 关键输出:"
+	if have_cmd systemctl; then
+		systemctl status --no-pager -l "$GPS_SERVICE" 2>&1 || true
+	fi
+	if have_cmd journalctl; then
+		msg "$(_cyan "journalctl") -u $GPS_SERVICE -n 40 --no-pager"
+		journalctl -u "$GPS_SERVICE" -n 40 --no-pager 2>&1 || true
+	elif [[ -n ${GPS_LOG:-} && -f $GPS_LOG ]]; then
+		msg "$(_cyan "最近日志") $GPS_LOG"
+		tail -n 20 "$GPS_LOG" 2>/dev/null || true
+	fi
+}
+
 gps_svc() {
 	local action=$1
 	shift || true
@@ -246,6 +265,13 @@ gps_svc() {
 		return 0
 	fi
 	need_systemd
+	if [[ $action == start || $action == restart ]]; then
+		if systemctl "$action" "$@" "$GPS_SERVICE"; then
+			return 0
+		fi
+		gps_svc_dump_failure
+		return 1
+	fi
 	systemctl "$action" "$@" "$GPS_SERVICE"
 }
 
@@ -286,9 +312,13 @@ gps_svc_boot() {
 	fi
 	need_systemd
 	systemctl daemon-reload 2>/dev/null || true
-	gps_svc start
+	gps_svc start || return 1
 	sleep 0.5
-	gps_svc is-active --quiet || err "服务启动失败，请查看: journalctl -u $GPS_SERVICE -n 50"
+	if ! gps_svc is-active --quiet; then
+		gps_svc_dump_failure
+		msg "$(_red "错误:") 服务启动失败（$GPS_SERVICE 未进入 active）" >&2
+		return 1
+	fi
 }
 
 gps_restart_svc() {

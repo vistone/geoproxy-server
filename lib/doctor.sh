@@ -147,8 +147,10 @@ gps_doctor() {
 					warn_item "mesh-master :$hp 未响应（unit 未起或测试前缀）"
 				fi
 			fi
+			gps_mesh_print_control_plane_status 2>/dev/null || true
 		elif [[ ${MESH_ROLE:-} == member ]]; then
 			check "MESH_MASTER_URL 已设置" test -n "${MESH_MASTER_URL:-}"
+			msg "  若 Node 连不上 Master：到 Master 上确认 TCP ${MESH_MASTER_PORT:-19527} 已对外放行（本机防火墙 + 云安全组）"
 		fi
 		if [[ -n ${MESH_EXIT_NODE_ID:-} && $MESH_EXIT_NODE_ID == "${NODE_ID:-}" ]]; then
 			msg "  $(_red FAIL) mesh-exit 指向自己（环路风险）"

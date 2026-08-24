@@ -133,11 +133,13 @@ gps_mesh_ensure_boot() {
 		gps_mesh_peers_upsert_self
 		gps_mesh_resolve_master_host
 		MESH_MASTER_URL=$(gps_mesh_primary_join_url)
+		gps_mesh_expose_control_plane
 	else
 		if gps_mesh_register_and_pull; then
 			msg "$(_cyan "mesh") 已向 Master 注册并拉取 peers"
 		else
-			warn "无法联系 Master（${MESH_MASTER_URL:-?}）；使用本地 peers（若有）"
+			warn "无法联系 Master（${MESH_MASTER_URL:-?}）；使用本地 peers（若有）
+请到 Master 上确认 TCP ${MESH_MASTER_PORT:-19527}（mesh 控制面）已对外放行（本机防火墙 + 云安全组）。脚本只能管本机防火墙。"
 			gps_mesh_ensure_overlay_ip
 			gps_mesh_peers_load_or_init
 			gps_mesh_peers_upsert_self

@@ -136,8 +136,11 @@ geoproxy-server version
 
 ## Mesh 组网（开机自动 + Master 发现，控制面 TLS）
 
-Master 登记面（:19527）默认以自签 TLS 提供服务；加入命令内含证书公钥指纹（`GPS_MESH_TLS_PIN`），
-节点端 `curl --pinnedpubkey` 钉扎，TOKEN 不明文过网。
+Master 登记面默认监听 `0.0.0.0:19527/tcp`（自签 TLS）。升为 Master / 安装 / `mesh ensure` 时脚本会
+**自动放行本机防火墙 TCP 19527**（活动的 ufw → firewalld → iptables → nft）。这是组网控制面，
+不是代理端口，也不是 WG `51820`。云厂商安全组脚本改不了，需在控制台同样放行，否则 Node 会
+`Connection timed out`。加入命令内含证书公钥指纹（`GPS_MESH_TLS_PIN`），节点端
+`curl --pinnedpubkey` 钉扎，TOKEN 不明文过网。
 
 ```bash
 # 首台（Master）— 普通安装即可
