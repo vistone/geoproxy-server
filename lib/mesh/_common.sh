@@ -137,7 +137,9 @@ gps_mesh_curl() {
 	if [[ $url == https://* && -z ${MESH_TLS_PIN:-} ]]; then
 		warn "https Master 未配置指纹（MESH_TLS_PIN），走系统 CA 校验"
 	fi
-	local -a args=(-fsSL --max-time 15)
+	local max_t=${GPS_MESH_CURL_MAX_TIME:-15}
+	local conn_t=${GPS_MESH_CURL_CONNECT_TIMEOUT:-$max_t}
+	local -a args=(-fsSL --connect-timeout "$conn_t" --max-time "$max_t")
 	if [[ $url == https://* && -n ${MESH_TLS_PIN:-} ]]; then
 		args+=(-k --pinnedpubkey "${MESH_TLS_PIN}")
 	fi

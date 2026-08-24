@@ -122,3 +122,20 @@ setup() {
 	grep -qE '^[[:space:]]*restart\) gps_restart_svc' "$REPO_ROOT/lib/menu.sh"
 	! grep -qE 'start \| stop \| restart\) gps_svc "\$a"' "$REPO_ROOT/lib/menu.sh"
 }
+
+@test "mesh-sync unit can write /etc/geoproxy-server even under ProtectSystem" {
+	local tpl="$REPO_ROOT/templates/geoproxy-mesh-sync.service"
+	grep -qE '^ExecStart=\+__BIN__ mesh sync-master$' "$tpl"
+	grep -qE '^ProtectSystem=strict$' "$tpl"
+	grep -qE '^ReadWritePaths=__ETC_DIR__' "$tpl"
+}
+
+@test "gps_install_mesh_units_files_only renders mesh-sync write paths" {
+	export MESH_CLUSTER_TOKEN="sync-token-0123456789"
+	gps_mesh_defaults
+	gps_mesh_ensure_dirs
+	gps_install_mesh_units_files_only
+	grep -F "ExecStart=+${GPS_BIN_LINK} mesh sync-master" "$GPS_MESH_SYNC_UNIT_PATH"
+	grep -qE '^ProtectSystem=strict$' "$GPS_MESH_SYNC_UNIT_PATH"
+	grep -F "ReadWritePaths=${GPS_ETC}" "$GPS_MESH_SYNC_UNIT_PATH"
+}

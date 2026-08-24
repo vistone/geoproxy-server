@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.37 - 2026-08-24
+
+修复：Member 连不上 Master 时启动探测 2–3s 快速降级，不把 tuic 拖死。
+
+- 启动路径 `gps_mesh_ensure_boot` 默认 curl `--connect-timeout 2 --max-time 3`（周期 sync 仍 15s）；连不上 Master 时写 peers 失败改为 warn，不让 ExecStartPre 把 unit 拖成 failed。
+- `mesh sync-master` 只在 `config.json`（WG 配置）真变时重启代理，不再因 peers.json 的 `last_seen` 每次 upsert 都变而重启。
+- mesh-sync unit：`ExecStart=+`、`ProtectSystem=strict`、`ReadWritePaths` 含 etc/log，避免沙箱只读导致写 peers 失败。
+
 ## v0.2.36 - 2026-08-24
 
 工程：新增 Cloud Agent 开发环境（`.cursor/`），随分支/PR 生效。

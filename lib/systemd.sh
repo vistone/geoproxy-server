@@ -65,7 +65,10 @@ gps_install_mesh_units_files_only() {
 			"$mtpl" >"$GPS_MESH_MASTER_UNIT_PATH"
 	fi
 	if [[ -f $stpl && -n ${GPS_MESH_SYNC_UNIT_PATH:-} ]]; then
-		sed -e "s|__BIN__|${bin}|g" "$stpl" >"$GPS_MESH_SYNC_UNIT_PATH"
+		sed -e "s|__BIN__|${bin}|g" \
+			-e "s|__ETC_DIR__|${GPS_ETC}|g" \
+			-e "s|__LOG_DIR__|${GPS_LOG_DIR}|g" \
+			"$stpl" >"$GPS_MESH_SYNC_UNIT_PATH"
 	fi
 	if [[ -f $ttpl && -n ${GPS_MESH_SYNC_TIMER_PATH:-} ]]; then
 		local sec=${MESH_SYNC_SEC:-60}

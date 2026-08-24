@@ -462,3 +462,140 @@ setup() {
 	grep -q '云安全组' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q '203.0.113.57:19527' "$GPS_TEST_PREFIX/master-show-fw.out"
 }
+
+_gps_curl_arg_after() {
+	local flag=$1 file=$2
+	awk -v f="$flag" '$0==f{getline; print; exit}' "$file"
+}
+
+@test "gps_mesh_curl default timeout is 15s and honors GPS_MESH_CURL_MAX_TIME" {
+	curl() {
+		local a
+		: >"$GPS_TEST_PREFIX/curl.args"
+		for a in "$@"; do
+			printf '%s\n' "$a" >>"$GPS_TEST_PREFIX/curl.args"
+		done
+		return 7
+	}
+	export MESH_CLUSTER_TOKEN="tok-0123456789abcdef"
+	run gps_mesh_curl "http://127.0.0.1:1/v1/peers"
+	[ "$(_gps_curl_arg_after --max-time "$GPS_TEST_PREFIX/curl.args")" = "15" ]
+	[ "$(_gps_curl_arg_after --connect-timeout "$GPS_TEST_PREFIX/curl.args")" = "15" ]
+
+	GPS_MESH_CURL_MAX_TIME=3 GPS_MESH_CURL_CONNECT_TIMEOUT=2 \
+		gps_mesh_curl "http://127.0.0.1:1/v1/peers" || true
+	[ "$(_gps_curl_arg_after --max-time "$GPS_TEST_PREFIX/curl.args")" = "3" ]
+	[ "$(_gps_curl_arg_after --connect-timeout "$GPS_TEST_PREFIX/curl.args")" = "2" ]
+}
+
+@test "member ensure boot probes master with 2-3s curl timeout not 15s" {
+	export PORT=43019
+	export UUID="00000000-0000-4000-8000-000000000118"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.21"
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="http://127.0.0.1:1"
+	export MESH_CLUSTER_TOKEN="member-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	curl() {
+		local a
+		: >"$GPS_TEST_PREFIX/curl.args"
+		for a in "$@"; do
+			printf '%s\n' "$a" >>"$GPS_TEST_PREFIX/curl.args"
+		done
+		return 7
+	}
+	unset GPS_MESH_CURL_MAX_TIME GPS_MESH_CURL_CONNECT_TIMEOUT
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot >"$GPS_TEST_PREFIX/member-fast.out" 2>&1
+	local max conn
+	max=$(_gps_curl_arg_after --max-time "$GPS_TEST_PREFIX/curl.args")
+	conn=$(_gps_curl_arg_after --connect-timeout "$GPS_TEST_PREFIX/curl.args")
+	[[ "$max" =~ ^[0-9]+$ ]]
+	[[ "$conn" =~ ^[0-9]+$ ]]
+	((max <= 3))
+	((conn <= 3))
+	grep -q '无法联系 Master' "$GPS_TEST_PREFIX/member-fast.out"
+	grep -q 'TCP 19527' "$GPS_TEST_PREFIX/member-fast.out"
+}
+
+@test "member ensure boot does not abort when local peers write fails" {
+	# ExecStartPre 走 set -e；fallback 写 peers 失败（ProtectSystem EROFS）不得让 ensure 非 0
+	awk '/无法联系 Master/,/^[[:space:]]*fi$/' "$REPO_ROOT/lib/mesh/discovery.sh" |
+		grep -qE 'gps_mesh_peers_load_or_init \|\|'
+	awk '/无法联系 Master/,/^[[:space:]]*fi$/' "$REPO_ROOT/lib/mesh/discovery.sh" |
+		grep -qE 'gps_mesh_peers_upsert_self \|\|'
+}
+
+@test "mesh sync-master does not restart proxy when master is unreachable" {
+	export PORT=43021
+	export UUID="00000000-0000-4000-8000-000000000120"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.23"
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="http://127.0.0.1:1"
+	export MESH_CLUSTER_TOKEN="member-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_register_and_pull() { return 1; }
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot >/dev/null 2>&1
+	local restarted=0
+	gps_restart_svc() { restarted=1; }
+	GPS_MESH_SYNC_RESTART=1 gps_mesh_sync_master >/dev/null 2>&1
+	[ "$restarted" -eq 0 ]
+}
+
+@test "mesh sync-master restarts when remote peers change the WG config" {
+	export PORT=43022
+	export UUID="00000000-0000-4000-8000-000000000121"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.58"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot >/dev/null 2>&1
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	local restarted=0
+	gps_restart_svc() { restarted=1; }
+	GPS_MESH_SYNC_RESTART=1 gps_mesh_sync_master >/dev/null 2>&1
+	[ "$restarted" -eq 1 ]
+}
+
+@test "mesh sync-master keeps 15s curl timeout for periodic register" {
+	export PORT=43023
+	export UUID="00000000-0000-4000-8000-000000000122"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.24"
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="http://127.0.0.1:1"
+	export MESH_CLUSTER_TOKEN="member-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	curl() {
+		local a
+		: >"$GPS_TEST_PREFIX/curl.args"
+		for a in "$@"; do
+			printf '%s\n' "$a" >>"$GPS_TEST_PREFIX/curl.args"
+		done
+		return 7
+	}
+	unset GPS_MESH_CURL_MAX_TIME GPS_MESH_CURL_CONNECT_TIMEOUT
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_sync_master >/dev/null 2>&1 || true
+	[ "$(_gps_curl_arg_after --max-time "$GPS_TEST_PREFIX/curl.args")" = "15" ]
+}

@@ -5,7 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=__BIN__ mesh sync-master
+ExecStart=+__BIN__ mesh sync-master
 NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=__ETC_DIR__ __LOG_DIR__
 ProtectHome=true
 PrivateTmp=true

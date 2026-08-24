@@ -124,6 +124,11 @@ gps_mesh_ensure_boot() {
 	gps_mesh_ensure_node_id
 	gps_mesh_defaults
 	gps_mesh_ensure_wg_keys
+	# 启动路径默认 2–3s：15s curl 会让 ExecStartPre 被下一次 restart TERM 成 failed
+	if [[ -z ${GPS_MESH_CURL_MAX_TIME:-} ]]; then
+		GPS_MESH_CURL_MAX_TIME=3
+		GPS_MESH_CURL_CONNECT_TIMEOUT=${GPS_MESH_CURL_CONNECT_TIMEOUT:-2}
+	fi
 
 	if [[ $MESH_ROLE == master ]]; then
 		MESH_OVERLAY_IP=${MESH_OVERLAY_IP:-10.66.0.1}
@@ -141,32 +146,35 @@ gps_mesh_ensure_boot() {
 			warn "无法联系 Master（${MESH_MASTER_URL:-?}）；使用本地 peers（若有）
 请到 Master 上确认 TCP ${MESH_MASTER_PORT:-19527}（mesh 控制面）已对外放行（本机防火墙 + 云安全组）。脚本只能管本机防火墙。"
 			gps_mesh_ensure_overlay_ip
-			gps_mesh_peers_load_or_init
-			gps_mesh_peers_upsert_self
+			gps_mesh_peers_load_or_init || warn "无法初始化本地 peers（${GPS_MESH_PEERS:-?}）"
+			gps_mesh_peers_upsert_self || warn "无法写入本地 peers（只读沙箱？检查 systemd ReadWritePaths 含 ${GPS_ETC:-/etc/geoproxy-server}）"
 		fi
 	fi
-	gps_write_config
+	gps_write_config || warn "无法写入 ${GPS_CONFIG:-config}（只读沙箱？检查 systemd ReadWritePaths）"
 }
 
-# 周期同步：成员 register+pull；Master 仅 upsert self。peers/config 变更则重启。
+# 周期同步：成员 register+pull；Master 仅 upsert self。WG 配置变更才重启。
 gps_mesh_sync_master() {
 	[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 	load_state 2>/dev/null || true
 	gps_mesh_role_normalize
 	gps_mesh_defaults
+	# 周期同步可用完整超时；ensure 启动路径默认 3s
+	if [[ -z ${GPS_MESH_CURL_MAX_TIME:-} ]]; then
+		GPS_MESH_CURL_MAX_TIME=15
+		GPS_MESH_CURL_CONNECT_TIMEOUT=${GPS_MESH_CURL_CONNECT_TIMEOUT:-15}
+	fi
 	local before after
 	before=""
-	[[ -f $GPS_MESH_PEERS ]] && before=$(cksum "$GPS_MESH_PEERS" 2>/dev/null | awk '{print $1" "$2}')
-	[[ -f $GPS_CONFIG ]] && before="${before}|$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')"
+	[[ -f $GPS_CONFIG ]] && before=$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')
 
 	gps_mesh_ensure_boot
 	save_state 2>/dev/null || true
 
 	after=""
-	[[ -f $GPS_MESH_PEERS ]] && after=$(cksum "$GPS_MESH_PEERS" 2>/dev/null | awk '{print $1" "$2}')
-	[[ -f $GPS_CONFIG ]] && after="${after}|$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')"
+	[[ -f $GPS_CONFIG ]] && after=$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')
 
-	# ExecStartPre 场景：调用方不重启；timer 场景需要时重启
+	# 只看 config.json：peers.json 的 last_seen 每次 upsert 都会变，不能据此重启代理
 	if [[ ${GPS_MESH_SYNC_RESTART:-1} == 1 && $before != "$after" ]]; then
 		gps_restart_svc 2>/dev/null || true
 	fi
