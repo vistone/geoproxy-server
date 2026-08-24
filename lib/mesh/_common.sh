@@ -249,12 +249,14 @@ gps_mesh_join_urls() {
 }
 
 gps_mesh_primary_join_url() {
-	local first=""
-	# 不用 head|pipe：set -o pipefail 下会 SIGPIPE(141)
-	while IFS= read -r first; do
-		break
+	# 读完全部行再取首元素：read+break 会提前关闭管道，
+	# 写端 printf 在 set -o pipefail 下触发 SIGPIPE(141)（CI 必现）。
+	local -a urls=()
+	local u
+	while IFS= read -r u; do
+		urls+=("$u")
 	done < <(gps_mesh_join_urls)
-	printf '%s\n' "$first"
+	printf '%s\n' "${urls[0]:-}"
 }
 
 # 打印成员加入命令（全部可用地址）；TLS 开启时附带公钥指纹
