@@ -8,6 +8,8 @@
 设计说明：
 
 - [`docs/design.md`](./docs/design.md)（产品模型、协议矩阵、Mesh、KiwiVM）
+- 发布规则（版本号 patch+1、必须推送 GitHub）：[`docs/RELEASING.md`](./docs/RELEASING.md)
+- 开发规则书：[`AGENTS.md`](./AGENTS.md)
 - 协议插件：[`docs/superpowers/specs/2026-08-21-protocol-plugin-design.md`](./docs/superpowers/specs/2026-08-21-protocol-plugin-design.md)
 - 多协议：[`docs/superpowers/specs/2026-08-21-multi-protocol-design.md`](./docs/superpowers/specs/2026-08-21-multi-protocol-design.md)
 - Mesh 组网：[`docs/superpowers/specs/2026-08-21-mesh-design.md`](./docs/superpowers/specs/2026-08-21-mesh-design.md)
@@ -29,6 +31,7 @@
 
 - root、systemd、amd64/arm64
 - 可访问 GitHub Releases（sing-box / 本仓库）与 `api.64clouds.com`（流量熔断）
+- curl ≥ 7.55（mesh 请求经 header 文件传 TOKEN）；python3、openssl（mesh 与校验需要）
 
 ## 安装
 
@@ -131,15 +134,18 @@ geoproxy-server traffic [status|check|resume]
 geoproxy-server version
 ```
 
-## Mesh 组网（开机自动 + Master 发现）
+## Mesh 组网（开机自动 + Master 发现，控制面 TLS）
+
+Master 登记面（:19527）默认以自签 TLS 提供服务；加入命令内含证书公钥指纹（`GPS_MESH_TLS_PIN`），
+节点端 `curl --pinnedpubkey` 钉扎，TOKEN 不明文过网。
 
 ```bash
 # 首台（Master）— 普通安装即可
 bash install.sh
-# 安装结束会打印加入命令，含 TOKEN
+# 安装结束会打印加入命令（https 地址 + TLS 指纹 + TOKEN）
 
-# 其它节点（Member）
-GPS_MESH_MASTER=http://MASTER_IP:19527 GPS_MESH_TOKEN=... bash install.sh
+# 其它节点（Member）— 直接粘贴 Master 打印的整行
+GPS_MESH_MASTER=https://MASTER_IP:19527 GPS_MESH_TLS_PIN=sha256//... GPS_MESH_TOKEN=... bash install.sh
 
 # 排障
 geoproxy-server mesh show
@@ -149,6 +155,9 @@ geoproxy-server mesh export
 geoproxy-server change mesh-exit <node_id>
 ```
 
+自 v0.2.33 起拒绝向**非本机** Master 发起明文 `http://` 注册（TOKEN/公钥会明文过网）。
+旧成员升级后请重新执行上面临入流程；仅 loopback 明文仍放行（排障用）。
+
 ## 路径
 
 | 路径 | 说明 |
@@ -156,6 +165,8 @@ geoproxy-server change mesh-exit <node_id>
 | `/usr/local/bin/geoproxy-server` | 入口 |
 | `/etc/geoproxy-server/state.env` | 状态（含 KiwiVM，600） |
 | `/etc/geoproxy-server/mesh/peers.json` | 组网 peers |
+| `/etc/geoproxy-server/mesh/master.env` | 仅 Master：登记服务专用凭证（600） |
+| `/etc/geoproxy-server/mesh/master-tls.*` | 仅 Master：控制面自签证书与指纹 |
 | `/var/log/geoproxy-server/sing-box.log` | 代理日志 |
 | `/var/log/geoproxy-server/traffic.log` | 熔断日志 |
 | `geoproxy-tuic.service` | 代理（含 mesh ensure） |

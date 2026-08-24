@@ -254,8 +254,8 @@ gps_install_entrypoint() {
 
 	cat >"$GPS_BIN_LINK" <<EOF
 #!/bin/bash
-export GPS_TEST_PREFIX='${GPS_TEST_PREFIX:-}'
-export GPS_NO_SYSTEMD='${GPS_NO_SYSTEMD:-0}'
+export GPS_TEST_PREFIX=$(printf '%q' "${GPS_TEST_PREFIX:-}")
+export GPS_NO_SYSTEMD=$(printf '%q' "${GPS_NO_SYSTEMD:-0}")
 exec bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" "\$@"
 EOF
 	chmod 755 "$GPS_BIN_LINK"
@@ -275,11 +275,11 @@ gps_cmd_uninstall() {
 	if [[ -n ${GPS_TEST_PREFIX:-} ]]; then
 		gps_apply_paths
 	elif [[ -f /etc/geoproxy-server/state.env ]]; then
-		# shellcheck disable=SC1091
-		set -a
-		# shellcheck source=/dev/null
-		source /etc/geoproxy-server/state.env 2>/dev/null || true
-		set +a
+		# 与其它加载路径同一套加固检查（拒绝符号链接/宽松权限/异属主）；
+		# 子 shell 捕获 err 的 exit，校验失败不阻断卸载
+		if ! (gps_source_env /etc/geoproxy-server/state.env) 2>/dev/null; then
+			warn "state.env 校验失败，按默认路径卸载"
+		fi
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 	fi
 	gps_apply_paths
@@ -312,6 +312,7 @@ gps_cmd_uninstall() {
 	else
 		rm -rf "$GPS_ETC" "$GPS_LIB_DIR" "$GPS_LOG_DIR"
 	fi
+	rm -f "${GPS_LOGROTATE_PATH:-}" 2>/dev/null || true
 	msg "$(_green "已卸载")"
 	if ((purge == 1)); then
 		rm -f "$GPS_KIWI_PERSIST"

@@ -214,6 +214,8 @@ gps_mesh_sync() {
 	local tmp
 	tmp=$(mktemp)
 	if [[ $src == https://* || $src == http://* ]]; then
+		# 远端合并同样禁止明文非 loopback（防 peers 注入）
+		gps_mesh_require_https_or_loopback "$src"
 		curl -fsSL --max-time 30 "$src" -o "$tmp" || err "下载失败: $src"
 	else
 		[[ -f $src ]] || err "文件不存在: $src"

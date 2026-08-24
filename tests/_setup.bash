@@ -52,7 +52,11 @@ if [[ "$1" == "generate" && "$2" == "wg-keypair" ]]; then
   exit 0
 fi
 if [[ "$1" == "generate" && "$2" == "rand" ]]; then
-  echo "AAAAAAAAAAAAAAAAAAAAAA=="
+  n=16
+  for a in "$@"; do
+    if [[ "$a" =~ ^[0-9]+$ ]]; then n="$a"; fi
+  done
+  openssl rand -base64 "$n" | tr -d '\n'
   exit 0
 fi
 exit 0

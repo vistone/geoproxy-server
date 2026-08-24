@@ -82,8 +82,11 @@ gps_kiwi_fetch_info() {
 	gps_traffic_defaults
 	[[ -n $KIWI_VEID && -n $KIWI_API_KEY ]] || return 2
 	local base=${KIWI_API_BASE%/}
-	local url="${base}/getServiceInfo?veid=${KIWI_VEID}&api_key=${KIWI_API_KEY}"
-	curl -fsSL --max-time 15 "$url" 2>/dev/null || return 1
+	# POST 表单：API_KEY 不进 URL/argv（ps/proc 不可见）
+	curl -fsSL --max-time 15 -X POST \
+		--data-urlencode "veid=${KIWI_VEID}" \
+		--data-urlencode "api_key=${KIWI_API_KEY}" \
+		"${base}/getServiceInfo" 2>/dev/null || return 1
 }
 
 gps_traffic_apply_parsed() {

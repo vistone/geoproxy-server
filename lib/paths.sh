@@ -67,6 +67,10 @@ gps_apply_paths() {
 	GPS_MESH_DIR="${GPS_ETC}/mesh"
 	GPS_MESH_PEERS="${GPS_MESH_DIR}/peers.json"
 	GPS_MESH_TOKEN_FILE="${GPS_MESH_DIR}/token"
+	GPS_MESH_TLS_CERT="${GPS_MESH_DIR}/master-tls.pem"
+	GPS_MESH_TLS_KEY="${GPS_MESH_DIR}/master-tls.key"
+	GPS_MESH_TLS_FP="${GPS_MESH_DIR}/master-tls.fp"
+	GPS_MESH_ENV="${GPS_MESH_DIR}/master.env"
 	GPS_MESH_MASTER_PY="${GPS_ROOT}/scripts/mesh_master.py"
 }
 

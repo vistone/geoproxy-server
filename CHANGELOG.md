@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.33 - 2026-08-24
+
+安全加固（含 **破坏性变更**：mesh 控制面默认 TLS）。
+
+**破坏性变更 / 迁移**
+
+- mesh Master 现默认以**自签 TLS** 提供 19527 登记 API；加入命令升级为
+  `GPS_MESH_MASTER=https://... GPS_MESH_TLS_PIN=sha256//... GPS_MESH_TOKEN=... bash install.sh`。
+- 旧成员节点升级后，若其 `MESH_MASTER_URL` 仍是 `http://<公网IP>:19527`，注册将被拒绝（仅放行 loopback 明文）。
+  迁移：在 Master 上执行 `geoproxy-server mesh show`，用新打印的 **https + GPS_MESH_TLS_PIN** 整行在成员上重新
+  `mesh join`（或菜单 26）。
+
+**安全修复**
+
+- 密钥生成不再有占位回退：`GPS_CORE_BIN` 缺失或 `generate wg-keypair/reality-keypair` 失败时**硬失败**，
+  绝不把公开已知的占位私钥写进 `state.env`（WireGuard 与 Reality 同步修复）。
+- `mesh_master.py` 全面加固：`overlay_ip` 必须位于 `MESH_OVERLAY_PREFIX` 内且避开网络/广播/Master 保留地址（越界请求改派）；
+  请求体上限（默认 64KiB → 413）；`keepalive`/`Content-Length` 畸形值返回 400 而非 500；roles 白名单校验；
+  token 比较改常数时间（`hmac.compare_digest`）；空 `MESH_CLUSTER_TOKEN` 拒绝启动（除非显式 `GPS_MESH_ALLOW_OPEN=1`）。
+- mesh-master 服务改用专用 `/etc/geoproxy-server/mesh/master.env`（仅含 token），不再加载整个 `state.env`；
+  三个 mesh/traffic systemd 单元补齐沙箱指令（`ProtectSystem=strict` + `ReadWritePaths`、`ProtectHome`、`PrivateTmp`、
+  `MemoryDenyWriteExecute` 等），`geoproxy-tuic` 同步收紧。
+- `install.sh` 引导：release asset 路径增加 GitHub API sha256 摘要校验；未校验的 tag archive 回退需显式
+  `GPS_INSTALL_ALLOW_UNVERIFIED=1`；`GPS_VERSION` 增加格式校验（防路径注入）。
+- 凭证不进进程 argv：KiwiVM API_KEY 改 POST 表单；mesh TOKEN 经 `curl -H @file` 传递。
+- `uninstall` 改用与其它路径一致的加固 `gps_source_env`（拒绝符号链接/宽松权限）；`/usr/local/bin` wrapper
+  以 `printf %q` 序列化前缀变量（消除单引号注入）。
+- 非本机 Master 的明文 `http://` 请求在交互路径（`mesh join` / 安装）直接拒绝；后台注册拒绝并告警，
+  不再阻断代理服务本身；`mesh sync <url>` 同样禁止明文非 loopback 远端。
+
+**修复**
+
+- SS2022 密钥长度按方法推导：`2022-blake3-aes-256-gcm` / `chacha20-poly1305` 生成 32 字节（原先固定 16 字节导致 `sing-box check` 失败）。
+- hy2 分享 URL 在启用 obfs 时补上 `obfs=salamander&obfs-password=...`（原先缺参数客户端连不上）。
+- `alloc_overlay` 遵循 `MESH_OVERLAY_PREFIX`（原先硬编码 `10.66.0.x`）。
+- `uninstall` 同时清理 `/etc/logrotate.d/geoproxy-server`。
+- 修复 CI：`shfmt -l` 不再静默放过格式漂移（改 `shfmt -d`）；补 `permissions: contents: read` 与
+  `concurrency` 取消旧运行；`actions/checkout` 钉 commit SHA；CI 工具下载按官方 digest 校验。
+- 测试：修复 join 测试 token 长度（13→≥16）及后台 master 进程泄漏（stdin 重定向 + 日志入前缀）；
+  新增 TLS 钉扎端到端、明文拒绝、密钥硬失败、SS2022 长度、hy2 obfs、引导校验、卸载等测试。
+
 ## v0.2.32 - 2026-08-21
 
 修复：菜单加入 Node 时误粘贴整行命令导致 Master URL 被污染。

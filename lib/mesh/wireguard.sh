@@ -2,18 +2,15 @@
 # WireGuard endpoint 密钥与 JSON 渲染
 
 gps_mesh_gen_wg_keypair() {
-	if [[ -x ${GPS_CORE_BIN:-} ]]; then
-		"$GPS_CORE_BIN" generate wg-keypair 2>/dev/null && return 0
-	fi
-	# 测试占位（非真实 X25519）
-	printf 'PrivateKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE=\n'
-	printf 'PublicKey: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBEE=\n'
+	# 密钥必须由核心真实生成；核心缺失/失败一律报错，绝不回落到占位密钥
+	[[ -x ${GPS_CORE_BIN:-} ]] || return 1
+	"$GPS_CORE_BIN" generate wg-keypair 2>/dev/null
 }
 
 gps_mesh_ensure_wg_keys() {
 	if [[ -z ${WG_PRIVATE_KEY:-} || -z ${WG_PUBLIC_KEY:-} ]]; then
 		local out priv pub
-		out=$(gps_mesh_gen_wg_keypair) || err "生成 WireGuard 密钥失败"
+		out=$(gps_mesh_gen_wg_keypair) || err "生成 WireGuard 密钥失败（需要已安装的 sing-box 核心: ${GPS_CORE_BIN:-?}）"
 		priv=$(printf '%s\n' "$out" | awk -F': ' '/PrivateKey/{print $2; exit}' | tr -d '[:space:]')
 		pub=$(printf '%s\n' "$out" | awk -F': ' '/PublicKey/{print $2; exit}' | tr -d '[:space:]')
 		[[ -n $priv && -n $pub ]] || err "解析 WireGuard 密钥失败"

@@ -6,12 +6,26 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=-__GPS_STATE__
+# 只喂最小凭证（token），不再加载整个 state.env
+EnvironmentFile=-__GPS_MESH_ENV__
 Environment=GPS_MESH_PEERS=__GPS_MESH_PEERS__
 ExecStart=/usr/bin/env python3 __MESH_MASTER_PY__
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=__GPS_MESH_DIR__
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
 
 [Install]
 WantedBy=multi-user.target

@@ -4,3 +4,5 @@ state.env
 .DS_Store
 .worktrees/
 tests/tmp/
+.mimosa/
+__pycache__/

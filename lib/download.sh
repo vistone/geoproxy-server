@@ -221,8 +221,8 @@ gps_self_install_tree() {
 	mkdir -p "$(dirname "$GPS_BIN_LINK")"
 	cat >"$GPS_BIN_LINK" <<EOF
 #!/bin/bash
-export GPS_TEST_PREFIX='${GPS_TEST_PREFIX:-}'
-export GPS_NO_SYSTEMD='${GPS_NO_SYSTEMD:-0}'
+export GPS_TEST_PREFIX=$(printf '%q' "${GPS_TEST_PREFIX:-}")
+export GPS_NO_SYSTEMD=$(printf '%q' "${GPS_NO_SYSTEMD:-0}")
 exec bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" "\$@"
 EOF
 	chmod 755 "$GPS_BIN_LINK"
@@ -234,6 +234,8 @@ EOF
 			sed -e "s|__CORE_BIN__|${GPS_CORE_BIN}|g" \
 				-e "s|__CONFIG__|${GPS_CONFIG}|g" \
 				-e "s|__LOG__|${GPS_LOG}|g" \
+				-e "s|__ETC_DIR__|${GPS_ETC}|g" \
+				-e "s|__LOG_DIR__|${GPS_LOG_DIR}|g" \
 				-e "s|__BIN__|${bin}|g" \
 				"$tpl" >"$GPS_UNIT_PATH"
 		fi

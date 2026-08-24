@@ -34,6 +34,125 @@ gps_mesh_ensure_dirs() {
 	chmod 700 "$GPS_MESH_DIR" 2>/dev/null || true
 }
 
+# ---------- Master 控制面 TLS：自签证书 + 公钥指纹钉扎 ----------
+
+# 计算并落盘公钥指纹（curl --pinnedpubkey 格式：sha256//BASE64）
+gps_mesh_write_tls_fp() {
+	[[ -f ${GPS_MESH_TLS_CERT:-} ]] || return 1
+	local pin
+	pin=$(openssl x509 -in "$GPS_MESH_TLS_CERT" -pubkey -noout 2>/dev/null |
+		openssl pkey -pubin -outform DER 2>/dev/null |
+		openssl dgst -sha256 -binary 2>/dev/null |
+		base64 | tr -d '\n') || return 1
+	[[ -n $pin ]] || return 1
+	umask 077
+	printf 'sha256//%s\n' "$pin" >"$GPS_MESH_TLS_FP"
+	chmod 600 "$GPS_MESH_TLS_FP" 2>/dev/null || true
+}
+
+# Master 侧确保证书存在（与 mesh_master.py 的 ensure_tls 等价；幂等）
+gps_mesh_ensure_master_tls() {
+	gps_mesh_ensure_dirs
+	[[ -f $GPS_MESH_TLS_FP && -f $GPS_MESH_TLS_CERT && -f $GPS_MESH_TLS_KEY ]] && return 0
+	if ! have_cmd openssl; then
+		warn "缺 openssl：mesh 控制面无法启用 TLS（不推荐）"
+		return 0
+	fi
+	umask 077
+	if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+		-keyout "$GPS_MESH_TLS_KEY" -out "$GPS_MESH_TLS_CERT" \
+		-days 3650 -nodes -subj /CN=geoproxy-mesh >/dev/null 2>&1; then
+		warn "生成 mesh TLS 证书失败：控制面将退回明文（不推荐）"
+		return 0
+	fi
+	chmod 600 "$GPS_MESH_TLS_CERT" "$GPS_MESH_TLS_KEY"
+	gps_mesh_write_tls_fp || warn "写入 TLS 指纹失败"
+}
+
+# 本机是否已有 master 证书（决定 join URL 用 https 还是 http）
+gps_mesh_master_tls_on() {
+	[[ -f ${GPS_MESH_TLS_CERT:-} && -f ${GPS_MESH_TLS_KEY:-} ]]
+}
+
+# ---------- Master URL 策略：公网必须 https；明文仅限 loopback ----------
+
+gps_mesh_url_is_loopback() {
+	local low=${1,,}
+	[[ $low == 127.* || $low == localhost || $low == localhost.* || $low == ::1 || $low == \[::1\] ]]
+}
+
+# 提取 URL 的 host（去掉端口/路径；[v6] 去括号）
+gps_mesh_url_host() {
+	local rest=${1#*://}
+	if [[ $rest == \[*\]* ]]; then
+		local host=${rest#\[*}
+		printf '%s' "${host%%\]*}"
+		return 0
+	fi
+	printf '%s' "${rest%%[:/]*}"
+}
+
+gps_mesh_require_https_or_loopback() {
+	local url=${1:-}
+	case $url in
+	http://*)
+		local host
+		host=$(gps_mesh_url_host "$url")
+		if ! gps_mesh_url_is_loopback "$host"; then
+			err "拒绝明文 http 连接非本机 Master: $url
+集群 TOKEN 与节点公钥会明文过公网（可被窃取/篡改）。
+请在 Master 上执行 mesh show，用打印的 https://... 与 GPS_MESH_TLS_PIN=... 整行重新加入。"
+		fi
+		;;
+	https://*) ;;
+	*)
+		err "Master URL 必须以 http:// 或 https:// 开头: $url"
+		;;
+	esac
+}
+
+# 统一请求入口：TLS 策略 + 指纹钉扎 + TOKEN 不进 argv（curl -H @file）
+# 注意：明文拒绝在此为非致命（warn+失败）——register 可能运行在 ExecStartPre，
+# 不能因遗留 http 配置阻断代理服务本身；交互路径用 gps_mesh_require_https_or_loopback 硬拒绝。
+gps_mesh_curl() {
+	local url=$1
+	shift
+	case $url in
+	http://*)
+		local host
+		host=$(gps_mesh_url_host "$url")
+		if ! gps_mesh_url_is_loopback "$host"; then
+			warn "拒绝明文 http 连接非本机 Master: $url
+集群 TOKEN 与节点公钥会明文过公网。请在 Master 上执行 mesh show，
+用打印的 https://... 与 GPS_MESH_TLS_PIN=... 整行重新加入。"
+			return 1
+		fi
+		;;
+	https://*) ;;
+	*)
+		warn "Master URL 必须以 http:// 或 https:// 开头: $url"
+		return 1
+		;;
+	esac
+	if [[ $url == https://* && -z ${MESH_TLS_PIN:-} ]]; then
+		warn "https Master 未配置指纹（MESH_TLS_PIN），走系统 CA 校验"
+	fi
+	local -a args=(-fsSL --max-time 15)
+	if [[ $url == https://* && -n ${MESH_TLS_PIN:-} ]]; then
+		args+=(-k --pinnedpubkey "${MESH_TLS_PIN}")
+	fi
+	local hf=""
+	if [[ -n ${MESH_CLUSTER_TOKEN:-} ]]; then
+		hf=$(mktemp)
+		printf 'Authorization: Bearer %s\n' "$MESH_CLUSTER_TOKEN" >"$hf"
+		args+=(-H @"$hf")
+	fi
+	local rc=0
+	curl "${args[@]}" "$@" "$url" || rc=$?
+	[[ -n $hf ]] && rm -f "$hf"
+	return "$rc"
+}
+
 gps_mesh_ensure_node_id() {
 	if [[ -z ${NODE_ID:-} ]]; then
 		NODE_ID=$(gps_tuic_node_name | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._-' '-' | sed 's/^-//;s/-$//')
@@ -99,24 +218,26 @@ gps_mesh_resolve_master_host() {
 	fi
 }
 
-# 输出 Master 对外 join 基址（每行一个 http://...:port），双栈+域名
+# 输出 Master 对外 join 基址（每行一个，双栈+域名）；有自签证书走 https
 # 优先顺序写入 MESH_MASTER_URL：域名 > IPv4 > IPv6 > loopback
 gps_mesh_join_urls() {
 	gps_mesh_defaults
 	gps_mesh_resolve_master_host
 	local port=${MESH_MASTER_PORT:-19527}
+	local scheme=http
+	gps_mesh_master_tls_on && scheme=https
 	local -a urls=()
 	if [[ -n ${MESH_MASTER_HOST:-} ]]; then
-		urls+=("http://${MESH_MASTER_HOST}:${port}")
+		urls+=("${scheme}://${MESH_MASTER_HOST}:${port}")
 	fi
 	if [[ -n ${PUBLIC_IP:-} ]]; then
-		urls+=("http://${PUBLIC_IP}:${port}")
+		urls+=("${scheme}://${PUBLIC_IP}:${port}")
 	fi
 	if [[ -n ${PUBLIC_IP6:-} ]]; then
-		urls+=("http://[${PUBLIC_IP6}]:${port}")
+		urls+=("${scheme}://[${PUBLIC_IP6}]:${port}")
 	fi
 	if ((${#urls[@]} == 0)); then
-		urls+=("http://127.0.0.1:${port}")
+		urls+=("${scheme}://127.0.0.1:${port}")
 	fi
 	# 去重保序
 	local u seen=""
@@ -136,28 +257,35 @@ gps_mesh_primary_join_url() {
 	printf '%s\n' "$first"
 }
 
-# 打印成员加入命令（全部可用地址）
+# 打印成员加入命令（全部可用地址）；TLS 开启时附带公钥指纹
 gps_mesh_print_join_hints() {
 	[[ ${MESH_ROLE:-} == master ]] || return 0
 	[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || return 0
-	local u
+	local u pin_part=""
+	if [[ -f ${GPS_MESH_TLS_FP:-} ]]; then
+		local pin
+		pin=$(tr -d '[:space:]' <"$GPS_MESH_TLS_FP")
+		[[ -n $pin ]] && pin_part="GPS_MESH_TLS_PIN=${pin} "
+	fi
 	msg "$(_cyan "其它节点加入组网")（IPv4 / IPv6 / 域名任选其一可通即可）:"
 	while IFS= read -r u; do
 		[[ -n $u ]] || continue
-		msg "  GPS_MESH_MASTER=${u} GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
+		msg "  GPS_MESH_MASTER=${u} ${pin_part}GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
 	done < <(gps_mesh_join_urls)
 }
 
-# 从「整行加入命令」或「地址 + TOKEN」解析出 url/token（写入全局 __MESH_PARSE_URL / __MESH_PARSE_TOKEN）
+# 从「整行加入命令」或「地址 + TOKEN」解析出 url/token/pin（写入全局 __MESH_PARSE_URL / __MESH_PARSE_TOKEN / __MESH_PARSE_PIN）
 gps_mesh_parse_join_input() {
 	local blob=${1:-}
 	__MESH_PARSE_URL=""
 	__MESH_PARSE_TOKEN=""
+	__MESH_PARSE_PIN=""
 	[[ -n $blob ]] || return 1
-	# 粘贴了完整命令：GPS_MESH_MASTER=... GPS_MESH_TOKEN=...
+	# 粘贴了完整命令：GPS_MESH_MASTER=... [GPS_MESH_TLS_PIN=...] GPS_MESH_TOKEN=...
 	if [[ $blob == *GPS_MESH_MASTER=* ]]; then
 		__MESH_PARSE_URL=$(printf '%s' "$blob" | sed -n 's/.*GPS_MESH_MASTER=\([^[:space:]]*\).*/\1/p' | head -n1)
 		__MESH_PARSE_TOKEN=$(printf '%s' "$blob" | sed -n 's/.*GPS_MESH_TOKEN=\([^[:space:]]*\).*/\1/p' | head -n1)
+		__MESH_PARSE_PIN=$(printf '%s' "$blob" | sed -n 's/.*GPS_MESH_TLS_PIN=\([^[:space:]]*\).*/\1/p' | head -n1)
 		[[ -n $__MESH_PARSE_URL ]] || return 1
 		return 0
 	fi
@@ -176,7 +304,8 @@ gps_mesh_looks_like_ipv6() {
 	((${#colons} >= 2))
 }
 
-# 把用户输入规范成 http://host:port（支持域名 / IPv4 / IPv6 / 已带 http）
+# 把用户输入规范成 http(s)://host:port（支持域名 / IPv4 / IPv6 / 已带协议）
+# 裸地址默认 https（Master 自签证书是常态）；http 仅建议 loopback
 gps_mesh_normalize_master_url() {
 	local raw=${1:-}
 	# 保留空格以便检测整行粘贴；先尝试解析命令行
@@ -195,6 +324,7 @@ gps_mesh_normalize_master_url() {
 	((${#raw} < 256)) || err "Master 地址过长，请检查是否误粘贴了整段命令"
 	gps_mesh_defaults
 	local port=${MESH_MASTER_PORT:-19527}
+	local scheme=https
 	if [[ $raw == http://* || $raw == https://* ]]; then
 		# 再拦一次被包进 URL 的垃圾
 		case $raw in
@@ -208,25 +338,25 @@ gps_mesh_normalize_master_url() {
 	# [v6] 或 [v6]:port
 	if [[ $raw == \[*\]* ]]; then
 		if [[ $raw == \[*\]:* ]]; then
-			printf 'http://%s\n' "$raw"
+			printf '%s://%s\n' "$scheme" "$raw"
 		else
-			printf 'http://%s:%s\n' "$raw" "$port"
+			printf '%s://%s:%s\n' "$scheme" "$raw" "$port"
 		fi
 		return 0
 	fi
 	# 裸 IPv6
 	if gps_mesh_looks_like_ipv6 "$raw"; then
-		printf 'http://[%s]:%s\n' "$raw" "$port"
+		printf '%s://[%s]:%s\n' "$scheme" "$raw" "$port"
 		return 0
 	fi
 	# host:port 或 host（IPv4 / 域名）— 单冒号才当 port
 	local colons=${raw//[^:]/}
 	if ((${#colons} == 1)); then
-		printf 'http://%s\n' "$raw"
+		printf '%s://%s\n' "$scheme" "$raw"
 	elif ((${#colons} == 0)); then
-		printf 'http://%s:%s\n' "$raw" "$port"
+		printf '%s://%s:%s\n' "$scheme" "$raw" "$port"
 	else
-		err "无法识别 Master 地址: $raw（域名/IPv4/IPv6 或 http://...）"
+		err "无法识别 Master 地址: $raw（域名/IPv4/IPv6 或 http(s)://...）"
 	fi
 }
 
@@ -238,6 +368,7 @@ gps_mesh_become_master() {
 	MESH_OVERLAY_IP=${MESH_OVERLAY_IP:-10.66.0.1}
 	gps_mesh_defaults
 	gps_mesh_ensure_cluster_token
+	gps_mesh_ensure_master_tls
 	gps_mesh_resolve_master_host
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
@@ -250,12 +381,14 @@ gps_mesh_become_master() {
 gps_mesh_become_member() {
 	local url=${1:-}
 	local token=${2:-}
+	local pin=${3:-}
 	[[ -n $url ]] || err "用法: mesh join <Master地址> <TOKEN>"
-	# 整行粘贴时自动拆出 TOKEN
+	# 整行粘贴时自动拆出 TOKEN / TLS 指纹
 	if [[ $url == *GPS_MESH_MASTER=* ]] || [[ -z $token && $url == *GPS_MESH_TOKEN=* ]]; then
 		gps_mesh_parse_join_input "$url" || err "无法解析加入命令"
 		url=$__MESH_PARSE_URL
 		[[ -n $token ]] || token=$__MESH_PARSE_TOKEN
+		[[ -n $pin ]] || pin=$__MESH_PARSE_PIN
 	fi
 	[[ -n $token ]] || err "需要集群 TOKEN（在 Master 的 mesh show 中查看）"
 	load_state 2>/dev/null || true
@@ -264,6 +397,12 @@ gps_mesh_become_member() {
 	PROFILE=mesh-member
 	MESH_MASTER_URL=$(gps_mesh_normalize_master_url "$url")
 	MESH_CLUSTER_TOKEN=$token
+	# 交互场景硬拒绝明文公网 Master（后台 register 只 warn，见 gps_mesh_curl）
+	gps_mesh_require_https_or_loopback "$MESH_MASTER_URL"
+	if [[ -n $pin ]]; then
+		[[ $pin =~ ^sha256//[A-Za-z0-9+/=]+$ ]] || err "TLS 指纹格式非法（应为 sha256//BASE64）"
+		MESH_TLS_PIN=$pin
+	fi
 	# 去掉 TOKEN 里可能粘上的 bash/install 残留
 	MESH_CLUSTER_TOKEN=${MESH_CLUSTER_TOKEN%%bash*}
 	MESH_CLUSTER_TOKEN=${MESH_CLUSTER_TOKEN%%install*}
@@ -328,6 +467,9 @@ gps_mesh_bootstrap_from_env() {
 		if [[ -n ${GPS_MESH_TOKEN:-} ]]; then
 			MESH_CLUSTER_TOKEN=$GPS_MESH_TOKEN
 		fi
+		if [[ -n ${GPS_MESH_TLS_PIN:-} ]]; then
+			MESH_TLS_PIN=$GPS_MESH_TLS_PIN
+		fi
 		[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || err "成员安装需要 GPS_MESH_TOKEN（或 MESH_CLUSTER_TOKEN）与 GPS_MESH_MASTER"
 	elif [[ -z ${MESH_ROLE:-} ]]; then
 		MESH_ROLE=master
@@ -339,10 +481,16 @@ gps_mesh_bootstrap_from_env() {
 	if [[ $MESH_ROLE == master ]]; then
 		MESH_OVERLAY_IP=${MESH_OVERLAY_IP:-10.66.0.1}
 		gps_mesh_ensure_cluster_token
+		gps_mesh_ensure_master_tls
 		gps_mesh_resolve_master_host
 		MESH_MASTER_URL=$(gps_mesh_primary_join_url)
 	else
 		[[ -n ${MESH_MASTER_URL:-} ]] || err "成员需要 MESH_MASTER_URL 或 GPS_MESH_MASTER"
+		# 安装上下文用户在场：明文公网 Master 直接拒绝
+		gps_mesh_require_https_or_loopback "${MESH_MASTER_URL}"
+		if [[ -n ${MESH_TLS_PIN:-} ]]; then
+			[[ $MESH_TLS_PIN =~ ^sha256//[A-Za-z0-9+/=]+$ ]] || err "GPS_MESH_TLS_PIN 格式非法（应为 sha256//BASE64）"
+		fi
 		gps_mesh_ensure_dirs
 		if [[ -n ${MESH_CLUSTER_TOKEN:-} ]]; then
 			umask 077

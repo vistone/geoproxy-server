@@ -36,8 +36,9 @@ gps_mesh_register_and_pull() {
 	local ep body tmp
 	ep=$(gps_mesh_endpoint_hint)
 	tmp=$(mktemp)
-	body=$(MESH_OVERLAY_IP="$MESH_OVERLAY_IP" NODE_ID="$NODE_ID" WG_PUBLIC_KEY="$WG_PUBLIC_KEY" \
-		ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" python3 - <<'PY'
+	body=$(
+		MESH_OVERLAY_IP="$MESH_OVERLAY_IP" NODE_ID="$NODE_ID" WG_PUBLIC_KEY="$WG_PUBLIC_KEY" \
+			ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" python3 - <<'PY'
 import json, os
 print(json.dumps({
     "node_id": os.environ["NODE_ID"],
@@ -53,11 +54,10 @@ PY
 		return 1
 	}
 
-	if ! curl -fsSL --max-time 15 \
-		-H "Authorization: Bearer ${MESH_CLUSTER_TOKEN}" \
+	if ! gps_mesh_curl "${url}/v1/register" \
 		-H "Content-Type: application/json" \
 		-d "$body" \
-		"${url}/v1/register" -o "$tmp"; then
+		-o "$tmp"; then
 		rm -f "$tmp"
 		return 1
 	fi
@@ -103,9 +103,7 @@ gps_mesh_pull_peers() {
 	[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || return 1
 	local tmp
 	tmp=$(mktemp)
-	if ! curl -fsSL --max-time 15 \
-		-H "Authorization: Bearer ${MESH_CLUSTER_TOKEN}" \
-		"${url}/v1/peers" -o "$tmp"; then
+	if ! gps_mesh_curl "${url}/v1/peers" -o "$tmp"; then
 		rm -f "$tmp"
 		return 1
 	fi
@@ -130,6 +128,7 @@ gps_mesh_ensure_boot() {
 		MESH_OVERLAY_IP=${MESH_OVERLAY_IP:-10.66.0.1}
 		gps_mesh_ensure_overlay_ip
 		gps_mesh_ensure_cluster_token
+		gps_mesh_ensure_master_tls
 		gps_mesh_peers_upsert_self
 		gps_mesh_resolve_master_host
 		MESH_MASTER_URL=$(gps_mesh_primary_join_url)
@@ -157,11 +156,7 @@ gps_mesh_sync_master() {
 	[[ -f $GPS_MESH_PEERS ]] && before=$(cksum "$GPS_MESH_PEERS" 2>/dev/null | awk '{print $1" "$2}')
 	[[ -f $GPS_CONFIG ]] && before="${before}|$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')"
 
-	if [[ $MESH_ROLE == master ]]; then
-		gps_mesh_ensure_boot
-	else
-		gps_mesh_ensure_boot
-	fi
+	gps_mesh_ensure_boot
 	save_state 2>/dev/null || true
 
 	after=""

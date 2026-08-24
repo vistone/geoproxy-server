@@ -48,7 +48,11 @@ setup() {
 	export PASSWORD="pass-plugin"
 	export PROTOCOL=tuic
 	export LOG_LEVEL=info
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	run gps_write_config
 	[ "$status" -eq 0 ]
 	grep -q '"type": "tuic"' "$GPS_CONFIG"
@@ -76,7 +80,11 @@ setup() {
 }
 
 @test "vmess anytls hysteria naive snell configs render" {
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	export PORT=42001 UUID="00000000-0000-4000-8000-000000000010" PASSWORD="p2-pass"
 
 	for proto in vmess anytls hysteria naive snell; do
@@ -92,7 +100,11 @@ setup() {
 }
 
 @test "shadowtls emits outer shadowtls and inner shadowsocks" {
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	export PORT=42002 PASSWORD="st-pass" PROTOCOL=shadowtls
 	gps_protocol_defaults
 	gps_protocol_validate
@@ -119,7 +131,11 @@ setup() {
 	export PROTOCOL=hysteria2
 	export PUBLIC_IP="1.2.3.4"
 	export PUBLIC_IP6=""
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_protocol_defaults
 	gps_protocol_validate
 	run gps_write_config
@@ -135,7 +151,11 @@ setup() {
 	export PORT=41235
 	export UUID="00000000-0000-4000-8000-000000000001"
 	export PROTOCOL=vless
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_protocol_defaults
 	gps_protocol_validate
 	run gps_write_config
@@ -150,7 +170,11 @@ setup() {
 	export PORT=41236
 	export PASSWORD="trojan-pass"
 	export PROTOCOL=trojan
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_protocol_defaults
 	run gps_write_config
 	[ "$status" -eq 0 ]
@@ -171,7 +195,11 @@ setup() {
 	export PASSWORD="switch-pass"
 	export PROTOCOL=tuic
 	export PUBLIC_IP="8.8.8.8"
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_write_config
 	save_state
 	gps_cmd_url() { :; }
@@ -179,4 +207,43 @@ setup() {
 	[ "$status" -eq 0 ]
 	grep -q '^PROTOCOL=hysteria2$' "$GPS_STATE"
 	grep -q '"type": "hysteria2"' "$GPS_CONFIG"
+}
+
+@test "reality keypair generation fails hard without sing-box core" {
+	GPS_CORE_BIN=/nonexistent/sing-box
+	unset REALITY_PRIVATE_KEY REALITY_PUBLIC_KEY || true
+	run gps_proto_ensure_reality
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"生成 Reality 密钥失败"* ]]
+}
+
+@test "ss2022 key length follows method" {
+	unset SS_PASSWORD
+	SS_METHOD=2022-blake3-aes-256-gcm gps_proto_ensure_ss_password
+	n=$(printf '%s' "$SS_PASSWORD" | base64 -d 2>/dev/null | wc -c)
+	[ "$n" -eq 32 ]
+	unset SS_PASSWORD
+	SS_METHOD=2022-blake3-aes-128-gcm gps_proto_ensure_ss_password
+	n=$(printf '%s' "$SS_PASSWORD" | base64 -d 2>/dev/null | wc -c)
+	[ "$n" -eq 16 ]
+}
+
+@test "hy2 share url carries obfs password when enabled" {
+	export PORT=41238
+	export PASSWORD="hy2-obfs-pass"
+	export PROTOCOL=hysteria2
+	export PUBLIC_IP="1.2.3.4"
+	export PUBLIC_IP6=""
+	export HY_OBFS="obfs-sec"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_protocol_defaults
+	gps_protocol_validate
+	save_state
+	run gps_proto_share_urls
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"obfs=salamander&obfs-password=obfs-sec"* ]]
 }

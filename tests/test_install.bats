@@ -20,6 +20,7 @@ setup() {
 	detect_public_ipv4() { :; }
 	detect_public_ipv6() { :; }
 	gps_write_config() { :; }
+	gps_mesh_ensure_boot() { :; }
 	save_state() { :; }
 	gps_install_unit() { printf '%s' "$GPS_NO_SYSTEMD"; }
 	gps_install_entrypoint() { :; }
@@ -61,4 +62,21 @@ setup() {
 	have_cmd() { return 1; }
 	run ensure_logrotate
 	[ "$status" -ne 0 ]
+}
+
+@test "uninstall removes prefix tree, entrypoint and logrotate config" {
+	export PORT=43110
+	export UUID="00000000-0000-4000-8000-000000000210"
+	export PASSWORD="u-pass"
+	export PROTOCOL=tuic
+	detect_local_stack() { STACK_MODE=v4only; }
+	gps_write_config
+	save_state
+	gps_install_logrotate
+	gps_install_mesh_units_files_only
+	[ -f "$GPS_LOGROTATE_PATH" ]
+	[ -f "$GPS_MESH_MASTER_UNIT_PATH" ]
+	run gps_cmd_uninstall -y
+	[ "$status" -eq 0 ]
+	[ ! -e "$GPS_TEST_PREFIX" ]
 }

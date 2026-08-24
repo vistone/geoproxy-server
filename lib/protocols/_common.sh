@@ -83,7 +83,7 @@ gps_proto_ensure_ss_password() {
 	SS_METHOD=${SS_METHOD:-2022-blake3-aes-128-gcm}
 	if [[ -z ${SS_PASSWORD:-} ]]; then
 		if [[ $SS_METHOD == 2022-* ]]; then
-			SS_PASSWORD=$(gps_proto_gen_ss2022_password 16)
+			SS_PASSWORD=$(gps_proto_gen_ss2022_password "$(gps_proto_ss2022_key_len "$SS_METHOD")")
 		else
 			SS_PASSWORD=${PASSWORD:-$(gen_uuid)}
 		fi
@@ -91,14 +91,19 @@ gps_proto_ensure_ss_password() {
 	PASSWORD=${PASSWORD:-$SS_PASSWORD}
 }
 
+# SS2022 密钥长度按方法推导：aes-256-gcm / chacha20-poly1305 需 32 字节，128-gcm 为 16 字节
+gps_proto_ss2022_key_len() {
+	case ${1:-} in
+	2022-blake3-aes-256-gcm | 2022-blake3-chacha20-poly1305) echo 32 ;;
+	*) echo 16 ;;
+	esac
+}
+
 # Reality 密钥对：PrivateKey: / PublicKey: 行；short_id 8 hex
 gps_proto_gen_reality_keypair() {
-	if [[ -x ${GPS_CORE_BIN:-} ]]; then
-		"$GPS_CORE_BIN" generate reality-keypair 2>/dev/null && return 0
-	fi
-	# 测试/无核心：占位（非真实 X25519，仅供 JSON 形状测试）
-	printf 'PrivateKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE\n'
-	printf 'PublicKey: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE\n'
+	# 密钥必须由核心真实生成；核心缺失/失败一律报错，绝不回落到占位密钥
+	[[ -x ${GPS_CORE_BIN:-} ]] || return 1
+	"$GPS_CORE_BIN" generate reality-keypair 2>/dev/null
 }
 
 gps_proto_ensure_reality() {
@@ -106,7 +111,7 @@ gps_proto_ensure_reality() {
 	gps_validate_single_line "$REALITY_SERVER" || err "REALITY_SERVER 不能包含换行/回车/NUL"
 	if [[ -z ${REALITY_PRIVATE_KEY:-} || -z ${REALITY_PUBLIC_KEY:-} ]]; then
 		local out priv pub
-		out=$(gps_proto_gen_reality_keypair) || err "生成 Reality 密钥失败"
+		out=$(gps_proto_gen_reality_keypair) || err "生成 Reality 密钥失败（需要已安装的 sing-box 核心: ${GPS_CORE_BIN:-?}）"
 		priv=$(printf '%s\n' "$out" | awk -F': ' '/PrivateKey/{print $2; exit}')
 		pub=$(printf '%s\n' "$out" | awk -F': ' '/PublicKey/{print $2; exit}')
 		[[ -n $priv && -n $pub ]] || err "解析 Reality 密钥失败"
@@ -114,7 +119,7 @@ gps_proto_ensure_reality() {
 		REALITY_PUBLIC_KEY=$pub
 	fi
 	if [[ -z ${REALITY_SHORT_ID:-} ]]; then
-		REALITY_SHORT_ID=$(openssl rand -hex 4 2>/dev/null || printf '%s' "abcd1234")
+		REALITY_SHORT_ID=$(openssl rand -hex 4 2>/dev/null) || err "生成 REALITY_SHORT_ID 失败（需要 openssl）"
 	fi
 	gps_validate_single_line "$REALITY_PRIVATE_KEY" || err "REALITY_PRIVATE_KEY 非法"
 	gps_validate_single_line "$REALITY_PUBLIC_KEY" || err "REALITY_PUBLIC_KEY 非法"

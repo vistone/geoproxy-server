@@ -7,6 +7,9 @@ Wants=network-online.target
 Type=oneshot
 ExecStart=/usr/local/bin/geoproxy-server traffic check
 Nice=10
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target

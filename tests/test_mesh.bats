@@ -16,7 +16,11 @@ setup() {
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.10"
 	export MESH_ROLE=master
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	grep -q '"type": "wireguard"' "$GPS_CONFIG"
 	grep -q '"tag": "wg-ep"' "$GPS_CONFIG"
@@ -35,7 +39,11 @@ setup() {
 	export PASSWORD="mesh-pass"
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.10"
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_write_config
 	save_state
 	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1 --wg-port 51820
@@ -53,7 +61,11 @@ setup() {
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.11"
 	export MESH_ROLE=master
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1
 	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
 	run gps_mesh_export
@@ -75,7 +87,11 @@ setup() {
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.13"
 	export MESH_ROLE=master
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1
 	gps_mesh_peer_add tile-exit --pubkey "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=" --overlay-ip 10.66.0.9 --endpoint 203.0.113.99:51820 --exit
 	MESH_EXIT_NODE_ID=tile-exit
@@ -91,7 +107,11 @@ setup() {
 	export PASSWORD="mesh-pass"
 	export PROTOCOL=tuic
 	export MESH_ROLE=master
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	gps_mesh_cmd_init --node-id tile-self --overlay-ip 10.66.0.7
 	run gps_cmd_change mesh-exit tile-self
 	[ "$status" -ne 0 ]
@@ -105,16 +125,20 @@ setup() {
 	export PUBLIC_IP="203.0.113.20"
 	export MESH_ROLE=master
 	export MESH_CLUSTER_TOKEN="test-token-aabb"
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
 
 	local master_peers=$GPS_MESH_PEERS
 	local mport
 	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
-	MESH_CLUSTER_TOKEN=test-token-aabb GPS_MESH_PEERS="$master_peers" \
+	MESH_CLUSTER_TOKEN=test-token-aabb GPS_MESH_PEERS="$master_peers" GPS_MESH_MASTER_TLS=0 \
 		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
-		python3 "$REPO_ROOT/scripts/mesh_master.py" >/tmp/gps-mesh-master-test.log 2>&1 &
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-test.log" 2>&1 </dev/null &
 	local mpid=$!
 	disown "$mpid" 2>/dev/null || true
 	# wait until health responds (max ~3s)
@@ -142,6 +166,19 @@ setup() {
 		MESH_OVERLAY_IP=10.66.0.5 \
 		gps_mesh_register_and_pull
 	grep -q tile-member "$GPS_MESH_PEERS"
+	# 输入加固：坏 keepalive → 400；出前缀 overlay → 改派（不得回显 8.8.8.8）
+	local code oob
+	code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 \
+		-H "Authorization: Bearer test-token-aabb" \
+		-d '{"node_id":"tile-bad","public_key":"Pk9=","keepalive":"oops"}' \
+		"http://127.0.0.1:${mport}/v1/register")
+	[ "$code" = "400" ]
+	oob=$(curl -fsS --max-time 3 \
+		-H "Authorization: Bearer test-token-aabb" \
+		-d '{"node_id":"tile-oob","public_key":"Pk8=","overlay_ip":"8.8.8.8"}' \
+		"http://127.0.0.1:${mport}/v1/register")
+	[[ "$oob" != *'"overlay_ip": "8.8.8.8"'* ]]
+	echo "$oob" | grep -q '"overlay_ip": "10\.66\.0\.'
 	rm -f "$resp"
 
 	kill -TERM "$mpid" >/dev/null 2>&1 || true
@@ -158,7 +195,11 @@ setup() {
 	export PUBLIC_IP6="2001:db8::50"
 	export TUIC_NAME="tile3.zeromaps.cn"
 	export MESH_ROLE=master
-	detect_local_stack() { STACK_MODE=dual; HAS_V4=1; HAS_V6=1; }
+	detect_local_stack() {
+		STACK_MODE=dual
+		HAS_V4=1
+		HAS_V6=1
+	}
 	save_state
 	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/mesh-show.out"
 	grep -q 'tile3.zeromaps.cn:19527' "$GPS_TEST_PREFIX/mesh-show.out"
@@ -179,20 +220,25 @@ setup() {
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.60"
 	export MESH_ROLE=master
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
 	gps_cmd_change mesh-master-host mesh.example.com
 	grep -q '^MESH_MASTER_HOST=mesh.example.com$' "$GPS_STATE" || grep -q "MESH_MASTER_HOST='mesh.example.com'" "$GPS_STATE"
 	primary=$(MESH_MASTER_HOST=mesh.example.com PUBLIC_IP=203.0.113.60 MESH_MASTER_PORT=19527 gps_mesh_primary_join_url)
-	[[ "$primary" == "http://mesh.example.com:19527" ]]
+	[[ "$primary" == "https://mesh.example.com:19527" ]]
 }
 
 @test "normalize master url supports domain v4 v6" {
-	[[ "$(gps_mesh_normalize_master_url tile3.zeromaps.cn)" == "http://tile3.zeromaps.cn:19527" ]]
-	[[ "$(gps_mesh_normalize_master_url 65.49.192.85)" == "http://65.49.192.85:19527" ]]
-	[[ "$(gps_mesh_normalize_master_url '2607:8700::2')" == "http://[2607:8700::2]:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url tile3.zeromaps.cn)" == "https://tile3.zeromaps.cn:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url 65.49.192.85)" == "https://65.49.192.85:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url '2607:8700::2')" == "https://[2607:8700::2]:19527" ]]
 	[[ "$(gps_mesh_normalize_master_url 'http://ex.com:19527')" == "http://ex.com:19527" ]]
+	[[ "$(gps_mesh_normalize_master_url 'https://ex.com:19527')" == "https://ex.com:19527" ]]
 }
 
 @test "paste full join command parses master and token" {
@@ -212,16 +258,20 @@ setup() {
 	export PROTOCOL=tuic
 	export PUBLIC_IP="203.0.113.70"
 	export MESH_ROLE=master
-	export MESH_CLUSTER_TOKEN="join-token-xyz"
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	export MESH_CLUSTER_TOKEN="join-token-xyz-0123456789"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
 	local master_peers=$GPS_MESH_PEERS
 	local mport
 	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
-	MESH_CLUSTER_TOKEN=join-token-xyz GPS_MESH_PEERS="$master_peers" \
+	MESH_CLUSTER_TOKEN=join-token-xyz-0123456789 GPS_MESH_PEERS="$master_peers" GPS_MESH_MASTER_TLS=0 \
 		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
-		python3 "$REPO_ROOT/scripts/mesh_master.py" >/tmp/gps-mesh-join-test.log 2>&1 &
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/join-test.log" 2>&1 </dev/null &
 	local mpid=$!
 	disown "$mpid" 2>/dev/null || true
 	local i
@@ -234,7 +284,7 @@ setup() {
 	NODE_ID=tile-node-b
 	# become_member 内 load_state 会盖掉 NODE_ID，先写入 state
 	save_state
-	gps_mesh_become_member "127.0.0.1:${mport}" "join-token-xyz"
+	gps_mesh_become_member "http://127.0.0.1:${mport}" "join-token-xyz-0123456789"
 	[ "$MESH_ROLE" = "member" ]
 	[[ "$MESH_MASTER_URL" == http://127.0.0.1:${mport} ]]
 	# load_state 后 NODE_ID 仍为写入 state 的 tile-node-b
@@ -253,7 +303,11 @@ setup() {
 	export MESH_ROLE=master
 	export MESH_CLUSTER_TOKEN="hb-token"
 	export NODE_ID=tile-master-hb
-	detect_local_stack() { STACK_MODE=v4only; HAS_V4=1; HAS_V6=0; }
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
 	grep -q last_seen "$GPS_MESH_PEERS"
@@ -268,4 +322,33 @@ setup() {
 	grep -q '__BIN__' "$REPO_ROOT/templates/geoproxy-tuic.service"
 	# 不得用 '-' 忽略 ensure 失败（启动必须初始化组网）
 	! grep -qE 'ExecStartPre=-' "$REPO_ROOT/templates/geoproxy-tuic.service"
+}
+
+@test "wg keypair generation fails hard without sing-box core" {
+	GPS_CORE_BIN=/nonexistent/sing-box
+	run gps_mesh_ensure_wg_keys
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"生成 WireGuard 密钥失败"* ]]
+}
+
+@test "plaintext non-loopback master rejected at request time" {
+	export MESH_CLUSTER_TOKEN="test-token-aabb"
+	run gps_mesh_curl "http://203.0.113.9:19527/v1/peers"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"拒绝明文 http"* ]]
+	# loopback 明文放行（curl 因无服务而失败，但不是策略拒绝）
+	local out=""
+	out=$(MESH_CLUSTER_TOKEN="test-token-aabb" gps_mesh_curl "http://127.0.0.1:1/v1/peers" 2>&1) || true
+	[[ "$out" != *"拒绝明文"* ]]
+}
+
+@test "become member rejects plaintext public master interactively" {
+	export PORT=43013
+	export UUID="00000000-0000-4000-8000-000000000112"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	gps_restart_svc() { :; }
+	run gps_mesh_become_member "http://203.0.113.9:19527" "token-0123456789abcdef"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"拒绝明文"* ]]
 }

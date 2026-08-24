@@ -17,6 +17,8 @@ gps_install_unit() {
 	sed -e "s|__CORE_BIN__|${GPS_CORE_BIN}|g" \
 		-e "s|__CONFIG__|${GPS_CONFIG}|g" \
 		-e "s|__LOG__|${GPS_LOG}|g" \
+		-e "s|__ETC_DIR__|${GPS_ETC}|g" \
+		-e "s|__LOG_DIR__|${GPS_LOG_DIR}|g" \
 		-e "s|__BIN__|${bin}|g" \
 		"$tpl" >"$GPS_UNIT_PATH"
 	gps_install_traffic_timer
@@ -37,9 +39,23 @@ gps_install_mesh_units_files_only() {
 	local mtpl="${GPS_TMPL}/geoproxy-mesh-master.service"
 	local stpl="${GPS_TMPL}/geoproxy-mesh-sync.service"
 	local ttpl="${GPS_TMPL}/geoproxy-mesh-sync.timer"
+	# master 专用最小凭证：只含 token，网络服务不再接触整个 state.env
+	if [[ -n ${GPS_MESH_DIR:-} ]]; then
+		local tok=${MESH_CLUSTER_TOKEN:-}
+		if [[ -z $tok && -f ${GPS_MESH_TOKEN_FILE:-} ]]; then
+			tok=$(tr -d '[:space:]' <"$GPS_MESH_TOKEN_FILE")
+		fi
+		if [[ -n $tok ]]; then
+			umask 077
+			printf 'MESH_CLUSTER_TOKEN=%s\n' "$tok" >"$GPS_MESH_ENV"
+			chmod 600 "$GPS_MESH_ENV" 2>/dev/null || true
+		fi
+	fi
 	mkdir -p "$(dirname "${GPS_MESH_MASTER_UNIT_PATH:-/tmp/x}")" 2>/dev/null || true
 	if [[ -f $mtpl && -n ${GPS_MESH_MASTER_UNIT_PATH:-} ]]; then
 		sed -e "s|__GPS_STATE__|${GPS_STATE}|g" \
+			-e "s|__GPS_MESH_ENV__|${GPS_MESH_ENV}|g" \
+			-e "s|__GPS_MESH_DIR__|${GPS_MESH_DIR}|g" \
 			-e "s|__GPS_MESH_PEERS__|${GPS_MESH_PEERS}|g" \
 			-e "s|__MESH_MASTER_PY__|${GPS_MESH_MASTER_PY}|g" \
 			"$mtpl" >"$GPS_MESH_MASTER_UNIT_PATH"
@@ -64,13 +80,13 @@ gps_install_mesh_units() {
 	fi
 	systemctl daemon-reload 2>/dev/null || true
 	if [[ ${MESH_ROLE:-master} == master ]]; then
-		systemctl enable --now "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 || \
+		systemctl enable --now "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
 			systemctl enable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
 		msg "$(_cyan "mesh-master") 已启用（登记面 :${MESH_MASTER_PORT:-19527}）"
 	else
 		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
 	fi
-	systemctl enable --now "$GPS_MESH_SYNC_TIMER" >/dev/null 2>&1 || \
+	systemctl enable --now "$GPS_MESH_SYNC_TIMER" >/dev/null 2>&1 ||
 		systemctl enable --now geoproxy-mesh-sync.timer >/dev/null 2>&1 || true
 	msg "$(_cyan "mesh-sync") timer 已启用（每 ${MESH_SYNC_SEC:-60}s）"
 }

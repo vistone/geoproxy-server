@@ -456,6 +456,7 @@ gps_save_state_unlocked() {
 		gps_env_assign MESH_ROLE "${MESH_ROLE:-master}"
 		gps_env_assign MESH_MASTER_URL "${MESH_MASTER_URL:-}"
 		gps_env_assign MESH_MASTER_HOST "${MESH_MASTER_HOST:-}"
+		gps_env_assign MESH_TLS_PIN "${MESH_TLS_PIN:-}"
 		gps_env_assign MESH_CLUSTER_TOKEN "${MESH_CLUSTER_TOKEN:-}"
 		gps_env_assign MESH_MASTER_PORT "${MESH_MASTER_PORT:-}"
 		gps_env_assign MESH_SYNC_SEC "${MESH_SYNC_SEC:-}"

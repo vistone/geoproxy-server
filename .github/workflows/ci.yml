@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: ["**"]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint & Tests
@@ -13,33 +20,43 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout (commit-pinned)
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
 
       # 不依赖 apt（runner 的 apt 源偶发挂起会吊死整个 job），
-      # 三个工具全部下载固定版本二进制
+      # 三个工具下载固定版本；二进制按官方 digest 校验（与 lib/download.sh 同一信任模型）。
+      # 升级版本时同步更新 SHA（来自 GitHub Release API 的 digest 字段）。
       - name: Install pinned tools (shfmt / shellcheck / bats)
         run: |
           set -euo pipefail
-          sudo curl -sSL --retry 3 -o /usr/local/bin/shfmt \
+          check_sha() { # $1=期望sha256hex $2=文件
+            local actual
+            actual=$(sha256sum "$2" | awk '{print $1}')
+            if [ "${1,,}" != "${actual,,}" ]; then
+              echo "digest mismatch: $2 (expected=$1 actual=$actual)" >&2
+              exit 1
+            fi
+          }
+          curl -fsSL --retry 3 -o /tmp/shfmt \
             https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64
-          sudo chmod +x /usr/local/bin/shfmt
+          check_sha fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1 /tmp/shfmt
+          sudo install -m 755 /tmp/shfmt /usr/local/bin/shfmt
 
-          sudo curl -sSL --retry 3 -o /tmp/sc.tar.xz \
+          curl -fsSL --retry 3 -o /tmp/sc.tar.xz \
             https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          check_sha 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198 /tmp/sc.tar.xz
           sudo tar -xJf /tmp/sc.tar.xz -C /usr/local/bin --strip-components=1 shellcheck-v0.11.0/shellcheck
 
-          sudo curl -sSL --retry 3 -o /tmp/bats.tgz \
-            https://github.com/bats-core/bats-core/archive/refs/tags/v1.14.0.tar.gz
-          sudo tar -xzf /tmp/bats.tgz -C /usr/local/lib
-          sudo ln -s /usr/local/lib/bats-core-1.14.0/bin/bats /usr/local/bin/bats
+          # bats 上游只发布源码归档（无官方 digest），按 tag git clone（TLS + GitHub 签出）
+          sudo git clone --depth 1 --branch v1.14.0 https://github.com/bats-core/bats-core.git /usr/local/lib/bats-src
+          sudo ln -s /usr/local/lib/bats-src/bin/bats /usr/local/bin/bats
 
           shfmt --version
           shellcheck --version | head -2
           bats --version
 
-      - name: shfmt (format check)
-        run: shfmt -l .
+      - name: shfmt (format check; drift fails)
+        run: shfmt -d .
 
       - name: shellcheck (lint .sh files)
         run: |
@@ -56,7 +73,7 @@ jobs:
           set -e
           if [ -d tests ]; then
             echo "Running bats tests..."
-            bats --tap tests
+            bats --tap tests </dev/null
           else
             echo "No tests directory; skipping"
           fi
