@@ -168,13 +168,15 @@ EOF
 gps_mesh_has_live_peer() {
 	local self=${NODE_ID:-}
 	[[ -f ${GPS_MESH_PEERS:-} ]] || return 1
+	have_cmd python3 || return 1
 	MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" python3 - "$GPS_MESH_PEERS" "$self" <<'PY'
 import json, os, sys
 from datetime import datetime, timezone
 path, self_id = sys.argv[1], sys.argv[2]
 stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
 try:
-    doc = json.load(open(path, encoding="utf-8"))
+    with open(path, "r", encoding="utf-8") as f:
+        doc = json.load(f)
 except Exception:
     sys.exit(1)
 now = datetime.now(timezone.utc)

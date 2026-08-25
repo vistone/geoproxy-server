@@ -44,12 +44,47 @@ mesh_init() {
 	[ "$status" -eq 0 ]
 }
 
+@test "has_live_peer honors fresh and stale last_seen" {
+	mesh_init
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	# 直接改写 peers 文件里该 peer 的 last_seen：先写当前 UTC 时间（fresh → 在线）
+	python3 - "$GPS_MESH_PEERS" <<'PY'
+import json, sys, datetime
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    doc = json.load(f)
+for n in doc["nodes"]:
+    if n.get("node_id") == "tile-b":
+        n["last_seen"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(doc, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+	run gps_mesh_has_live_peer
+	[ "$status" -eq 0 ]
+	# 再写 200 秒前（超过 MESH_PEER_STALE_SEC=180 过期窗口 → 无在线 peer）
+	python3 - "$GPS_MESH_PEERS" <<'PY'
+import json, sys, datetime
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as f:
+    doc = json.load(f)
+for n in doc["nodes"]:
+    if n.get("node_id") == "tile-b":
+        n["last_seen"] = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(doc, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+	run gps_mesh_has_live_peer
+	[ "$status" -ne 0 ]
+}
+
 @test "state persists failover variables" {
 	mesh_init
 	MESH_FAILOVER=1
 	MESH_FAILOVER_PROBE="https://www.google.com/generate_204"
 	save_state
-	load_state
-	[ "$MESH_FAILOVER" = "1" ]
-	[ "$MESH_FAILOVER_PROBE" = "https://www.google.com/generate_204" ]
+	# state.env 是 shell 赋值格式（%q 序列化，值无特殊字符时不带引号）；grep -E 宽松匹配两种形式
+	grep -Eq '^MESH_FAILOVER="?1"?$' "$GPS_STATE"
+	grep -Eq '^MESH_FAILOVER_PROBE="?https://www.google.com/generate_204"?$' "$GPS_STATE"
 }
