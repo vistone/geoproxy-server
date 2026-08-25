@@ -30,7 +30,10 @@ EOF
 	cat >"$GPS_AGENT_CLI" <<'EOF'
 #!/bin/bash
 echo "FAKE-CLI $*" >>"$GPS_TEST_PREFIX/fake-cli.log"
-exit 0
+case "$*" in
+"traffic trip"|"traffic resume"|"change traffic-warn "*|"change traffic-stop "*|"change traffic-interval "*) exit 0 ;;
+*) exit 1 ;;
+esac
 EOF
 	chmod +x "$GPS_AGENT_CLI"
 
@@ -97,4 +100,81 @@ EOF
 	# 空 token 拒绝启动（run 包裹：set -e 下裸失败命令会直接中止测试）
 	run env GPS_AGENT_TOKEN= python3 "$REPO_ROOT/scripts/geoagent.py"
 	[ "$status" -ne 0 ]
+}
+
+@test "agent control：trip/resume 调 CLI；未知 action 400" {
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"trip"}'
+	[ "$status" -eq 0 ]
+	grep -q "FAKE-CLI traffic trip" "$GPS_TEST_PREFIX/fake-cli.log"
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"resume"}'
+	grep -q "FAKE-CLI traffic resume" "$GPS_TEST_PREFIX/fake-cli.log"
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"bogus"}'
+	run python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error',''))" <<<"$output"
+	[[ "$output" == *unknown* ]]
+}
+
+@test "agent control：set-thresholds 校验与落地" {
+	# 非法：warn >= stop
+	run curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"set-thresholds","warnPct":90,"stopPct":80}'
+	[ "$output" = "400" ]
+	# 非法：越界
+	run curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"set-thresholds","warnPct":101,"stopPct":95}'
+	[ "$output" = "400" ]
+	# 合法
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"set-thresholds","warnPct":80,"stopPct":95}'
+	grep -q "FAKE-CLI change traffic-warn 80" "$GPS_TEST_PREFIX/fake-cli.log"
+	grep -q "FAKE-CLI change traffic-stop 95" "$GPS_TEST_PREFIX/fake-cli.log"
+}
+
+@test "agent control：set-check-interval 校验与落地" {
+	# seconds < 60 → 400
+	run curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"set-check-interval","seconds":30}'
+	[ "$output" = "400" ]
+	# 合法
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"set-check-interval","seconds":300}'
+	grep -q "FAKE-CLI change traffic-interval 300" "$GPS_TEST_PREFIX/fake-cli.log"
+}
+
+@test "agent control：CLI 失败返回 500 且错误去敏" {
+	# 换成总是失败的 CLI（stderr 带假 API Key，验证去敏）
+	cat >"$GPS_AGENT_CLI" <<'EOF'
+#!/bin/bash
+echo "key=kiwi_secret_key_123456789" >&2
+exit 1
+EOF
+	chmod +x "$GPS_AGENT_CLI"
+	run curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"trip"}'
+	[ "$output" = "500" ]
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"trip"}'
+	run python3 -c "import json,sys; print(json.load(sys.stdin)['error'])" <<<"$output"
+	! grep -q "kiwi_secret_key_123456789" <<<"$output"
+	grep -q "key=\*\*\*\*" <<<"$output"
+}
+
+@test "agent control：错误响应不回显 key" {
+	run curl -s -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"bogus"}'
+	run python3 -c "import json,sys; print(json.load(sys.stdin)['error'])" <<<"$output"
+	! grep -q "kiwi_secret_key_123456789" <<<"$output"
 }

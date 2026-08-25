@@ -272,8 +272,56 @@ def build_status() -> dict:
     }
 
 
+def _sanitize(s: str) -> str:
+    """KiwiVM API Key 去敏：key=xxx… → key=****。"""
+    return re.sub(r"(?i)(key=)[A-Za-z0-9_-]{4,}", r"\1****", s)
+
+
+def run_cli(args: list, timeout: int = 30) -> tuple[bool, str]:
+    """执行 geoproxy-server CLI；返回 (ok, error)。错误消息去敏且只留末 3 行。"""
+    try:
+        p = subprocess.run([CLI] + args, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, "cli 执行失败: %s" % e
+    if p.returncode == 0:
+        return True, ""
+    msg = (p.stderr or p.stdout or "").strip().splitlines()
+    return False, _sanitize("; ".join(msg[-3:]))
+
+
 def handle_control(req: dict) -> tuple[int, dict]:
-    return 501, {"error": "control not implemented yet"}
+    action = req.get("action")
+    if not isinstance(action, str) or not action:
+        return 400, {"error": "action required"}
+    if action == "trip":
+        ok, e = run_cli(["traffic", "trip"])
+    elif action == "resume":
+        ok, e = run_cli(["traffic", "resume"])
+    elif action == "set-thresholds":
+        warn = req.get("warnPct")
+        stop = req.get("stopPct")
+        if not (isinstance(warn, (int, float)) and isinstance(stop, (int, float))):
+            return 400, {"error": "set-thresholds requires warnPct and stopPct"}
+        warn, stop = int(warn), int(stop)
+        if not (1 <= warn < stop <= 100):
+            return 400, {"error": "invalid thresholds: 1 <= warnPct < stopPct <= 100"}
+        ok1, e1 = run_cli(["change", "traffic-warn", str(warn)])
+        ok2, e2 = run_cli(["change", "traffic-stop", str(stop)])
+        if not (ok1 and ok2):
+            return 500, {"error": (e1 or e2) or "set-thresholds failed"}
+        return 200, {"ok": True}
+    elif action == "set-check-interval":
+        sec = req.get("seconds")
+        if not isinstance(sec, int):
+            return 400, {"error": "set-check-interval requires integer seconds"}
+        if sec < 60:
+            return 400, {"error": "seconds must be >= 60"}
+        ok, e = run_cli(["change", "traffic-interval", str(sec)])
+    else:
+        return 400, {"error": "unknown action: %s" % action}
+    if not ok:
+        return 500, {"error": e or "control failed"}
+    return 200, {"ok": True}
 
 
 # ---------- HTTP ----------
