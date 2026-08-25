@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.42 - 2026-08-25
+
+修复：mesh-failover 出站类型改用 `urltest`（v0.2.41 渲染的 `loadbalance` 类型与 sing-box ≥1.12 不兼容，`sing-box check` 会报 `unknown outbound type: loadbalance`，导致开启 failover 失败）。
+
+- 出口探测组由 `loadbalance`（`destinations` 嵌套对象）改为 `urltest`（`outbounds` 标签列表），字段 `url` / `interval` / `tolerance` 语义不变；仍为本机直连优先 + 故障自动切对端。
+- 已升级到 v0.2.41 且开启 failover 失败（或 config.json 残留坏配置）的机器：升级到 v0.2.42 后重新执行 `change mesh-failover on` 即可（会重新渲染配置并通过 `sing-box check`）。
+
 ## v0.2.41 - 2026-08-25
 
 功能：mesh 出口自动故障切换（`change mesh-failover on|off`）——本机直连优先、本机出口故障时自动切到对端出口兜底、恢复后自动回切，平时零隧道流量开销。

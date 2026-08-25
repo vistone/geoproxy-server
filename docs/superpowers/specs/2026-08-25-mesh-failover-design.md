@@ -47,17 +47,13 @@ geoproxy-server doctor                               # 校验配置与渲染一�
 ### 技术实现（改动集中在 `lib/mesh/wireguard.sh`）
 
 `gps_mesh_outbounds_json()`：
-- `MESH_FAILOVER=1` 且存在在线 peer 时，在 `direct` 之后追加 loadbalance 出站：
+- `MESH_FAILOVER=1` 且存在在线 peer 时，在 `direct` 之后追加 urltest 出站（注意：sing-box ≥1.12 移除 `loadbalance` 类型，当前最新稳定版用 `urltest` + `outbounds` 标签列表）：
 
 ```jsonc
 {
-  "type": "loadbalance",
+  "type": "urltest",
   "tag": "mesh-failover",
-  "strategy": "url-test",
-  "destinations": [
-    { "outbound": "direct" },
-    { "outbound": "wg-ep" }
-  ],
+  "outbounds": ["direct", "wg-ep"],
   "url": "<MESH_FAILOVER_PROBE>",
   "interval": "30s",
   "tolerance": 0
@@ -81,7 +77,7 @@ geoproxy-server doctor                               # 校验配置与渲染一�
 
 ## 测试（`tests/*.bats`）
 
-1. `MESH_FAILOVER=1`（含在线 peer）：渲染含 `mesh-failover` loadbalance 组、`final` 指向它、防环 `source_ip_cidr` 规则存在且位于最前。
+1. `MESH_FAILOVER=1`（含在线 peer）：渲染含 `mesh-failover` urltest 组、`final` 指向它、防环 `source_ip_cidr` 规则存在且位于最前。
 2. `MESH_FAILOVER=0`：渲染与现状一致（`final` 仍为 `direct`、无 loadbalance 组），仅新增恒渲染的 `source_ip_cidr` 防环规则（见技术实现节）；断言防环规则存在且位于最前（防回归）。
 3. `MESH_FAILOVER=1` 但无在线 peer：组内只有 `direct`，不含 `wg-ep`。
 4. `change mesh-failover on` 与 `mesh-exit` 互斥：双向校验报错，状态不变。
@@ -92,7 +88,7 @@ geoproxy-server doctor                               # 校验配置与渲染一�
 
 ## 版本与发布
 
-- 版本：`v0.2.40` → `v0.2.41`（patch+1，遵守 AGENTS.md 版本规则）。
+- 版本：`v0.2.41` → `v0.2.42`（patch+1，遵守 AGENTS.md 版本规则；v0.2.42 为 v0.2.41 的 urltest 类型修复）。
 - 同步更新：`VERSION`、`CHANGELOG.md`（顶部追加 `## v0.2.41 - 2026-08-25`）、`README.md`（mesh 能力说明与 `change mesh-failover` 用法）。
 - 门禁：`bats --tap tests` 全绿、shellcheck 无 error、shfmt 无漂移。
 - 提交并推送 `main`，打 tag `v0.2.41` 并推送，Release 由 GitHub Actions 自动创建（不手动建）。

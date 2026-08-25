@@ -204,7 +204,7 @@ PY
 gps_mesh_outbounds_json() {
 	# 始终至少有 direct；L7 hop 占位（MESH_L7_DETOUR_JSON 高级用户/后续）
 	local extra=${MESH_L7_OUTBOUNDS_JSON:-}
-	# mesh-failover：direct 之后插入 loadbalance 探测组（本机直连 ↔ WG 隧道）
+	# mesh-failover：direct 之后插入 urltest 探测组（本机直连 ↔ WG 隧道）
 	local failover=""
 	if [[ ${MESH_FAILOVER:-0} == 1 ]] && gps_mesh_has_live_peer; then
 		local probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
@@ -214,12 +214,11 @@ gps_mesh_outbounds_json() {
 			cat <<EOF
 ,
     {
-      "type": "loadbalance",
+      "type": "urltest",
       "tag": "mesh-failover",
-      "strategy": "url-test",
-      "destinations": [
-        { "outbound": "direct" },
-        { "outbound": "wg-ep" }
+      "outbounds": [
+        "direct",
+        "wg-ep"
       ],
       "url": "${probe}",
       "interval": "30s",

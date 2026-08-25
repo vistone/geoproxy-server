@@ -106,28 +106,27 @@ PY
 	[ "$status" -eq 0 ]
 }
 
-@test "failover on renders loadbalance group, final and anti-loop order" {
+@test "failover on renders urltest group, final and anti-loop order" {
 	mesh_init
 	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
 	MESH_FAILOVER=1
 	gps_write_config
 	grep -q '"tag": "mesh-failover"' "$GPS_CONFIG"
-	grep -q '"strategy": "url-test"' "$GPS_CONFIG"
+	grep -q '"type": "urltest"' "$GPS_CONFIG"
 	grep -q '"final": "mesh-failover"' "$GPS_CONFIG"
 	local src_line ip_line
 	src_line=$(grep -n 'source_ip_cidr' "$GPS_CONFIG" | head -1 | cut -d: -f1)
 	ip_line=$(grep -n '"ip_cidr"' "$GPS_CONFIG" | head -1 | cut -d: -f1)
 	[ "$src_line" -lt "$ip_line" ]
-	# 结构化断言 loadbalance 组内层字段：destinations 顺序、url=probe、interval、tolerance、防环规则置顶
+	# 结构化断言 urltest 组内层字段：outbounds 标签顺序、url=probe、interval、tolerance、防环规则置顶
 	python3 - "$GPS_CONFIG" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 groups = [o for o in cfg["outbounds"] if o.get("tag") == "mesh-failover"]
 assert len(groups) == 1, f"expected exactly one mesh-failover outbound, got {len(groups)}"
 g = groups[0]
-assert g["type"] == "loadbalance", g["type"]
-assert g["strategy"] == "url-test", g["strategy"]
-assert [d["outbound"] for d in g["destinations"]] == ["direct", "wg-ep"], g["destinations"]
+assert g["type"] == "urltest", g["type"]
+assert g["outbounds"] == ["direct", "wg-ep"], g["outbounds"]
 assert g["url"] == "https://www.gstatic.com/generate_204", g["url"]
 assert g["interval"] == "30s", g["interval"]
 assert g["tolerance"] == 0, g["tolerance"]
