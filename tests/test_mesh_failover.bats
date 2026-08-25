@@ -87,6 +87,11 @@ PY
 	# state.env 是 shell 赋值格式（%q 序列化，值无特殊字符时不带引号）；grep -E 宽松匹配两种形式
 	grep -Eq '^MESH_FAILOVER="?1"?$' "$GPS_STATE"
 	grep -Eq '^MESH_FAILOVER_PROBE="?https://www.google.com/generate_204"?$' "$GPS_STATE"
+	# 回载语义：unset 后 load_state 应还原两个变量（不依赖 shell 残留）
+	unset MESH_FAILOVER MESH_FAILOVER_PROBE
+	load_state
+	[ "$MESH_FAILOVER" = "1" ]
+	[ "$MESH_FAILOVER_PROBE" = "https://www.google.com/generate_204" ]
 }
 
 @test "failover off renders legacy outbounds and route with anti-loop rule" {

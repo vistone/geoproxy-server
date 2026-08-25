@@ -208,6 +208,8 @@ gps_mesh_outbounds_json() {
 	local failover=""
 	if [[ ${MESH_FAILOVER:-0} == 1 ]] && gps_mesh_has_live_peer; then
 		local probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
+		# probe 可被 CLI/state.env 手工篡改，渲染前 JSON 转义，防破坏 JSON 或注入
+		probe=$(gps_json_escape "$probe")
 		failover=$(
 			cat <<EOF
 ,
