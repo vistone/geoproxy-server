@@ -471,6 +471,8 @@ gps_save_state_unlocked() {
 		gps_env_assign MESH_EXIT_NODE_ID "${MESH_EXIT_NODE_ID:-}"
 		gps_env_assign MESH_ROLES "${MESH_ROLES:-}"
 		gps_env_assign MESH_L7_OUTBOUNDS_JSON "${MESH_L7_OUTBOUNDS_JSON:-}"
+		gps_env_assign MESH_FAILOVER "${MESH_FAILOVER:-0}"
+		gps_env_assign MESH_FAILOVER_PROBE "${MESH_FAILOVER_PROBE:-}"
 	} | gps_atomic_write_env "$GPS_STATE"
 	gps_kiwi_save_persist
 }

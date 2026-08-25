@@ -164,6 +164,36 @@ gps_mesh_route_json() {
 EOF
 }
 
+# 是否存在非本机且心跳在线的 peer（与 peers 渲染的 alive 判定一致；无心跳字段视为可用）
+gps_mesh_has_live_peer() {
+	local self=${NODE_ID:-}
+	[[ -f ${GPS_MESH_PEERS:-} ]] || return 1
+	MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" python3 - "$GPS_MESH_PEERS" "$self" <<'PY'
+import json, os, sys
+from datetime import datetime, timezone
+path, self_id = sys.argv[1], sys.argv[2]
+stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
+try:
+    doc = json.load(open(path, encoding="utf-8"))
+except Exception:
+    sys.exit(1)
+now = datetime.now(timezone.utc)
+for n in doc.get("nodes") or []:
+    if (n.get("node_id") or "") == self_id:
+        continue
+    ls = n.get("last_seen") or ""
+    if not ls:
+        sys.exit(0)
+    try:
+        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        continue
+    if (now - ts).total_seconds() <= stale:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
 gps_mesh_outbounds_json() {
 	# 始终至少有 direct；L7 hop 占位（MESH_L7_DETOUR_JSON 高级用户/后续）
 	local extra=${MESH_L7_OUTBOUNDS_JSON:-}
