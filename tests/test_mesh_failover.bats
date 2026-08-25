@@ -179,3 +179,15 @@ PY
 evil"
 	[ "$status" -ne 0 ]
 }
+
+@test "mesh show displays failover state" {
+	mesh_init
+	MESH_FAILOVER=1
+	MESH_FAILOVER_PROBE="https://www.google.com/generate_204"
+	save_state
+	run gps_mesh_cmd_show
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"failover:"* ]]
+	[[ "$output" == *"mesh-failover"* ]]
+	[[ "$output" == *"https://www.google.com/generate_204"* ]]
+}

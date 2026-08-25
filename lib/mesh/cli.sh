@@ -178,6 +178,7 @@ gps_mesh_cmd_show() {
 		gps_mesh_print_join_hints
 	fi
 	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
+	msg "  mesh-failover: ${MESH_FAILOVER:-0}  probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}"
 	msg "  心跳窗口:   ${MESH_PEER_STALE_SEC:-180}s（超时视为离线；仅在线节点写入 WG）"
 	msg "  peers file:  ${GPS_MESH_PEERS:-}"
 	if [[ -f ${GPS_MESH_PEERS:-} ]]; then

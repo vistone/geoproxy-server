@@ -145,6 +145,7 @@ gps_doctor() {
 			0) ok=$((ok + 1)) ;;
 			*) fail=$((fail + 1)) ;;
 			esac
+			msg "  $(_green OK)  mesh-failover=${MESH_FAILOVER:-0}（本机直连优先，故障自动切对端）"
 			gps_mesh_print_control_plane_status 2>/dev/null || true
 		elif [[ ${MESH_ROLE:-} == member ]]; then
 			check "MESH_MASTER_URL 已设置" test -n "${MESH_MASTER_URL:-}"
