@@ -81,6 +81,10 @@ main() {
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		gps_cmd_mesh "$@"
 		;;
+	agent)
+		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
+		gps_cmd_agent "$@"
+		;;
 	log)
 		[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 		gps_cmd_log "$@"

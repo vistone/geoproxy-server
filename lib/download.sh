@@ -260,12 +260,14 @@ EOF
 		fi
 		gps_install_traffic_timer 2>/dev/null || true
 		gps_install_mesh_units 2>/dev/null || true
+		gps_install_agent_units 2>/dev/null || true
 		gps_install_logrotate
 		systemctl daemon-reload 2>/dev/null || true
 	elif [[ -n ${GPS_TEST_PREFIX:-} || ${GPS_NO_SYSTEMD:-0} == 1 ]]; then
 		# 测试前缀也写 timer 文件（不 enable）
 		gps_install_traffic_timer 2>/dev/null || true
 		gps_install_mesh_units_files_only 2>/dev/null || true
+		gps_install_agent_units_files_only 2>/dev/null || true
 		gps_install_logrotate
 	fi
 	SCRIPT_VER=$(cat "${GPS_ROOT}/VERSION" 2>/dev/null || echo "$GPS_SH_VER")

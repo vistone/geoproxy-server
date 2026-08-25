@@ -1,0 +1,32 @@
+[Unit]
+Description=GeoProxy agent (v2rayA pool reporting/control)
+Documentation=https://github.com/vistone/geoproxy-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-__GPS_AGENT_ENV__
+Environment=GPS_STATE=__GPS_STATE__
+Environment=GPS_MESH_PEERS=__GPS_MESH_PEERS__
+Environment=GPS_VERSION_FILE=__GPS_VERSION_FILE__
+Environment=GPS_AGENT_CLI=__BIN__
+ExecStart=+/usr/bin/env python3 __GEOAGENT_PY__
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=__ETC_DIR__ __LOG_DIR__
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

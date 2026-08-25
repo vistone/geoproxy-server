@@ -298,9 +298,11 @@ gps_cmd_uninstall() {
 		gps_stop_bg 2>/dev/null || true
 		gps_remove_traffic_timer 2>/dev/null || true
 		gps_remove_mesh_units 2>/dev/null || true
+		gps_remove_agent_units 2>/dev/null || true
 	elif have_cmd systemctl; then
 		gps_remove_traffic_timer 2>/dev/null || true
 		gps_remove_mesh_units 2>/dev/null || true
+		gps_remove_agent_units 2>/dev/null || true
 		systemctl stop "$GPS_SERVICE" 2>/dev/null || true
 		systemctl disable "$GPS_SERVICE" 2>/dev/null || true
 		rm -f "$GPS_UNIT_PATH"
@@ -650,6 +652,39 @@ gps_cmd_change() {
 	save_state
 	gps_restart_svc
 	gps_cmd_url
+}
+
+gps_cmd_agent() {
+	local sub=${1:-status}
+	shift || true
+	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
+	gps_source_env "$envf" 2>/dev/null || true
+	case $sub in
+	status | show | "")
+		msg "$(_cyan "上报 Agent")（v2rayA 节点池）"
+		if [[ -z ${GPS_AGENT_TOKEN:-} ]]; then
+			warn "未启用：$envf 缺失或 GPS_AGENT_TOKEN 为空"
+			return 0
+		fi
+		msg "  监听:   ${GPS_AGENT_BIND:-0.0.0.0}:${GPS_AGENT_PORT:-19528}"
+		msg "  Token:  $(gps_mask_key "$GPS_AGENT_TOKEN")"
+		if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]] && have_cmd systemctl; then
+			if systemctl is-active --quiet geoproxy-agent.service 2>/dev/null; then
+				msg "  服务:   $(_green "active")"
+			else
+				msg "  服务:   $(_red "inactive")"
+			fi
+		fi
+		msg "  用法:   v2rayA 节点池成员填 Agent 地址 https://IP:${GPS_AGENT_PORT:-19528} 与上述 Token"
+		return 0
+		;;
+	token)
+		[[ -n ${GPS_AGENT_TOKEN:-} ]] || err "GPS_AGENT_TOKEN 未设置（$envf）"
+		printf '%s\n' "$GPS_AGENT_TOKEN"
+		return 0
+		;;
+	*) err "用法: agent [status|token]" ;;
+	esac
 }
 
 gps_cmd_protocols() {

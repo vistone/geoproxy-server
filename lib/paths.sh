@@ -13,6 +13,8 @@ GPS_MESH_MASTER_SERVICE="geoproxy-mesh-master"
 GPS_MESH_SYNC_SERVICE="geoproxy-mesh-sync"
 GPS_MESH_SYNC_TIMER="geoproxy-mesh-sync.timer"
 GPS_MESH_MASTER_PORT="${GPS_MESH_MASTER_PORT:-19527}"
+GPS_AGENT_SERVICE="geoproxy-agent"
+GPS_AGENT_PORT="${GPS_AGENT_PORT:-19528}"
 GPS_SELF_REPO="${GPS_SELF_REPO:-vistone/geoproxy-server}"
 GPS_SELF_REPO_URL="${GPS_SELF_REPO_URL:-https://github.com/${GPS_SELF_REPO}.git}"
 
@@ -37,6 +39,8 @@ gps_apply_paths() {
 		GPS_MESH_MASTER_UNIT_PATH="${base}/etc/systemd/system/${GPS_MESH_MASTER_SERVICE}.service"
 		GPS_MESH_SYNC_UNIT_PATH="${base}/etc/systemd/system/${GPS_MESH_SYNC_SERVICE}.service"
 		GPS_MESH_SYNC_TIMER_PATH="${base}/etc/systemd/system/${GPS_MESH_SYNC_TIMER}"
+		GPS_AGENT_UNIT_PATH="${base}/etc/systemd/system/geoproxy-agent.service"
+		GPS_AGENT_ENV="${GPS_ETC}/agent.env"
 		GPS_PID_FILE="${base}/var/run/${GPS_NAME}.pid"
 		GPS_KIWI_PERSIST="${base}/etc/geoproxy-kiwivm.env"
 		GPS_LOGROTATE_PATH="${base}/etc/logrotate.d/${GPS_NAME}"
@@ -50,6 +54,8 @@ gps_apply_paths() {
 		GPS_MESH_MASTER_UNIT_PATH="/etc/systemd/system/${GPS_MESH_MASTER_SERVICE}.service"
 		GPS_MESH_SYNC_UNIT_PATH="/etc/systemd/system/${GPS_MESH_SYNC_SERVICE}.service"
 		GPS_MESH_SYNC_TIMER_PATH="/etc/systemd/system/${GPS_MESH_SYNC_TIMER}"
+		GPS_AGENT_UNIT_PATH="/etc/systemd/system/geoproxy-agent.service"
+		GPS_AGENT_ENV="${GPS_ETC}/agent.env"
 		GPS_PID_FILE="/var/run/${GPS_NAME}.pid"
 		GPS_KIWI_PERSIST="/etc/geoproxy-kiwivm.env"
 		GPS_LOGROTATE_PATH="/etc/logrotate.d/${GPS_NAME}"
@@ -72,6 +78,7 @@ gps_apply_paths() {
 	GPS_MESH_TLS_FP="${GPS_MESH_DIR}/master-tls.fp"
 	GPS_MESH_ENV="${GPS_MESH_DIR}/master.env"
 	GPS_MESH_MASTER_PY="${GPS_ROOT}/scripts/mesh_master.py"
+	GPS_AGENT_PY="${GPS_ROOT}/scripts/geoagent.py"
 }
 
 gps_apply_paths
