@@ -51,27 +51,62 @@ gps_mesh_write_tls_fp() {
 }
 
 # Master 侧确保证书存在（与 mesh_master.py 的 ensure_tls 等价；幂等）
+# 默认必须 TLS：失败即退出，禁止默默退回明文。
 gps_mesh_ensure_master_tls() {
+	# 显式关闭时跳过（仅调试；公网加入仍会被 https 策略拒绝）
+	[[ ${GPS_MESH_MASTER_TLS:-1} != 0 ]] || return 0
 	gps_mesh_ensure_dirs
 	[[ -f $GPS_MESH_TLS_FP && -f $GPS_MESH_TLS_CERT && -f $GPS_MESH_TLS_KEY ]] && return 0
 	if ! have_cmd openssl; then
-		warn "缺 openssl：mesh 控制面无法启用 TLS（不推荐）"
-		return 0
+		err "缺 openssl：mesh 控制面默认必须启用 TLS（仅调试可设 GPS_MESH_MASTER_TLS=0）"
 	fi
 	umask 077
 	if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
 		-keyout "$GPS_MESH_TLS_KEY" -out "$GPS_MESH_TLS_CERT" \
 		-days 3650 -nodes -subj /CN=geoproxy-mesh >/dev/null 2>&1; then
-		warn "生成 mesh TLS 证书失败：控制面将退回明文（不推荐）"
-		return 0
+		err "生成 mesh TLS 证书失败：拒绝以明文启动控制面（仅调试可设 GPS_MESH_MASTER_TLS=0）"
 	fi
 	chmod 600 "$GPS_MESH_TLS_CERT" "$GPS_MESH_TLS_KEY"
-	gps_mesh_write_tls_fp || warn "写入 TLS 指纹失败"
+	gps_mesh_write_tls_fp || err "写入 mesh TLS 指纹失败"
 }
 
-# 本机是否已有 master 证书（决定 join URL 用 https 还是 http）
+# 磁盘上是否具备 master 证书（且未显式关闭 TLS）
 gps_mesh_master_tls_on() {
+	[[ ${GPS_MESH_MASTER_TLS:-1} != 0 ]] || return 1
 	[[ -f ${GPS_MESH_TLS_CERT:-} && -f ${GPS_MESH_TLS_KEY:-} ]]
+}
+
+# 探测本机控制面实际 scheme：证书在但进程仍明文时返回 http，避免 join 命令误导
+# 仅供 mesh show / print_join_hints；ensure 路径勿调用（避免到处 curl）。
+gps_mesh_live_control_scheme() {
+	local port=${1:-${MESH_MASTER_PORT:-19527}}
+	if [[ -n ${GPS_MESH_LIVE_SCHEME:-} ]]; then
+		printf '%s\n' "$GPS_MESH_LIVE_SCHEME"
+		return 0
+	fi
+	if ! have_cmd curl; then
+		gps_mesh_master_tls_on && {
+			printf 'https\n'
+			return 0
+		}
+		printf 'http\n'
+		return 0
+	fi
+	# connect-timeout 防止对端半开拖死
+	if curl -ksS --connect-timeout 1 --max-time 2 "https://127.0.0.1:${port}/v1/health" >/dev/null 2>&1; then
+		printf 'https\n'
+		return 0
+	fi
+	if curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:${port}/v1/health" >/dev/null 2>&1; then
+		printf 'http\n'
+		return 0
+	fi
+	# 本机未起进程（测试前缀 / 尚未 enable）：回退到磁盘证书判断
+	gps_mesh_master_tls_on && {
+		printf 'https\n'
+		return 0
+	}
+	printf 'http\n'
 }
 
 # ---------- Master URL 策略：公网必须 https；明文仅限 loopback ----------
@@ -220,14 +255,18 @@ gps_mesh_resolve_master_host() {
 	fi
 }
 
-# 输出 Master 对外 join 基址（每行一个，双栈+域名）；有自签证书走 https
-# 优先顺序写入 MESH_MASTER_URL：域名 > IPv4 > IPv6 > loopback
+# 输出 Master 对外 join 基址（每行一个，双栈+域名）
+# 默认按磁盘证书；打印加入命令时用 GPS_MESH_LIVE_SCHEME 覆盖（避免 ensure 路径到处 curl）
 gps_mesh_join_urls() {
 	gps_mesh_defaults
 	gps_mesh_resolve_master_host
 	local port=${MESH_MASTER_PORT:-19527}
 	local scheme=http
-	gps_mesh_master_tls_on && scheme=https
+	if [[ -n ${GPS_MESH_LIVE_SCHEME:-} ]]; then
+		scheme=$GPS_MESH_LIVE_SCHEME
+	elif gps_mesh_master_tls_on; then
+		scheme=https
+	fi
 	local -a urls=()
 	if [[ -n ${MESH_MASTER_HOST:-} ]]; then
 		urls+=("${scheme}://${MESH_MASTER_HOST}:${port}")
@@ -297,22 +336,26 @@ gps_mesh_print_control_plane_status() {
 	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 TCP ${port}，否则 Node 会 Connection timed out"
 }
 
-# 打印成员加入命令（全部可用地址）；TLS 开启时附带公钥指纹
+# 打印成员加入命令（全部可用地址）；仅在实测 https 时附带公钥指纹
 gps_mesh_print_join_hints() {
 	[[ ${MESH_ROLE:-} == master ]] || return 0
 	[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || return 0
-	local u pin_part=""
-	if [[ -f ${GPS_MESH_TLS_FP:-} ]]; then
+	local u pin_part="" scheme
+	local port=${MESH_MASTER_PORT:-19527}
+	scheme=$(gps_mesh_live_control_scheme "$port")
+	if [[ $scheme == https && -f ${GPS_MESH_TLS_FP:-} ]]; then
 		local pin
 		pin=$(tr -d '[:space:]' <"$GPS_MESH_TLS_FP")
 		[[ -n $pin ]] && pin_part="GPS_MESH_TLS_PIN=${pin} "
+	elif [[ $scheme == http ]] && gps_mesh_master_tls_on; then
+		warn "控制面证书已在磁盘，但本机 :${port} 仍为明文 HTTP。请执行: systemctl restart ${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}"
 	fi
 	gps_mesh_expose_control_plane
 	msg "$(_cyan "其它节点加入组网")（IPv4 / IPv6 / 域名任选其一可通即可）:"
 	while IFS= read -r u; do
 		[[ -n $u ]] || continue
 		msg "  GPS_MESH_MASTER=${u} ${pin_part}GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
-	done < <(gps_mesh_join_urls)
+	done < <(GPS_MESH_LIVE_SCHEME=$scheme gps_mesh_join_urls)
 	gps_mesh_print_control_plane_status
 }
 
@@ -412,9 +455,10 @@ gps_mesh_become_master() {
 	gps_mesh_ensure_cluster_token
 	gps_mesh_ensure_master_tls
 	gps_mesh_resolve_master_host
+	# 先重启 mesh-master 再 ensure：否则探测仍看到旧明文进程，会把 join URL 写成 http
+	gps_install_mesh_units 2>/dev/null || true
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
-	gps_install_mesh_units 2>/dev/null || true
 	gps_restart_svc
 	msg "$(_green "本机已设为 Master")"
 	gps_mesh_print_join_hints

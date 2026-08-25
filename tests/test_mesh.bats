@@ -7,6 +7,16 @@ setup() {
 	# shellcheck source=../lib/systemd.sh
 	source "$REPO_ROOT/lib/systemd.sh" 2>/dev/null || true
 	gps_restart_svc() { :; }
+	# source _setup 之后重定义：按 GPS_MESH_PEERS 识别本前缀 master（cwd 常为仓库根）
+	teardown() {
+		local pid
+		for pid in $(pgrep -f 'scripts/mesh_master.py' 2>/dev/null || true); do
+			if tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null | grep -q "GPS_MESH_PEERS=${GPS_TEST_PREFIX}"; then
+				kill -KILL "$pid" >/dev/null 2>&1 || true
+			fi
+		done
+		rm -rf "$GPS_TEST_PREFIX"
+	}
 }
 
 @test "default ensure boot always has wireguard endpoints" {
@@ -138,9 +148,9 @@ setup() {
 	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 	MESH_CLUSTER_TOKEN=test-token-aabb GPS_MESH_PEERS="$master_peers" GPS_MESH_MASTER_TLS=0 \
 		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
-		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-test.log" 2>&1 </dev/null &
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-test.log" 2>&1 </dev/null 3>&- 4>&- &
 	local mpid=$!
-	disown "$mpid" 2>/dev/null || true
+	# 不 disown；关闭 bats 管道 FD，避免套件收尾挂起
 	# wait until health responds (max ~3s)
 	local i
 	for i in 1 2 3 4 5 6; do
@@ -272,9 +282,9 @@ setup() {
 	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 	MESH_CLUSTER_TOKEN=join-token-xyz-0123456789 GPS_MESH_PEERS="$master_peers" GPS_MESH_MASTER_TLS=0 \
 		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
-		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/join-test.log" 2>&1 </dev/null &
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/join-test.log" 2>&1 </dev/null 3>&- 4>&- &
 	local mpid=$!
-	disown "$mpid" 2>/dev/null || true
+	# 不 disown；关闭 bats 管道 FD，避免套件收尾挂起
 	local i
 	for i in 1 2 3 4 5 6; do
 		curl -fsS --max-time 1 "http://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break

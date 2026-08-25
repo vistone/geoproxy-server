@@ -140,7 +140,19 @@ gps_doctor() {
 			check "mesh cluster token" test -n "${MESH_CLUSTER_TOKEN:-}"
 			if have_cmd curl; then
 				local hp=${MESH_MASTER_PORT:-19527}
-				if curl -fsS --max-time 2 "http://127.0.0.1:${hp}/v1/health" >/dev/null 2>&1; then
+				local tls_want=0
+				[[ ${GPS_MESH_MASTER_TLS:-1} != 0 && -f ${GPS_MESH_TLS_CERT:-} && -f ${GPS_MESH_TLS_KEY:-} ]] && tls_want=1
+				if [[ $tls_want -eq 1 ]]; then
+					if curl -ksS --connect-timeout 1 --max-time 2 "https://127.0.0.1:${hp}/v1/health" >/dev/null 2>&1; then
+						msg "  $(_green OK)  mesh-master health :$hp (https/TLS)"
+						ok=$((ok + 1))
+					elif curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:${hp}/v1/health" >/dev/null 2>&1; then
+						msg "  $(_red FAIL) mesh-master :$hp 仍为明文 HTTP（证书已存在）。请: systemctl restart ${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}"
+						fail=$((fail + 1))
+					else
+						warn_item "mesh-master :$hp 未响应 https（unit 未起或测试前缀）"
+					fi
+				elif curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:${hp}/v1/health" >/dev/null 2>&1; then
 					msg "  $(_green OK)  mesh-master health :$hp"
 					ok=$((ok + 1))
 				else

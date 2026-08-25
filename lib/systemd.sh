@@ -51,6 +51,7 @@ gps_install_mesh_units_files_only() {
 				printf 'MESH_CLUSTER_TOKEN=%s\n' "$tok"
 				printf 'GPS_MESH_MASTER_BIND=%s\n' "${GPS_MESH_MASTER_BIND:-0.0.0.0}"
 				printf 'GPS_MESH_MASTER_PORT=%s\n' "${MESH_MASTER_PORT:-${GPS_MESH_MASTER_PORT:-19527}}"
+				printf 'GPS_MESH_MASTER_TLS=%s\n' "${GPS_MESH_MASTER_TLS:-1}"
 			} >"$GPS_MESH_ENV"
 			chmod 600 "$GPS_MESH_ENV" 2>/dev/null || true
 		fi
@@ -87,8 +88,11 @@ gps_install_mesh_units() {
 	fi
 	systemctl daemon-reload 2>/dev/null || true
 	if [[ ${MESH_ROLE:-master} == master ]]; then
-		systemctl enable --now "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
-			systemctl enable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
+		# enable 不够：已在跑的旧明文进程不会换新代码/TLS，必须 restart
+		systemctl enable "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
+			systemctl enable geoproxy-mesh-master.service >/dev/null 2>&1 || true
+		systemctl restart "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
+			systemctl restart geoproxy-mesh-master.service >/dev/null 2>&1 || true
 		msg "$(_cyan "mesh-master") 已启用（登记面 ${GPS_MESH_MASTER_BIND:-0.0.0.0}:${MESH_MASTER_PORT:-19527}/tcp，mesh 控制面）"
 	else
 		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true

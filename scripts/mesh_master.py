@@ -348,7 +348,14 @@ def main() -> None:
         raise SystemExit(2)
     if not TOKEN:
         sys.stderr.write("warning: MESH_CLUSTER_TOKEN empty — registry OPEN (GPS_MESH_ALLOW_OPEN=1)\n")
-    pin = ensure_tls()
+    pin = None
+    try:
+        pin = ensure_tls()
+    except Exception as e:
+        sys.stderr.write(
+            "mesh-master: TLS 启用失败（默认必须 TLS；仅调试可设 GPS_MESH_MASTER_TLS=0）: %s\n" % e
+        )
+        raise SystemExit(1)
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     if pin:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

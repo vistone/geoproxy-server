@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.38 - 2026-08-25
+
+修复：Master 升级后控制面证书在磁盘、进程仍明文时，doctor / 加入命令会误导成 https+PIN。
+
+- `gps_mesh_ensure_master_tls` 默认硬失败（缺 openssl / 生成失败 / 写指纹失败不再静默退回明文）；仅调试可设 `GPS_MESH_MASTER_TLS=0`。
+- `gps_install_mesh_units` 对 Master 改为 `enable` + **`restart`**（不只 `enable --now`），避免旧明文进程不换新代码/TLS；`master.env` 写入 `GPS_MESH_MASTER_TLS=1`。
+- doctor：有证书时优先探测 https；证书在但只有 HTTP → FAIL，并提示 `systemctl restart geoproxy-mesh-master`。
+- `mesh show` / 加入命令按本机实测 scheme 打印：仍明文时打 `http://`、不带 PIN，并 warn 需 restart；升主时先安装/重启 mesh-master 再 ensure。
+- `mesh_master.py`：TLS 启用失败时明确退出（不再半启动）。
+
 ## v0.2.37 - 2026-08-24
 
 修复：Member 连不上 Master 时启动探测 2–3s 快速降级，不把 tuic 拖死。

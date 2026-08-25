@@ -139,3 +139,26 @@ setup() {
 	grep -qE '^ProtectSystem=strict$' "$GPS_MESH_SYNC_UNIT_PATH"
 	grep -F "ReadWritePaths=${GPS_ETC}" "$GPS_MESH_SYNC_UNIT_PATH"
 }
+
+@test "gps_install_mesh_units restarts mesh-master not only enable --now" {
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="restart-token-0123456789"
+	gps_mesh_defaults
+	gps_mesh_ensure_dirs
+	local log="$GPS_TEST_PREFIX/systemctl-mesh.log"
+	: >"$log"
+	need_systemd() { :; }
+	systemctl() {
+		printf '%s\n' "$*" >>"$log"
+		return 0
+	}
+	# 路径仍指向测试前缀；清空 GPS_TEST_PREFIX 仅用于走生产 enable/restart 分支
+	local saved_prefix=$GPS_TEST_PREFIX
+	GPS_TEST_PREFIX=
+	GPS_NO_SYSTEMD=0
+	gps_install_mesh_units
+	GPS_TEST_PREFIX=$saved_prefix
+	grep -E 'enable' "$log"
+	# 升级后必须 restart，否则旧明文进程继续占端口
+	grep -E 'restart.*(geoproxy-mesh-master|'"$GPS_MESH_MASTER_SERVICE"')' "$log"
+}
