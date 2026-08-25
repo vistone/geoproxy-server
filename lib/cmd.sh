@@ -526,12 +526,43 @@ gps_cmd_change() {
 		else
 			gps_validate_single_line "$eid" || err "node_id 非法"
 			[[ $eid != "${NODE_ID:-}" ]] || err "不能将自己设为 mesh-exit（防环）"
+			[[ ${MESH_FAILOVER:-0} != 1 ]] || err "与 mesh-failover 冲突：请先 change mesh-failover off 再设置 mesh-exit"
 			MESH_EXIT_NODE_ID=$eid
 		fi
 		gps_write_config
 		save_state
 		gps_restart_svc
 		msg "$(_green "mesh-exit") → ${MESH_EXIT_NODE_ID:-none}"
+		return 0
+		;;
+	mesh-failover | failover)
+		local v=${1:-}
+		[[ $v == on || $v == off || $v == 1 || $v == 0 ]] || err "用法: change mesh-failover on|off"
+		if [[ $v == on || $v == 1 ]]; then
+			[[ -z ${MESH_EXIT_NODE_ID:-} ]] || err "与 mesh-exit 冲突：请先 change mesh-exit none 再开启 mesh-failover"
+			MESH_FAILOVER=1
+			if ! gps_mesh_has_live_peer 2>/dev/null; then
+				warn "当前无在线对端节点，failover 开启后暂无可兜底出口（新增节点后自动生效）"
+			fi
+		else
+			MESH_FAILOVER=0
+		fi
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "mesh-failover") → ${MESH_FAILOVER}"
+		return 0
+		;;
+	mesh-failover-probe | failover-probe)
+		local u=${1:-}
+		[[ -n $u ]] || err "用法: change mesh-failover-probe <url>"
+		gps_validate_single_line "$u" || err "探测地址不能包含换行/回车/NUL"
+		[[ $u == http://* || $u == https://* ]] || err "探测地址需以 http:// 或 https:// 开头"
+		MESH_FAILOVER_PROBE=$u
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "failover 探测地址") → ${MESH_FAILOVER_PROBE}"
 		return 0
 		;;
 	mesh-master-host | master-host | mesh-host)
@@ -612,7 +643,7 @@ gps_cmd_change() {
 		return 0
 		;;
 	*)
-		err "用法: change port|uuid|passwd|protocol|profile|mesh-exit|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
+		err "用法: change port|uuid|passwd|protocol|profile|mesh-exit|mesh-failover|mesh-failover-probe|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config

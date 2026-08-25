@@ -132,3 +132,50 @@ PY
 	run python3 -m json.tool "$GPS_CONFIG"
 	[ "$status" -eq 0 ]
 }
+
+@test "change mesh-failover on persists state and renders" {
+	mesh_init
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	gps_cmd_change mesh-failover on
+	grep -Eq '^MESH_FAILOVER="?1"?$' "$GPS_STATE"
+	grep -q '"final": "mesh-failover"' "$GPS_CONFIG"
+}
+
+@test "change mesh-failover off restores legacy rendering" {
+	mesh_init
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	MESH_FAILOVER=1
+	gps_cmd_change mesh-failover off
+	grep -Eq '^MESH_FAILOVER="?0"?$' "$GPS_STATE"
+	run grep -q 'mesh-failover' "$GPS_CONFIG"
+	[ "$status" -ne 0 ]
+}
+
+@test "change mesh-failover on conflicts with mesh-exit" {
+	mesh_init
+	MESH_EXIT_NODE_ID=tile-exit
+	save_state
+	run gps_cmd_change mesh-failover on
+	[ "$status" -ne 0 ]
+	[[ "$output" == *冲突* ]]
+}
+
+@test "change mesh-exit conflicts with failover on" {
+	mesh_init
+	MESH_FAILOVER=1
+	save_state
+	run gps_cmd_change mesh-exit tile-b
+	[ "$status" -ne 0 ]
+	[[ "$output" == *冲突* ]]
+}
+
+@test "change mesh-failover-probe validates url and persists" {
+	mesh_init
+	gps_cmd_change mesh-failover-probe https://www.google.com/generate_204
+	grep -Eq '^MESH_FAILOVER_PROBE="?https://www.google.com/generate_204"?$' "$GPS_STATE"
+	run gps_cmd_change mesh-failover-probe ftp://bad
+	[ "$status" -ne 0 ]
+	run gps_cmd_change mesh-failover-probe "https://ok
+evil"
+	[ "$status" -ne 0 ]
+}
