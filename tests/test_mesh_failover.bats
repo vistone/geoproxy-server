@@ -118,6 +118,23 @@ PY
 	src_line=$(grep -n 'source_ip_cidr' "$GPS_CONFIG" | head -1 | cut -d: -f1)
 	ip_line=$(grep -n '"ip_cidr"' "$GPS_CONFIG" | head -1 | cut -d: -f1)
 	[ "$src_line" -lt "$ip_line" ]
+	# 结构化断言 loadbalance 组内层字段：destinations 顺序、url=probe、interval、tolerance、防环规则置顶
+	python3 - "$GPS_CONFIG" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+groups = [o for o in cfg["outbounds"] if o.get("tag") == "mesh-failover"]
+assert len(groups) == 1, f"expected exactly one mesh-failover outbound, got {len(groups)}"
+g = groups[0]
+assert g["type"] == "loadbalance", g["type"]
+assert g["strategy"] == "url-test", g["strategy"]
+assert [d["outbound"] for d in g["destinations"]] == ["direct", "wg-ep"], g["destinations"]
+assert g["url"] == "https://www.gstatic.com/generate_204", g["url"]
+assert g["interval"] == "30s", g["interval"]
+assert g["tolerance"] == 0, g["tolerance"]
+assert cfg["route"]["final"] == "mesh-failover", cfg["route"]["final"]
+rules = cfg["route"]["rules"]
+assert rules and "source_ip_cidr" in rules[0], "anti-loop rule must be first"
+PY
 	run python3 -m json.tool "$GPS_CONFIG"
 	[ "$status" -eq 0 ]
 }

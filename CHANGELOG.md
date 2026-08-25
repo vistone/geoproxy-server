@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.41 - 2026-08-25
+
+功能：mesh 出口自动故障切换（`change mesh-failover on|off`）——本机直连优先、本机出口故障时自动切到对端出口兜底、恢复后自动回切，平时零隧道流量开销。
+
+- 出口改为 sing-box 原生 `loadbalance`（`strategy: url-test`）探测组 { direct, wg-ep }：本机直连优先，故障自动切对端，恢复自动回切；平时零隧道流量开销。
+- 防环：来自 WG 隧道（overlay 网段）的流量强制走本机直连（`source_ip_cidr` 规则恒渲染且置顶），杜绝 A↔B 兜底/探活循环。
+- 探测地址可配（`change mesh-failover-probe <url>`，默认 `https://www.gstatic.com/generate_204`）；与 `mesh-exit` 互斥（双向校验）；默认关闭，需显式开启。
+- `mesh show` / `doctor` 展示 failover 状态；无在线对端时自动降级为本机直连（等价现状）。
+
 ## v0.2.40 - 2026-08-25
 
 体验：Master 自检明确打印本机 `https://127.0.0.1:<port>/v1/health`，两端都失败改为 FAIL。

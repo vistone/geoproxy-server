@@ -23,7 +23,7 @@
 - **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
 - 自签 TLS（按协议）；TUIC 默认 UUID=密码、BBR
 - 入站协议可切换（`change protocol` / `protocols`）
-- **Mesh**：随主服务开机；首台为 Master，成员用 `GPS_MESH_MASTER`+`GPS_MESH_TOKEN` 加入；`change mesh-exit` 跳板
+- **Mesh**：随主服务开机；首台为 Master，成员用 `GPS_MESH_MASTER`+`GPS_MESH_TOKEN` 加入；`change mesh-exit` 跳板；`change mesh-failover` 出口故障自动切换（本机直连优先 + 对端兜底）
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
 
@@ -156,7 +156,17 @@ geoproxy-server mesh export
 
 # 可选：指定 L3 出口跳板
 geoproxy-server change mesh-exit <node_id>
+
+# 可选：出口故障自动切换（默认关闭；本机直连优先，故障时自动切对端出口兜底，恢复后回切）
+geoproxy-server change mesh-failover on
+geoproxy-server change mesh-failover off
+
+# 可选：自定义故障探测地址（默认 https://www.gstatic.com/generate_204）
+geoproxy-server change mesh-failover-probe <url>
 ```
+
+开启 `mesh-failover` 后出口为「本机直连优先 + 对端兜底」（无在线对端时仍为本机直连），与 `mesh-exit` 互斥；
+每台机器依然只跑 **一个** sing-box 实例，探测组与防环规则都在同一个实例内完成。
 
 自 v0.2.33 起拒绝向**非本机** Master 发起明文 `http://` 注册（TOKEN/公钥会明文过网）。
 旧成员升级后请重新执行上面临入流程；仅 loopback 明文仍放行（排障用）。
