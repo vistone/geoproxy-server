@@ -88,3 +88,42 @@ PY
 	grep -Eq '^MESH_FAILOVER="?1"?$' "$GPS_STATE"
 	grep -Eq '^MESH_FAILOVER_PROBE="?https://www.google.com/generate_204"?$' "$GPS_STATE"
 }
+
+@test "failover off renders legacy outbounds and route with anti-loop rule" {
+	mesh_init
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	gps_write_config
+	run grep -q 'mesh-failover' "$GPS_CONFIG"
+	[ "$status" -ne 0 ]
+	grep -q '"final": "direct"' "$GPS_CONFIG"
+	grep -q 'source_ip_cidr' "$GPS_CONFIG"
+	run python3 -m json.tool "$GPS_CONFIG"
+	[ "$status" -eq 0 ]
+}
+
+@test "failover on renders loadbalance group, final and anti-loop order" {
+	mesh_init
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	MESH_FAILOVER=1
+	gps_write_config
+	grep -q '"tag": "mesh-failover"' "$GPS_CONFIG"
+	grep -q '"strategy": "url-test"' "$GPS_CONFIG"
+	grep -q '"final": "mesh-failover"' "$GPS_CONFIG"
+	local src_line ip_line
+	src_line=$(grep -n 'source_ip_cidr' "$GPS_CONFIG" | head -1 | cut -d: -f1)
+	ip_line=$(grep -n '"ip_cidr"' "$GPS_CONFIG" | head -1 | cut -d: -f1)
+	[ "$src_line" -lt "$ip_line" ]
+	run python3 -m json.tool "$GPS_CONFIG"
+	[ "$status" -eq 0 ]
+}
+
+@test "failover on without peers keeps direct-only final" {
+	mesh_init
+	MESH_FAILOVER=1
+	gps_write_config
+	run grep -q 'mesh-failover' "$GPS_CONFIG"
+	[ "$status" -ne 0 ]
+	grep -q '"final": "direct"' "$GPS_CONFIG"
+	run python3 -m json.tool "$GPS_CONFIG"
+	[ "$status" -eq 0 ]
+}

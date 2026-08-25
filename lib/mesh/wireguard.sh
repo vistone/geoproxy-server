@@ -142,18 +142,23 @@ print(",\n".join(parts))
 PY
 }
 
-# route 片段：overlay → wg-ep（始终启用）
 gps_mesh_route_json() {
 	gps_profile_normalize
 	gps_mesh_defaults
 	local prefix final_tag
 	prefix=$(gps_json_escape "${MESH_OVERLAY_PREFIX}")
 	final_tag=direct
-	# 若配置了 exit，final 仍用 direct（默认路由已在 peer allowed_ips）；
-	# sing-box 对 endpoint preferred routes 会优先；final 保持 direct 作兜底
+	# mesh-failover：有在线对端时才把 final 指到探测组
+	if [[ ${MESH_FAILOVER:-0} == 1 ]] && gps_mesh_has_live_peer; then
+		final_tag=mesh-failover
+	fi
 	cat <<EOF
   "route": {
     "rules": [
+      {
+        "source_ip_cidr": ["${prefix}"],
+        "outbound": "direct"
+      },
       {
         "ip_cidr": ["${prefix}"],
         "outbound": "wg-ep"
@@ -199,12 +204,34 @@ PY
 gps_mesh_outbounds_json() {
 	# 始终至少有 direct；L7 hop 占位（MESH_L7_DETOUR_JSON 高级用户/后续）
 	local extra=${MESH_L7_OUTBOUNDS_JSON:-}
+	# mesh-failover：direct 之后插入 loadbalance 探测组（本机直连 ↔ WG 隧道）
+	local failover=""
+	if [[ ${MESH_FAILOVER:-0} == 1 ]] && gps_mesh_has_live_peer; then
+		local probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
+		failover=$(
+			cat <<EOF
+,
+    {
+      "type": "loadbalance",
+      "tag": "mesh-failover",
+      "strategy": "url-test",
+      "destinations": [
+        { "outbound": "direct" },
+        { "outbound": "wg-ep" }
+      ],
+      "url": "${probe}",
+      "interval": "30s",
+      "tolerance": 0
+    }
+EOF
+		)
+	fi
 	if [[ -n ${extra//[[:space:]]/} ]]; then
 		cat <<EOF
     {
       "type": "direct",
       "tag": "direct"
-    },
+    }${failover},
 ${extra}
 EOF
 	else
@@ -212,7 +239,7 @@ EOF
     {
       "type": "direct",
       "tag": "direct"
-    }
+    }${failover}
 EOF
 	fi
 }
