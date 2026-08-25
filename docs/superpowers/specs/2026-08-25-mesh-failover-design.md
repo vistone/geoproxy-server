@@ -67,6 +67,7 @@ geoproxy-server doctor                               # 校验配置与渲染一�
 `gps_mesh_route_json()`：
 - `MESH_FAILOVER=1` 时 `final` 从 `direct` 改为 `mesh-failover`。
 - 新增**防环规则**置于规则列表最前：`source_ip_cidr: [<MESH_OVERLAY_PREFIX>]` → `direct`。语义：凡来源是 overlay 网段（即从 WG 隧道进来的）的流量，到本机后强制走本机自己的 `direct` 出口，绝不再扔回隧道——从根上杜绝 A↔B 探活/兜底流量循环。
+- **该规则无条件渲染**（与 `MESH_FAILOVER` 开关无关）：它还修复既有 mesh 的潜在 overlay 环路——旧版 `ip_cidr: [overlay] → wg-ep` 会把来源为 overlay 的流量按目标判定再次扔回隧道，造成 A↔B 打转。恒渲染后来自隧道的流量一律先命中 `source_ip_cidr → direct`。对常规 mesh 流量（本机客户端 → final/direct）与 mesh-exit 的内核级默认路由均无影响；off 态渲染与旧版仅差这一条规则，`final` 仍为 `direct`、无 loadbalance 组。
 - 现有 `ip_cidr: [<MESH_OVERLAY_PREFIX>] → wg-ep`（overlay 目标走隧道）保持不变，两条规则按"来源判定"与"目标判定"并存，互不冲突。
 
 探测地址仅在本机直连探测路径上使用；对端收到隧道内探测流量后按防环规则直接 `direct` 出公网，因此探测结果代表"本机直连的真实可达性"，不会被对端转发干扰。
@@ -81,7 +82,7 @@ geoproxy-server doctor                               # 校验配置与渲染一�
 ## 测试（`tests/*.bats`）
 
 1. `MESH_FAILOVER=1`（含在线 peer）：渲染含 `mesh-failover` loadbalance 组、`final` 指向它、防环 `source_ip_cidr` 规则存在且位于最前。
-2. `MESH_FAILOVER=0`：渲染与现状逐字一致（防回归，diff 断言）。
+2. `MESH_FAILOVER=0`：渲染与现状一致（`final` 仍为 `direct`、无 loadbalance 组），仅新增恒渲染的 `source_ip_cidr` 防环规则（见技术实现节）；断言防环规则存在且位于最前（防回归）。
 3. `MESH_FAILOVER=1` 但无在线 peer：组内只有 `direct`，不含 `wg-ep`。
 4. `change mesh-failover on` 与 `mesh-exit` 互斥：双向校验报错，状态不变。
 5. `change mesh-failover-probe`：合法 URL 生效；非法/含控制字符拒绝。
