@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.39 - 2026-08-25
+
+修复：同版本/旧进程升级路径漏 restart mesh-master，控制面仍占明文 19527。
+
+- `gps_cmd_upgrade_self` 在 mesh ensure 之后强制 `gps_upgrade_restart_mesh_master`（不依赖升级前内存里的 `gps_install_mesh_units`），避免旧明文进程继续占端口。
+- `gps_install_mesh_units`：mesh-master restart 失败改为 warn + 手动提示，不再静默吞掉。
+- 补充 bats：master 角色会 `systemctl restart`；member 角色跳过。
+
 ## v0.2.38 - 2026-08-25
 
 修复：Master 升级后控制面证书在磁盘、进程仍明文时，doctor / 加入命令会误导成 https+PIN。

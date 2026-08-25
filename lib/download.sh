@@ -136,6 +136,25 @@ gps_download_core() {
 
 # ---------- geoproxy-server 脚本自身升级 ----------
 
+# 升级后强制重启 mesh-master（不依赖升级前内存里的 gps_install_mesh_units）
+# 调用方须已 load_state / 设好 MESH_ROLE；此处不再 load_state（避免从 state.env 把 GPS_TEST_PREFIX 拉回来）。
+gps_upgrade_restart_mesh_master() {
+	[[ ${MESH_ROLE:-master} == master ]] || return 0
+	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
+		gps_install_mesh_units 2>/dev/null || true
+		return 0
+	fi
+	need_systemd 2>/dev/null || true
+	systemctl daemon-reload >/dev/null 2>&1 || true
+	local svc=${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}
+	if systemctl restart "$svc" >/dev/null 2>&1 ||
+		systemctl restart geoproxy-mesh-master.service >/dev/null 2>&1; then
+		msg "$(_cyan "mesh-master") 已重启（应用 TLS / 新脚本）"
+	else
+		warn "mesh-master restart 失败；请手动: systemctl restart geoproxy-mesh-master"
+	fi
+}
+
 gps_self_latest_tag() {
 	curl -fsSL --max-time 20 \
 		"https://api.github.com/repos/${GPS_SELF_REPO}/releases/latest" |
@@ -306,6 +325,10 @@ gps_cmd_upgrade_self() {
 	elif [[ -f ${GPS_LIB_DIR}/scripts/geoproxy-server.sh ]]; then
 		bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" mesh ensure || warn "mesh ensure 未成功（将在服务启动 ExecStartPre 再试）"
 	fi
+	# gps_self_install_tree 里的 gps_install_mesh_units 来自升级前内存，可能仍是
+	# 「仅 enable --now」（v0.2.38 之前）；mesh ensure 也不 restart。
+	# 必须再显式重启 mesh-master，否则旧明文进程继续占 19527。
+	gps_upgrade_restart_mesh_master
 	gps_svc_boot
 	# shellcheck disable=SC2034  # 供 gps_reexec_if_menu 读取
 	GPS_UPGRADE_DID_WORK=1

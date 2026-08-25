@@ -91,9 +91,13 @@ gps_install_mesh_units() {
 		# enable 不够：已在跑的旧明文进程不会换新代码/TLS，必须 restart
 		systemctl enable "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
 			systemctl enable geoproxy-mesh-master.service >/dev/null 2>&1 || true
-		systemctl restart "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
-			systemctl restart geoproxy-mesh-master.service >/dev/null 2>&1 || true
-		msg "$(_cyan "mesh-master") 已启用（登记面 ${GPS_MESH_MASTER_BIND:-0.0.0.0}:${MESH_MASTER_PORT:-19527}/tcp，mesh 控制面）"
+		if systemctl restart "$GPS_MESH_MASTER_SERVICE" >/dev/null 2>&1 ||
+			systemctl restart geoproxy-mesh-master.service >/dev/null 2>&1; then
+			msg "$(_cyan "mesh-master") 已启用（登记面 ${GPS_MESH_MASTER_BIND:-0.0.0.0}:${MESH_MASTER_PORT:-19527}/tcp，mesh 控制面）"
+		else
+			warn "mesh-master restart 失败；请手动: systemctl restart geoproxy-mesh-master"
+			msg "$(_cyan "mesh-master") unit 已写入（登记面 ${GPS_MESH_MASTER_BIND:-0.0.0.0}:${MESH_MASTER_PORT:-19527}/tcp）"
+		fi
 	else
 		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
 	fi

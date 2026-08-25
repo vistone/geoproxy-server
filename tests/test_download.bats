@@ -101,6 +101,36 @@ setup() {
 	[ "$status" -eq 0 ]
 }
 
+@test "gps_upgrade_restart_mesh_master issues systemctl restart for master" {
+	export MESH_ROLE=master
+	local log="$GPS_TEST_PREFIX/upgrade-restart.log"
+	: >"$log"
+	need_systemd() { :; }
+	systemctl() {
+		printf '%s\n' "$*" >>"$log"
+		return 0
+	}
+	local saved_prefix=$GPS_TEST_PREFIX
+	GPS_TEST_PREFIX=
+	GPS_NO_SYSTEMD=0
+	gps_upgrade_restart_mesh_master
+	GPS_TEST_PREFIX=$saved_prefix
+
+	grep -E 'restart.*(geoproxy-mesh-master|'"$GPS_MESH_MASTER_SERVICE"')' "$log"
+}
+
+@test "gps_upgrade_restart_mesh_master skips member role" {
+	export MESH_ROLE=member
+	local called=0
+	gps_install_mesh_units() { called=1; }
+	systemctl() {
+		called=1
+		return 0
+	}
+	gps_upgrade_restart_mesh_master
+	[[ $called -eq 0 ]]
+}
+
 @test "self fetch tree stdout carries only the tree root" {
 	# 构造本地假 release asset（git archive 结构：根含 geoproxy-server.sh）
 	mkdir -p "$BATS_TEST_TMPDIR/pkgtree"
