@@ -430,6 +430,9 @@ gps_save_state_unlocked() {
 		gps_env_assign TRAFFIC_STOP_PCT "${TRAFFIC_STOP_PCT}"
 		gps_env_assign TRAFFIC_CHECK_SEC "${TRAFFIC_CHECK_SEC}"
 		gps_env_assign TRAFFIC_TRIPPED "${TRAFFIC_TRIPPED}"
+		if [[ -n ${TRAFFIC_TRIPPED_AT:-} ]]; then
+			gps_env_assign TRAFFIC_TRIPPED_AT "${TRAFFIC_TRIPPED_AT}"
+		fi
 		gps_env_assign TRAFFIC_LAST_PCT "${TRAFFIC_LAST_PCT:-}"
 		gps_env_assign TRAFFIC_LAST_CHECK "${TRAFFIC_LAST_CHECK:-}"
 		gps_env_assign TRAFFIC_LAST_ERROR "${TRAFFIC_LAST_ERROR:-}"

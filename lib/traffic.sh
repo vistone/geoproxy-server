@@ -28,6 +28,7 @@ gps_traffic_defaults() {
 	TRAFFIC_STOP_PCT=${TRAFFIC_STOP_PCT:-95}
 	TRAFFIC_CHECK_SEC=${TRAFFIC_CHECK_SEC:-300}
 	TRAFFIC_TRIPPED=${TRAFFIC_TRIPPED:-0}
+	TRAFFIC_TRIPPED_AT=${TRAFFIC_TRIPPED_AT:-}
 	TRAFFIC_LAST_PCT=${TRAFFIC_LAST_PCT:-}
 	TRAFFIC_LAST_CHECK=${TRAFFIC_LAST_CHECK:-}
 	TRAFFIC_LAST_ERROR=${TRAFFIC_LAST_ERROR:-}
@@ -217,7 +218,9 @@ gps_cmd_traffic_check() {
 # 清除 TRAFFIC_TRIPPED 并启动服务；auto=定时检查自动恢复，manual=traffic resume
 gps_traffic_resume_cleared() {
 	local mode=${1:-manual}
+	gps_traffic_defaults
 	TRAFFIC_TRIPPED=0
+	TRAFFIC_TRIPPED_AT=
 	save_state
 	gps_svc start
 	if [[ $mode == auto ]]; then
@@ -278,6 +281,23 @@ gps_cmd_traffic_resume() {
 	gps_traffic_resume_cleared manual
 }
 
+# 立即熔断（agent / CLI）：TRAFFIC_TRIPPED=1 + 停服务 + 写熔断日志
+gps_cmd_traffic_trip() {
+	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
+		need_root
+	fi
+	load_state 2>/dev/null || true
+	gps_traffic_defaults
+	TRAFFIC_TRIPPED=1
+	TRAFFIC_TRIPPED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	save_state
+	gps_svc stop 2>/dev/null || true
+	{
+		echo "$TRAFFIC_TRIPPED_AT TRIP pct=${TRAFFIC_LAST_PCT:-?} stop=${TRAFFIC_STOP_PCT}"
+	} >>"${GPS_LOG_DIR}/traffic.log" 2>/dev/null || true
+	msg "$(_red "已熔断")（TRAFFIC_TRIPPED=1，服务已停止；恢复请用 traffic resume）"
+}
+
 gps_cmd_traffic() {
 	[[ -n ${GPS_TEST_PREFIX:-} ]] && gps_apply_paths
 	local sub=${1:-status}
@@ -286,6 +306,7 @@ gps_cmd_traffic() {
 	status | show | "") gps_cmd_traffic_status ;;
 	check) gps_cmd_traffic_check "$@" ;;
 	resume) gps_cmd_traffic_resume "$@" ;;
+	trip) gps_cmd_traffic_trip "$@" ;;
 	*) err "用法: traffic [status|check|resume]" ;;
 	esac
 }
