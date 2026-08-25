@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.40 - 2026-08-25
+
+体验：Master 自检明确打印本机 `https://127.0.0.1:<port>/v1/health`，两端都失败改为 FAIL。
+
+- 抽出 `gps_mesh_print_local_health`：有证书时优先 `curl -k` 探 https；成功打完整 URL + OK；仅 HTTP → FAIL；两端不通 → FAIL（不再 WARN）。
+- 菜单 23 doctor 与 `mesh show` / 升主后的加入提示共用该自检行，运维无需再手敲 curl。
+- 补充 bats：完整 URL、两端失败 FAIL、`mesh show` 含 health 行。
+
 ## v0.2.39 - 2026-08-25
 
 修复：同版本/旧进程升级路径漏 restart mesh-master，控制面仍占明文 19527。

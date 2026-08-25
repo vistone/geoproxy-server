@@ -76,6 +76,37 @@ gps_mesh_master_tls_on() {
 	[[ -f ${GPS_MESH_TLS_CERT:-} && -f ${GPS_MESH_TLS_KEY:-} ]]
 }
 
+# 本机 Master 控制面 /v1/health 自检（doctor / mesh show / 升主后）。
+# 有证书时优先 https（curl -k）；成功打印完整 URL + OK。
+# 返回：0=健康，1=证书在但仅明文 HTTP，2=两端（或唯一应通端）无响应。
+gps_mesh_print_local_health() {
+	local port=${1:-${MESH_MASTER_PORT:-19527}}
+	local https_url="https://127.0.0.1:${port}/v1/health"
+	local http_url="http://127.0.0.1:${port}/v1/health"
+	if ! have_cmd curl; then
+		msg "  $(_red FAIL) 无 curl，无法探测 ${https_url}"
+		return 2
+	fi
+	if gps_mesh_master_tls_on; then
+		if curl -ksS --connect-timeout 1 --max-time 2 "$https_url" >/dev/null 2>&1; then
+			msg "  $(_green OK)  ${https_url}"
+			return 0
+		fi
+		if curl -fsS --connect-timeout 1 --max-time 2 "$http_url" >/dev/null 2>&1; then
+			msg "  $(_red FAIL) ${http_url} 仍为明文（证书已存在）。请: systemctl restart ${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}"
+			return 1
+		fi
+		msg "  $(_red FAIL) ${https_url} 无响应（HTTP 亦不通）"
+		return 2
+	fi
+	if curl -fsS --connect-timeout 1 --max-time 2 "$http_url" >/dev/null 2>&1; then
+		msg "  $(_green OK)  ${http_url}"
+		return 0
+	fi
+	msg "  $(_red FAIL) ${http_url} 无响应"
+	return 2
+}
+
 # 探测本机控制面实际 scheme：证书在但进程仍明文时返回 http，避免 join 命令误导
 # 仅供 mesh show / print_join_hints；ensure 路径勿调用（避免到处 curl）。
 gps_mesh_live_control_scheme() {
@@ -357,6 +388,8 @@ gps_mesh_print_join_hints() {
 		msg "  GPS_MESH_MASTER=${u} ${pin_part}GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
 	done < <(GPS_MESH_LIVE_SCHEME=$scheme gps_mesh_join_urls)
 	gps_mesh_print_control_plane_status
+	# 与菜单 23 doctor 同款本机 health 一行，避免运维再手敲 curl
+	gps_mesh_print_local_health "$port" || true
 }
 
 # 从「整行加入命令」或「地址 + TOKEN」解析出 url/token/pin（写入全局 __MESH_PARSE_URL / __MESH_PARSE_TOKEN / __MESH_PARSE_PIN）

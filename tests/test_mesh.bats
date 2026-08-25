@@ -465,12 +465,23 @@ setup() {
 		HAS_V6=0
 	}
 	save_state
+	curl() {
+		local arg
+		for arg in "$@"; do
+			case $arg in
+			https://*) return 0 ;;
+			http://*) return 1 ;;
+			esac
+		done
+		return 1
+	}
 	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/master-show-fw.out" 2>&1
 	grep -q '0.0.0.0:19527' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q 'TCP 19527' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q 'mesh 控制面' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q '云安全组' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q '203.0.113.57:19527' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q 'https://127.0.0.1:19527/v1/health' "$GPS_TEST_PREFIX/master-show-fw.out"
 }
 
 _gps_curl_arg_after() {
