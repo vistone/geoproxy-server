@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.45 - 2026-08-26
+
+修复：`save_state` 未把流量字节字段写入 `state.env`，导致 agent 上报 `usedBytes`/`quotaBytes` 恒为 0（v2rayA 节点池只显示百分比，字节显示 `0 B / 0 B`）。
+
+- `lib/common.sh` `gps_save_state_unlocked` 补充持久化 `TRAFFIC_USED_BYTES` / `TRAFFIC_LIMIT_BYTES` / `TRAFFIC_MULT` / `TRAFFIC_RESET`（与 `TRAFFIC_LAST_PCT` 同步写入）。
+- 升级到 v0.2.45 后下一次流量检查（默认每 300s）即写入字节字段，agent `/v1/status` 自动带上绝对值，无需重启 agent。
+
 ## v0.2.44 - 2026-08-26
 
 修复：从旧版（< v0.2.43）升级时不会创建 agent 凭证与单元，`geoproxy-server agent token` 报 `GPS_AGENT_TOKEN 未设置`。

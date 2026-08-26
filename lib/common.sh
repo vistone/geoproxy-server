@@ -436,6 +436,12 @@ gps_save_state_unlocked() {
 		gps_env_assign TRAFFIC_LAST_PCT "${TRAFFIC_LAST_PCT:-}"
 		gps_env_assign TRAFFIC_LAST_CHECK "${TRAFFIC_LAST_CHECK:-}"
 		gps_env_assign TRAFFIC_LAST_ERROR "${TRAFFIC_LAST_ERROR:-}"
+		gps_env_assign TRAFFIC_USED_BYTES "${TRAFFIC_USED_BYTES:-0}"
+		gps_env_assign TRAFFIC_LIMIT_BYTES "${TRAFFIC_LIMIT_BYTES:-0}"
+		gps_env_assign TRAFFIC_MULT "${TRAFFIC_MULT:-1}"
+		if [[ -n ${TRAFFIC_RESET:-} ]]; then
+			gps_env_assign TRAFFIC_RESET "${TRAFFIC_RESET}"
+		fi
 		gps_env_assign GPS_TEST_PREFIX "${GPS_TEST_PREFIX:-}"
 		gps_env_assign GPS_NO_SYSTEMD "${GPS_NO_SYSTEMD:-0}"
 		gps_env_assign INSTALLED_AT "${INSTALLED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"

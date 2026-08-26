@@ -21,6 +21,22 @@ setup() {
 	check_perm_600 "$GPS_STATE"
 }
 
+@test "save_state persists traffic byte quota fields for agent reporting" {
+	export TRAFFIC_USED_BYTES=246000000
+	export TRAFFIC_LIMIT_BYTES=1000000000
+	export TRAFFIC_MULT=1
+	export TRAFFIC_RESET=1756742400
+	TRAFFIC_LAST_PCT=24.6
+	save_state
+	for k in TRAFFIC_USED_BYTES TRAFFIC_LIMIT_BYTES TRAFFIC_MULT TRAFFIC_RESET; do
+		run grep "^${k}=" "$GPS_STATE"
+		[ "$status" -eq 0 ]
+	done
+	# agent 依赖字节字段计算 usedBytes/quotaBytes，仅百分比不足以还原绝对值
+	run grep '^TRAFFIC_USED_BYTES=246000000' "$GPS_STATE"
+	[ "$status" -eq 0 ]
+}
+
 @test "state reload preserves shell metacharacters as data" {
 	PASSWORD='literal$(not-a-command); "quoted"'
 	run save_state
