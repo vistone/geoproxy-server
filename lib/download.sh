@@ -327,6 +327,12 @@ gps_cmd_upgrade_self() {
 	elif [[ -f ${GPS_LIB_DIR}/scripts/geoproxy-server.sh ]]; then
 		bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" mesh ensure || warn "mesh ensure 未成功（将在服务启动 ExecStartPre 再试）"
 	fi
+	# 新入口的 agent 凭证/单元：从旧版（< v0.2.43）升级时不会自动创建，必须显式 ensure（幂等）
+	if [[ -x ${GPS_BIN_LINK:-} ]]; then
+		"$GPS_BIN_LINK" agent ensure 2>/dev/null || warn "agent ensure 未成功（可运行 geoproxy-server install 重建）"
+	elif [[ -f ${GPS_LIB_DIR}/scripts/geoproxy-server.sh ]]; then
+		bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" agent ensure 2>/dev/null || warn "agent ensure 未成功（可运行 geoproxy-server install 重建）"
+	fi
 	# gps_self_install_tree 里的 gps_install_mesh_units 来自升级前内存，可能仍是
 	# 「仅 enable --now」（v0.2.38 之前）；mesh ensure 也不 restart。
 	# 必须再显式重启 mesh-master，否则旧明文进程继续占 19527。

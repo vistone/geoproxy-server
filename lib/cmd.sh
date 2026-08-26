@@ -683,7 +683,12 @@ gps_cmd_agent() {
 		printf '%s\n' "$GPS_AGENT_TOKEN"
 		return 0
 		;;
-	*) err "用法: agent [status|token]" ;;
+	ensure)
+		# 幂等创建 agent 凭证与单元（升级/重装后调用；镜像 mesh ensure 模式）
+		gps_install_agent_units
+		return 0
+		;;
+	*) err "用法: agent [status|token|ensure]" ;;
 	esac
 }
 

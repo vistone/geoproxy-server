@@ -57,3 +57,17 @@ setup() {
 	gps_remove_agent_units
 	[ ! -f "$GPS_AGENT_UNIT_PATH" ]
 }
+
+@test "agent ensure 幂等创建 token 与单元文件（升级路径修复）" {
+	# 模拟从旧版（无 agent.env / 无单元）升级后调用 agent ensure
+	gps_cmd_agent ensure
+	[ -f "$GPS_AGENT_ENV" ]
+	check_perm_600 "$GPS_AGENT_ENV"
+	grep -q '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV"
+	[ -f "$GPS_AGENT_UNIT_PATH" ]
+	# 幂等：再次调用不覆盖 token
+	local tok
+	tok=$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)
+	gps_cmd_agent ensure
+	[ "$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)" = "$tok" ]
+}

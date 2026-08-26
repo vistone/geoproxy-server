@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.44 - 2026-08-26
+
+修复：从旧版（< v0.2.43）升级时不会创建 agent 凭证与单元，`geoproxy-server agent token` 报 `GPS_AGENT_TOKEN 未设置`。
+
+- 新增 `geoproxy-server agent ensure`：幂等创建 `/etc/geoproxy-server/agent.env`（0600，Token 已存在则不覆盖）与 `geoproxy-agent.service` 单元并启用（镜像 `mesh ensure` 模式）。
+- `upgrade self` 流程在换新脚本后显式调用新入口的 `agent ensure`（与 `mesh ensure` 并列），旧版升级后 agent 自动就绪，无需重跑 `install`。
+
 ## v0.2.43 - 2026-08-25
 
 新增：上报 Agent（`geoproxy-agent.service`，`:19528`，Bearer Token）—— v2rayA 节点池的流量状态上报与远程控制面。
