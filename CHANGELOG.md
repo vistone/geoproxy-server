@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.48 - 2026-08-26
+
+风格：统一交互菜单所有等待输入提示的样式（`xxx: ` 冒号结尾）。
+
+- `confirm_yes` 确认提示由 `确认继续? [y/N]` 改为 `确认继续? [y/N]: `，与主菜单/子菜单其它输入提示一致。
+- 新增卫生测试：全仓 `read -r -p` 提示必须含冒号+空格，防止回归。
+
 ## v0.2.47 - 2026-08-26
 
 修复：旧版升级后 `geoproxy-server agent token` 报 `GPS_AGENT_TOKEN 未设置`；菜单 29 查看 Token 不便；agent 用法提示误导填 https。

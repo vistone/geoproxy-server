@@ -517,6 +517,6 @@ gen_uuid() {
 confirm_yes() {
 	local prompt=${1:-确认继续?}
 	local ans
-	read -r -p "$prompt [y/N] " ans
+	read -r -p "$prompt [y/N]: " ans
 	[[ $ans == y || $ans == Y || $ans == yes ]]
 }
