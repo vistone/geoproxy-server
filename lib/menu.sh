@@ -47,40 +47,48 @@ gps_menu() {
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
-		read -r -p "请选择: " c
+		printf '%s' "请选择: "
+		read -r c
 		case $c in
 		1) gps_cmd_install ;;
 		2) gps_cmd_info ;;
 		3) gps_cmd_url ;;
 		4) gps_cmd_qr ;;
 		5)
-			read -r -p "新端口 (空=auto): " p
+			printf '%s' "新端口 (空=auto): "
+			read -r p
 			gps_cmd_change port "${p:-auto}"
 			;;
 		6)
-			read -r -p "新 UUID (空=auto): " u
+			printf '%s' "新 UUID (空=auto): "
+			read -r u
 			gps_cmd_change uuid "${u:-auto}"
 			;;
 		7)
-			read -r -p "新密码 (空=auto): " pw
+			printf '%s' "新密码 (空=auto): "
+			read -r pw
 			gps_cmd_change passwd "${pw:-auto}"
 			;;
 		8)
 			gps_cmd_protocols
-			read -r -p "协议 id: " proto
+			printf '%s' "协议 id: "
+			read -r proto
 			[[ -n $proto ]] && gps_cmd_change protocol "$proto"
 			;;
 		9)
-			read -r -p "公网 IPv4 (空=自动探测): " ip
+			printf '%s' "公网 IPv4 (空=自动探测): "
+			read -r ip
 			gps_cmd_change ip "${ip:-auto}"
 			;;
 		10)
-			read -r -p "公网 IPv6 (空=自动探测): " ip6
+			printf '%s' "公网 IPv6 (空=自动探测): "
+			read -r ip6
 			gps_cmd_change ip6 "${ip6:-auto}"
 			;;
 		11) gps_cmd_change ips ;;
 		12)
-			read -r -p "start / stop / restart: " a
+			printf '%s' "start / stop / restart: "
+			read -r a
 			case $a in
 			start) gps_svc_boot && msg "ok" || true ;;
 			stop) gps_svc_halt && msg "ok" || true ;;
@@ -93,20 +101,25 @@ gps_menu() {
 			gps_cmd_log -f || true
 			;;
 		14)
-			read -r -p "日志级别 [debug]: " lv
+			printf '%s' "日志级别 [debug]: "
+			read -r lv
 			gps_cmd_change log "${lv:-debug}"
 			;;
 		15)
-			read -r -p "VEID: " veid
-			read -r -p "API Key: " key
+			printf '%s' "VEID: "
+			read -r veid
+			printf '%s' "API Key: "
+			read -r key
 			gps_cmd_change kiwivm "$veid" "$key"
 			;;
 		16) gps_cmd_traffic status || true ;;
 		17) gps_cmd_traffic check || true ;;
 		18) gps_cmd_traffic resume || true ;;
 		19)
-			read -r -p "告警阈值% [80]: " w
-			read -r -p "停服阈值% [95]: " s
+			printf '%s' "告警阈值% [80]: "
+			read -r w
+			printf '%s' "停服阈值% [95]: "
+			read -r s
 			[[ -n $w ]] && gps_cmd_change traffic-warn "$w"
 			[[ -n $s ]] && gps_cmd_change traffic-stop "$s"
 			;;
@@ -128,7 +141,8 @@ gps_menu() {
 			gps_mesh_menu_role || true
 			;;
 		27)
-			read -r -p "mesh-exit node_id (none=清除): " eid
+			printf '%s' "mesh-exit node_id (none=清除): "
+			read -r eid
 			[[ -n $eid ]] && gps_cmd_change mesh-exit "$eid"
 			;;
 		28)

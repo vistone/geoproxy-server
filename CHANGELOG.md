@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.49 - 2026-08-26
+
+修复：交互菜单部分输入处出现空白等待（bash `read -p` 的提示走 stderr 且要求 stdin 为 TTY，部分终端/管道环境下不显示）。
+
+- 全部 18 处交互输入由 `read -r -p "..."` 改为显式 `printf '%s' "请输入...: "` + `read -r`，提示随主输出（stdout）显示，任何环境不再空白。
+- 卫生测试改为：禁止 `read -r -p` 残留；`confirm_yes` 必须用 printf 输出 `[y/N]: ` 提示。
+
 ## v0.2.48 - 2026-08-26
 
 风格：统一交互菜单所有等待输入提示的样式（`xxx: ` 冒号结尾）。

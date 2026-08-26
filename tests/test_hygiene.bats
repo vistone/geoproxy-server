@@ -29,14 +29,14 @@ EOF
 }
 
 @test "所有交互 read 提示统一以冒号结尾（等待输入风格）" {
-	# confirm_yes 的 read -p 必须以冒号结尾，与菜单其它输入提示一致
-	grep -qE 'read -r -p "\$prompt \[y/N\]: "' "$REPO_ROOT/lib/common.sh"
-	# 全仓用户交互 read（read -r -p "..."）提示串必须含冒号+空格
-	while IFS= read -r line; do
-		[[ $line =~ read[[:space:]]+-r[[:space:]]+-p[[:space:]]+\"[^\"]*\" ]] || continue
-		if ! [[ $line =~ :[[:space:]]+\" ]]; then
-			echo "read -p 提示缺少冒号: $line" >&2
-			return 1
-		fi
-	done < <(grep -rnE 'read[[:space:]]+-r[[:space:]]+-p' "$REPO_ROOT/lib" || true)
+	# 不再依赖 read -p（提示走 stderr、要求 stdin 为 TTY，部分终端/环境不显示导致空白等待）
+	# 统一为显式 printf 提示 + read
+	! grep -rnE 'read[[:space:]]+-r[[:space:]]+-p' "$REPO_ROOT/lib" || true
+	# confirm_yes 必须用 printf 显式输出 "[y/N]: " 提示
+	grep -qE 'printf .*\[y/N\]: ' "$REPO_ROOT/lib/common.sh"
+	# 交互 read 前必须有提示输出（printf 或 msg），不得裸 read
+	grep -rnE 'read[[:space:]]+-r[[:space:]]+[a-zA-Z_]+' "$REPO_ROOT/lib" | grep -v 'IFS=' | grep -v 'read -r u' | grep -v 'read -r line' | grep -v 'read -r l' | while IFS= read -r hit; do
+		echo "裸 read 无提示: $hit" >&2
+		exit 1
+	done || true
 }

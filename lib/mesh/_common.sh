@@ -555,7 +555,8 @@ gps_mesh_menu_role() {
 	msg "  2) 本机作为 Node（加入已有 Master）"
 	msg "  0) 返回"
 	local c
-	read -r -p "请选择: " c
+	printf '%s' "请选择: "
+	read -r c
 	case $c in
 	1)
 		gps_mesh_become_master
@@ -566,11 +567,13 @@ gps_mesh_menu_role() {
 		msg "  A) 粘贴 Master 上打印的整行（推荐）:"
 		msg "     GPS_MESH_MASTER=http://... GPS_MESH_TOKEN=... bash install.sh"
 		msg "  B) 分开填写：先地址（仅域名/IP），再 TOKEN"
-		read -r -p "粘贴整行 或 只填 Master 地址: " line
+		printf '%s' "粘贴整行 或 只填 Master 地址: "
+		read -r line
 		if [[ $line == *GPS_MESH_MASTER=* ]]; then
 			gps_mesh_become_member "$line" ""
 		else
-			read -r -p "集群 TOKEN: " token
+			printf '%s' "集群 TOKEN: "
+			read -r token
 			gps_mesh_become_member "$line" "$token"
 		fi
 		;;
