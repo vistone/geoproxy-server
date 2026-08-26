@@ -137,8 +137,7 @@ gps_menu() {
 		29)
 			gps_cmd_agent status || true
 			if [[ -n ${GPS_AGENT_TOKEN:-} ]]; then
-				read -r -p "显示完整 Token？（复制到 v2rayA 节点池）y/N: " show_token
-				[[ $show_token == y || $show_token == Y ]] && gps_cmd_agent token
+				msg "  完整 Token:  $(gps_cmd_agent token)"
 			fi
 			;;
 		0 | q | quit | exit) exit 0 ;;

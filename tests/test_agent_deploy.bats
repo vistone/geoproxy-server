@@ -49,6 +49,9 @@ setup() {
 	out=$(gps_cmd_agent status)
 	grep -q "Token:" <<<"$out"
 	grep -q "19528" <<<"$out"
+	# agent 是明文 HTTP（非 TLS）：提示必须用 http:// 而非 https://
+	grep -q "http://IP:19528" <<<"$out"
+	! grep -q "https://IP:19528" <<<"$out"
 }
 
 @test "agent 移除函数删除单元文件" {
@@ -70,4 +73,21 @@ setup() {
 	tok=$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)
 	gps_cmd_agent ensure
 	[ "$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)" = "$tok" ]
+}
+
+@test "agent CLI：token 在凭证缺失时自动 ensure（旧版升级路径）" {
+	# 模拟旧版升级后 agent.env 不存在：agent token 应自动创建而非报错
+	rm -f "$GPS_AGENT_ENV"
+	local tok_from_file
+	run gps_cmd_agent token
+	[ "$status" -eq 0 ]
+	[ -f "$GPS_AGENT_ENV" ]
+	grep -q '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV"
+	tok_from_file=$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)
+	[[ -n $tok_from_file ]]
+	[[ "$output" == "$tok_from_file" ]]
+	# 幂等：已有 token 不被覆盖
+	local before=$tok_from_file
+	run gps_cmd_agent token
+	[[ "$output" == "$before" ]]
 }

@@ -658,6 +658,10 @@ gps_cmd_agent() {
 	local sub=${1:-status}
 	shift || true
 	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
+	# 从旧版（< v0.2.43）升级的机器可能没有 agent.env：status/token 前自动 ensure（幂等，不覆盖已有 token）
+	if [[ $sub != ensure && ! -f $envf ]]; then
+		gps_install_agent_units_files_only
+	fi
 	gps_source_env "$envf" 2>/dev/null || true
 	case $sub in
 	status | show | "")
@@ -675,7 +679,7 @@ gps_cmd_agent() {
 				msg "  服务:   $(_red "inactive")"
 			fi
 		fi
-		msg "  用法:   v2rayA 节点池成员填 Agent 地址 https://IP:${GPS_AGENT_PORT:-19528} 与上述 Token"
+		msg "  用法:   v2rayA 节点池成员填 Agent 地址 http://IP:${GPS_AGENT_PORT:-19528} 与上述 Token"
 		return 0
 		;;
 	token)

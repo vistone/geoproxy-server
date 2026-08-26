@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.47 - 2026-08-26
+
+修复：旧版升级后 `geoproxy-server agent token` 报 `GPS_AGENT_TOKEN 未设置`；菜单 29 查看 Token 不便；agent 用法提示误导填 https。
+
+- `gps_cmd_agent`（status/token）在 agent.env 缺失时自动 ensure（幂等，不覆盖已有 Token），从任意旧版升级后首次查询即自愈，无需手动 `agent ensure`。
+- 菜单 29 直接展示完整 Token（此前先显示打码再交互询问），复制到 v2rayA 节点池即可。
+- `agent status` 用法提示改为 `http://IP:19528`（agent 是明文 HTTP，非 TLS；填 https 会握手失败显示离线）。
+
 ## v0.2.46 - 2026-08-26
 
 功能：交互菜单新增 Agent 查看入口（菜单 29）—— 无需再手动运行 `geoproxy-server agent token`。

@@ -128,6 +128,8 @@ setup() {
 	grep -qE '29\)' "$REPO_ROOT/lib/menu.sh"
 	grep -qE '29\).*[Aa]gent' "$REPO_ROOT/lib/menu.sh"
 	grep -qE 'gps_cmd_agent' "$REPO_ROOT/lib/menu.sh"
+	# 29 分支必须直接展示完整 Token（不经过打码+交互询问）
+	grep -qE 'gps_cmd_agent token' "$REPO_ROOT/lib/menu.sh"
 }
 
 @test "mesh-sync unit can write /etc/geoproxy-server even under ProtectSystem" {
