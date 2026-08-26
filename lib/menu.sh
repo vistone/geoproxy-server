@@ -43,6 +43,7 @@ gps_menu() {
 		msg " 26) Mesh 角色（Master / Node，相互发现）"
 		msg " 27) 设置 mesh-exit 跳板"
 		msg " 28) 卸载"
+		msg " 29) Agent 状态 / Token（v2rayA 节点池）"
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
@@ -132,6 +133,13 @@ gps_menu() {
 			;;
 		28)
 			gps_cmd_uninstall || true
+			;;
+		29)
+			gps_cmd_agent status || true
+			if [[ -n ${GPS_AGENT_TOKEN:-} ]]; then
+				read -r -p "显示完整 Token？（复制到 v2rayA 节点池）y/N: " show_token
+				[[ $show_token == y || $show_token == Y ]] && gps_cmd_agent token
+			fi
 			;;
 		0 | q | quit | exit) exit 0 ;;
 		*) warn "无效选项" ;;

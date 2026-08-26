@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.46 - 2026-08-26
+
+功能：交互菜单新增 Agent 查看入口（菜单 29）—— 无需再手动运行 `geoproxy-server agent token`。
+
+- `lib/menu.sh` 新增 `29) Agent 状态 / Token（v2rayA 节点池）`：显示监听地址 / 打码 Token / 服务状态，并询问是否展示完整 Token（复制到 v2rayA 节点池成员配置）。
+
 ## v0.2.45 - 2026-08-26
 
 修复：`save_state` 未把流量字节字段写入 `state.env`，导致 agent 上报 `usedBytes`/`quotaBytes` 恒为 0（v2rayA 节点池只显示百分比，字节显示 `0 B / 0 B`）。

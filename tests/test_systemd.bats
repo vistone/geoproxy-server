@@ -123,6 +123,13 @@ setup() {
 	! grep -qE 'start \| stop \| restart\) gps_svc "\$a"' "$REPO_ROOT/lib/menu.sh"
 }
 
+@test "menu exposes agent status/token viewer (29)" {
+	# 菜单必须有 Agent 查看入口，且调用 gps_cmd_agent（用户无需再手动运行 agent token）
+	grep -qE '29\)' "$REPO_ROOT/lib/menu.sh"
+	grep -qE '29\).*[Aa]gent' "$REPO_ROOT/lib/menu.sh"
+	grep -qE 'gps_cmd_agent' "$REPO_ROOT/lib/menu.sh"
+}
+
 @test "mesh-sync unit can write /etc/geoproxy-server even under ProtectSystem" {
 	local tpl="$REPO_ROOT/templates/geoproxy-mesh-sync.service"
 	grep -qE '^ExecStart=\+__BIN__ mesh sync-master$' "$tpl"
