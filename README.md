@@ -106,6 +106,24 @@ geoproxy-server change traffic-interval 300
 ≥告警写日志；≥停服则 `stop geoproxy-tuic` 并置 `TRAFFIC_TRIPPED=1`。  
 用量低于停服线后（含月流量重置），`traffic check` / `start` / `restart` 会**自动清除熔断并恢复服务**；仍可用 `traffic resume` 手动恢复。
 
+## 上报 Agent（v2rayA 节点池）
+
+随主服务安装默认启用 `geoproxy-agent.service`（监听 `0.0.0.0:19528/tcp`，Bearer Token 鉴权），
+供 v2rayA 客户端"节点池"功能轮询流量状态与远程控制：
+
+- 契约：[`docs/geoproxy-agent-api.md`](./docs/geoproxy-agent-api.md)
+- 查看/复制 Token（供 v2rayA 池成员配置）：
+
+```
+geoproxy-server agent
+geoproxy-server agent token
+```
+
+- v2rayA 池成员填写：Agent 地址 `https://<本机IP>:19528` + 上述 Token；
+  未配置 KiwiVM 时 `usedPct=0`，客户端仅做延迟均衡；配置 KiwiVM 后流量硬门槛（默认 90%）生效。
+- 防火墙已自动放行 19528（ufw/firewalld/iptables/nft）；云厂商安全组需在控制台同样放行。
+- 熔断阈值/恢复语义（`traffic trip`、`traffic resume` 等）见上文[流量熔断（KiwiVM）](#流量熔断kiwivm)章节。
+
 ## TUIC / 分享链接
 
 节点名写在 URL **fragment**（`#` 后面）。TUIC 示例：

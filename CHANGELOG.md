@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.43 - 2026-08-25
+
+新增：上报 Agent（`geoproxy-agent.service`，`:19528`，Bearer Token）—— v2rayA 节点池的流量状态上报与远程控制面。
+
+- `GET /v1/status`：节点标识/系统负载/活跃连接数/流量用量配额熔断状态/mesh 角色（只读 state.env 与 /proc/ss，无副作用）。
+- `POST /v1/control`：`trip`（新增 `geoproxy-server traffic trip` 立即熔断）/ `resume` / `set-thresholds` / `set-check-interval`，经既有 CLI 落地。
+- Token 存 `/etc/geoproxy-server/agent.env`（0600，EnvironmentFile 注入，不进 argv）；`geoproxy-server agent [status|token]` 查看。
+- 契约文档：`docs/geoproxy-agent-api.md`；v2rayA 客户端（节点池功能）按此对接。
+
 ## v0.2.42 - 2026-08-25
 
 修复：mesh-failover 出站类型改用 `urltest`（v0.2.41 渲染的 `loadbalance` 类型与 sing-box ≥1.12 不兼容，`sing-box check` 会报 `unknown outbound type: loadbalance`，导致开启 failover 失败）。
