@@ -178,3 +178,12 @@ EOF
 	run python3 -c "import json,sys; print(json.load(sys.stdin)['error'])" <<<"$output"
 	! grep -q "kiwi_secret_key_123456789" <<<"$output"
 }
+
+@test "agent control：state 缺失返回 503" {
+	mv "$GPS_STATE" "$GPS_STATE.bak"
+	run curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${GPS_AGENT_PORT}/v1/control" \
+		-H "Authorization: Bearer $GPS_AGENT_TOKEN" -H "Content-Type: application/json" \
+		-d '{"action":"trip"}'
+	mv "$GPS_STATE.bak" "$GPS_STATE"
+	[ "$output" = "503" ]
+}
