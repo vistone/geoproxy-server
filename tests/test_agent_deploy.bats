@@ -22,7 +22,7 @@ setup() {
 @test "agent 单元文件生成且含正确替换；token 0600" {
 	gps_install_agent_units_files_only
 	[ -f "$GPS_AGENT_UNIT_PATH" ]
-	grep -q "geoproxy-agent.service" "$GPS_AGENT_UNIT_PATH" || true
+	grep -q "Description=GeoProxy agent" "$GPS_AGENT_UNIT_PATH"
 	grep -q "geoagent.py" "$GPS_AGENT_UNIT_PATH"
 	# 不再有 '+' 前缀：否则 systemd 整体跳过沙箱硬化（ProtectSystem/PrivateTmp/NoNewPrivileges 等全部失效）
 	! grep -q "ExecStart=+" "$GPS_AGENT_UNIT_PATH"

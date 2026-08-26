@@ -139,8 +139,8 @@ gps_install_agent_units_files_only() {
 			printf 'GPS_AGENT_BIND=%s\n' "${GPS_AGENT_BIND:-0.0.0.0}"
 			printf 'GPS_AGENT_PORT=%s\n' "${GPS_AGENT_PORT:-19528}"
 		} >"$envf"
-		chmod 600 "$envf" 2>/dev/null || true
 	fi
+	chmod 600 "$envf" 2>/dev/null || true
 	[[ -f $tpl && -n ${GPS_AGENT_UNIT_PATH:-} ]] || return 0
 	mkdir -p "$(dirname "$GPS_AGENT_UNIT_PATH")" 2>/dev/null || true
 	local bin=${GPS_BIN_LINK:-/usr/local/bin/geoproxy-server}

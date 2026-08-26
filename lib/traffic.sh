@@ -307,7 +307,7 @@ gps_cmd_traffic() {
 	check) gps_cmd_traffic_check "$@" ;;
 	resume) gps_cmd_traffic_resume "$@" ;;
 	trip) gps_cmd_traffic_trip "$@" ;;
-	*) err "用法: traffic [status|check|resume]" ;;
+	*) err "用法: traffic [status|check|resume|trip]" ;;
 	esac
 }
 

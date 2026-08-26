@@ -293,6 +293,8 @@ def handle_control(req: dict) -> tuple[int, dict]:
     action = req.get("action")
     if not isinstance(action, str) or not action:
         return 400, {"error": "action required"}
+    if not STATE_PATH.is_file():
+        return 503, {"error": "not installed"}
     if action == "trip":
         ok, e = run_cli(["traffic", "trip"])
     elif action == "resume":
