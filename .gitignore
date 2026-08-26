@@ -6,3 +6,6 @@ state.env
 tests/tmp/
 .mimosa/
 __pycache__/
+
+# SDD scratch workspace
+.superpowers/
