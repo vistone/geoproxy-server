@@ -24,7 +24,9 @@ setup() {
 	[ -f "$GPS_AGENT_UNIT_PATH" ]
 	grep -q "geoproxy-agent.service" "$GPS_AGENT_UNIT_PATH" || true
 	grep -q "geoagent.py" "$GPS_AGENT_UNIT_PATH"
-	grep -q "ExecStart=+" "$GPS_AGENT_UNIT_PATH"
+	# 不再有 '+' 前缀：否则 systemd 整体跳过沙箱硬化（ProtectSystem/PrivateTmp/NoNewPrivileges 等全部失效）
+	! grep -q "ExecStart=+" "$GPS_AGENT_UNIT_PATH"
+	grep -q "ExecStart=/usr/bin/env python3" "$GPS_AGENT_UNIT_PATH"
 	grep -q "GPS_AGENT_TOKEN" "$GPS_AGENT_ENV"
 	grep -q "GPS_AGENT_PORT" "$GPS_AGENT_ENV"
 	check_perm_600 "$GPS_AGENT_ENV"

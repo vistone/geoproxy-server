@@ -11,7 +11,7 @@ Environment=GPS_STATE=__GPS_STATE__
 Environment=GPS_MESH_PEERS=__GPS_MESH_PEERS__
 Environment=GPS_VERSION_FILE=__GPS_VERSION_FILE__
 Environment=GPS_AGENT_CLI=__BIN__
-ExecStart=+/usr/bin/env python3 __GEOAGENT_PY__
+ExecStart=/usr/bin/env python3 __GEOAGENT_PY__
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
@@ -23,7 +23,7 @@ PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
