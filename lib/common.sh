@@ -393,12 +393,20 @@ gps_kiwi_save_persist() {
 	local f=${GPS_KIWI_PERSIST:-}
 	[[ -n $f ]] || return 0
 	[[ -n ${KIWI_VEID:-} && -n ${KIWI_API_KEY:-} ]] || return 0
+	# 凭证未变化时跳过重写：避免无谓写入，也避免 /etc 只读（EROFS）等
+	# 场景下 save_state 被凭证持久化失败拖垮（控制操作应不受影响）。
+	if [[ -f $f ]] && grep -q "^KIWI_VEID=${KIWI_VEID}$" "$f" 2>/dev/null && grep -q "^KIWI_API_KEY=${KIWI_API_KEY}$" "$f" 2>/dev/null; then
+		return 0
+	fi
 	umask 077
-	{
+	# 持久化是尽力而为：凭证首次 change kiwivm 时已落盘，此处失败仅沿用旧文件
+	if ! {
 		gps_env_assign KIWI_VEID "$KIWI_VEID"
 		gps_env_assign KIWI_API_KEY "$KIWI_API_KEY"
 		gps_env_assign KIWI_API_BASE "${KIWI_API_BASE:-https://api.64clouds.com/v1}"
-	} | gps_atomic_write_env "$f"
+	} | gps_atomic_write_env "$f"; then
+		warn "KiwiVM 凭证持久化失败（${f} 不可写？），已跳过；控制操作不受影响"
+	fi
 }
 
 # 私有：无锁写入。调用方须经 save_state（持锁）或确认单线程。

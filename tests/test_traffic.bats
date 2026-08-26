@@ -87,3 +87,38 @@ setup() {
 	! gps_validate_traffic_thresholds 0 100
 	! gps_validate_traffic_thresholds 1 101
 }
+
+@test "kiwivm persist 写入失败（/etc 只读 EROFS）不阻断 save_state" {
+	export KIWI_VEID=1001
+	export KIWI_API_KEY=secret-key
+	# 先成功持久化一次（模拟 change kiwivm 后凭证已落盘）
+	run gps_kiwi_save_persist
+	[ "$status" -eq 0 ]
+	[ -f "$GPS_KIWI_PERSIST" ]
+
+	# 模拟 /etc 只读：伪造 mktemp，仅对 kiwivm 凭证路径失败（EROFS）
+	local fakebin="$GPS_TEST_PREFIX/fakebin"
+	mkdir -p "$fakebin"
+	cat >"$fakebin/mktemp" <<'EOF'
+#!/bin/bash
+for a in "$@"; do
+	if [[ "$a" == *"geoproxy-kiwivm.env.tmp."* ]]; then
+		echo "mktemp: Read-only file system (os error 30) at path \"$a\"" >&2
+		exit 1
+	fi
+	done
+exec /bin/mktemp "$@"
+EOF
+	chmod +x "$fakebin/mktemp"
+	export PATH="$fakebin:$PATH"
+
+	# 凭证未变化：应跳过重写，save_state 成功
+	run save_state
+	[ "$status" -eq 0 ]
+	[ -f "$GPS_STATE" ]
+
+	# 凭证变更（API key 不同）：重写失败也应容忍，save_state 仍成功
+	export KIWI_API_KEY=new-key
+	run save_state
+	[ "$status" -eq 0 ]
+}

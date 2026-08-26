@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.50 - 2026-08-26
+
+修复：`save_state` 每次连带重写 KiwiVM 长期凭证（`/etc/geoproxy-kiwivm.env`），当 `/etc` 只读（EROFS）时凭证持久化失败会把整个控制操作拖垮——v2rayA 节点池面板点击「熔断/恢复」等返回 500。
+
+- 凭证未变化时跳过重写（`gps_kiwi_save_persist` 先比对文件内容），既减少无谓写入，也避开只读场景。
+- 持久化改为尽力而为：写入失败仅告警，不再 `err` 硬退出；`traffic trip/resume`、改阈值等控制操作不再被凭证文件可写性阻断。
+- 新增 bats 用例：模拟 `/etc` 只读（mktemp EROFS）时 `save_state` 仍成功。
+
 ## v0.2.49 - 2026-08-26
 
 修复：交互菜单部分输入处出现空白等待（bash `read -p` 的提示走 stderr 且要求 stdin 为 TTY，部分终端/管道环境下不显示）。
