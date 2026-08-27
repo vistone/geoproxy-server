@@ -634,7 +634,7 @@ gps_mesh_menu_role() {
 		local line url token
 		msg "任选一种填写方式:"
 		msg "  A) 粘贴 Master 上打印的整行（推荐）:"
-		msg "     GPS_MESH_MASTER=http://... GPS_MESH_TOKEN=... bash install.sh"
+		msg "     GPS_MESH_MASTER=https://... GPS_MESH_TLS_PIN=sha256//... GPS_MESH_TOKEN=... bash install.sh"
 		msg "  B) 分开填写：先地址（仅域名/IP），再 TOKEN"
 		printf '%s' "粘贴整行 或 只填 Master 地址: "
 		read -r line

@@ -28,6 +28,21 @@ $links
 EOF
 }
 
+@test "README Agent 地址为明文 HTTP（非 https）" {
+	# geoagent.py 监听 :19528 无 TLS；v2rayA 填 https 会握手失败
+	grep -q 'http://<本机IP>:19528' "$REPO_ROOT/README.md"
+	! grep -q 'https://<本机IP>:19528' "$REPO_ROOT/README.md"
+}
+
+@test "Mesh 菜单加入示例使用 https + TLS PIN（禁止裸 http join）" {
+	local sample
+	sample=$(grep -F 'GPS_MESH_MASTER=' "$REPO_ROOT/lib/mesh/_common.sh" | grep -F 'bash install.sh' | head -n1)
+	[ -n "$sample" ]
+	echo "$sample" | grep -q 'GPS_MESH_MASTER=https://'
+	echo "$sample" | grep -q 'GPS_MESH_TLS_PIN='
+	! echo "$sample" | grep -q 'GPS_MESH_MASTER=http://'
+}
+
 @test "所有交互 read 提示统一以冒号结尾（等待输入风格）" {
 	# 不再依赖 read -p（提示走 stderr、要求 stdin 为 TTY，部分终端/环境不显示导致空白等待）
 	# 统一为显式 printf 提示 + read

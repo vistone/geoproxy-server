@@ -121,7 +121,7 @@ geoproxy-server agent token
 
 - 旧版升级后 agent 未就绪时执行 `geoproxy-server agent ensure`（幂等重建凭证与单元；`upgrade` 已自动调用）。
 
-- v2rayA 池成员填写：Agent 地址 `https://<本机IP>:19528` + 上述 Token；
+- v2rayA 池成员填写：Agent 地址 `http://<本机IP>:19528` + 上述 Token（当前仅 HTTP，勿填 https）；
   未配置 KiwiVM 时 `usedPct=0`，客户端仅做延迟均衡；配置 KiwiVM 后流量硬门槛（默认 90%）生效。
 - 防火墙已自动放行 19528（ufw/firewalld/iptables/nft）；云厂商安全组需在控制台同样放行。
 - 熔断阈值/恢复语义（`traffic trip`、`traffic resume` 等）见上文[流量熔断（KiwiVM）](#流量熔断kiwivm)章节。

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.54 - 2026-08-27
+
+修正 http/https 文档与菜单示例一致性。
+
+- **README**：Agent 地址改为 `http://<本机IP>:19528`（geoagent 为明文 HTTP，勿填 https）。
+- **菜单 26**：Member 粘贴示例改为 `GPS_MESH_MASTER=https://... GPS_MESH_TLS_PIN=sha256//...`，与 v0.2.33+ 加入命令一致。
+- 新增卫生测试：禁止 README Agent 写 https、禁止菜单示例裸 `http://` join。
+
 ## v0.2.53 - 2026-08-27
 
 WG 数据面 UDP 51820 自动放行本机防火墙（Master / Member 均适用）。
