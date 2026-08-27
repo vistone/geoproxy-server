@@ -437,26 +437,100 @@ gps_mesh_print_wg_data_plane_status() {
 	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 UDP ${port}，否则 mesh 节点无法建立 WG 隧道"
 }
 
+# 控制台打印时对集群 TOKEN 脱敏（前 8 字符 + ********）
+gps_mesh_mask_token() {
+	local k=${1:-}
+	local n=${#k}
+	if ((n <= 8)); then
+		echo "********"
+		return
+	fi
+	echo "${k:0:8}********"
+}
+
+# 将完整 join 行中的 TOKEN 替换为脱敏值
+gps_mesh_mask_join_line() {
+	local line=${1:-}
+	local tok masked
+	tok=$(printf '%s' "$line" | sed -n 's/.*GPS_MESH_TOKEN=\([^[:space:]]*\).*/\1/p' | head -n1)
+	[[ -n $tok ]] || {
+		printf '%s\n' "$line"
+		return
+	}
+	masked=$(gps_mesh_mask_token "$tok")
+	printf '%s\n' "${line/GPS_MESH_TOKEN=$tok/GPS_MESH_TOKEN=$masked}"
+}
+
+# 组装单行加入命令（含完整 TOKEN）
+gps_mesh_format_join_line() {
+	local u=${1:-} pin_part=${2:-}
+	printf 'GPS_MESH_MASTER=%s %sGPS_MESH_TOKEN=%s bash install.sh\n' "$u" "$pin_part" "$MESH_CLUSTER_TOKEN"
+}
+
+# 解析当前 live scheme 与 TLS PIN 前缀（写入 __MESH_JOIN_SCHEME / __MESH_JOIN_PIN_PART）
+gps_mesh_join_scheme_pin() {
+	local port=${1:-${MESH_MASTER_PORT:-19527}}
+	__MESH_JOIN_SCHEME=$(gps_mesh_live_control_scheme "$port")
+	__MESH_JOIN_PIN_PART=""
+	if [[ ${__MESH_JOIN_SCHEME} == https && -f ${GPS_MESH_TLS_FP:-} ]]; then
+		local pin
+		pin=$(tr -d '[:space:]' <"$GPS_MESH_TLS_FP")
+		[[ -n $pin ]] && __MESH_JOIN_PIN_PART="GPS_MESH_TLS_PIN=${pin} "
+	fi
+}
+
+# Master：落盘完整 join 行到 join.cmd（0600）
+gps_mesh_write_join_cmd() {
+	[[ ${MESH_ROLE:-} == master ]] || return 0
+	[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || return 0
+	gps_mesh_ensure_dirs
+	local port=${MESH_MASTER_PORT:-19527} u
+	gps_mesh_join_scheme_pin "$port"
+	u=$(GPS_MESH_LIVE_SCHEME=$__MESH_JOIN_SCHEME gps_mesh_primary_join_url)
+	[[ -n $u ]] || return 0
+	umask 077
+	gps_mesh_format_join_line "$u" "$__MESH_JOIN_PIN_PART" >"$GPS_MESH_JOIN_CMD"
+	chmod 600 "$GPS_MESH_JOIN_CMD" 2>/dev/null || true
+}
+
+# Master：打印 join.cmd 路径、权限与脱敏预览
+gps_mesh_join_export() {
+	[[ ${MESH_ROLE:-} == master ]] || err "仅 Master 可导出加入文件"
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize
+	gps_mesh_defaults
+	[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || gps_mesh_ensure_cluster_token
+	gps_mesh_write_join_cmd
+	[[ -f ${GPS_MESH_JOIN_CMD:-} ]] || err "无法写入 ${GPS_MESH_JOIN_CMD:-join.cmd}"
+	local perm preview
+	perm=$(stat -c %a "$GPS_MESH_JOIN_CMD" 2>/dev/null || echo "?")
+	preview=$(gps_mesh_mask_join_line "$(cat "$GPS_MESH_JOIN_CMD")")
+	msg "$(_cyan "Mesh 加入文件")"
+	msg "  路径: ${GPS_MESH_JOIN_CMD}"
+	msg "  权限: ${perm}（应为 600）"
+	msg "  预览: ${preview}"
+	msg "  Member 可将文件内容粘贴到菜单 26 或 mesh join"
+}
+
 # 打印成员加入命令（全部可用地址）；仅在实测 https 时附带公钥指纹
 gps_mesh_print_join_hints() {
 	[[ ${MESH_ROLE:-} == master ]] || return 0
 	[[ -n ${MESH_CLUSTER_TOKEN:-} ]] || return 0
-	local u pin_part="" scheme
+	local u masked
 	local port=${MESH_MASTER_PORT:-19527}
-	scheme=$(gps_mesh_live_control_scheme "$port")
-	if [[ $scheme == https && -f ${GPS_MESH_TLS_FP:-} ]]; then
-		local pin
-		pin=$(tr -d '[:space:]' <"$GPS_MESH_TLS_FP")
-		[[ -n $pin ]] && pin_part="GPS_MESH_TLS_PIN=${pin} "
-	elif [[ $scheme == http ]] && gps_mesh_master_tls_on; then
+	gps_mesh_join_scheme_pin "$port"
+	if [[ ${__MESH_JOIN_SCHEME} == http ]] && gps_mesh_master_tls_on; then
 		warn "控制面证书已在磁盘，但本机 :${port} 仍为明文 HTTP。请执行: systemctl restart ${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}"
 	fi
+	gps_mesh_write_join_cmd
 	gps_mesh_expose_control_plane
+	masked=$(gps_mesh_mask_token "$MESH_CLUSTER_TOKEN")
 	msg "$(_cyan "其它节点加入组网")（IPv4 / IPv6 / 域名任选其一可通即可）:"
 	while IFS= read -r u; do
 		[[ -n $u ]] || continue
-		msg "  GPS_MESH_MASTER=${u} ${pin_part}GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
-	done < <(GPS_MESH_LIVE_SCHEME=$scheme gps_mesh_join_urls)
+		msg "  GPS_MESH_MASTER=${u} ${__MESH_JOIN_PIN_PART}GPS_MESH_TOKEN=${masked} bash install.sh"
+	done < <(GPS_MESH_LIVE_SCHEME=$__MESH_JOIN_SCHEME gps_mesh_join_urls)
+	msg "  完整命令（含 TOKEN）: ${GPS_MESH_JOIN_CMD}（权限 600）；或 geoproxy-server mesh join-export"
 	gps_mesh_print_control_plane_status
 	gps_mesh_print_wg_data_plane_status
 	# 与菜单 23 doctor 同款本机 health 一行，避免运维再手敲 curl

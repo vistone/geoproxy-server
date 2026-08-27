@@ -39,7 +39,7 @@ gps_menu() {
 		msg " 22) 启用 BBR"
 		msg " 23) 健康检查 doctor"
 		msg " 24) 列出协议"
-		msg " 25) Mesh 状态"
+		msg " 25) Mesh 状态 / 导出加入文件"
 		msg " 26) Mesh 角色（Master / Node，相互发现）"
 		msg " 27) 设置 mesh-exit 跳板"
 		msg " 28) 卸载"
@@ -136,6 +136,9 @@ gps_menu() {
 		24) gps_cmd_protocols ;;
 		25)
 			gps_mesh_cmd_show || true
+			if [[ ${MESH_ROLE:-} == master ]]; then
+				gps_mesh_join_export || true
+			fi
 			;;
 		26)
 			gps_mesh_menu_role || true

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.56 - 2026-08-27
+
+增强：Master 侧 mesh join 命令落盘与 TOKEN 脱敏展示。
+
+- **join.cmd**：Master 在 `ensure` / `mesh show` / 升主时写入 `${GPS_MESH_DIR}/join.cmd`（权限 600），含完整 `https://` + `GPS_MESH_TLS_PIN` + TOKEN 单行。
+- **控制台脱敏**：`mesh show` / 安装结束打印 join 提示时 TOKEN 显示为前 8 字符 + `********`，并提示完整命令见 join.cmd 或 `mesh join-export`。
+- **CLI / 菜单**：新增 `mesh join-export`；菜单 25 在 Master 上追加导出路径、权限与脱敏预览。
+
 ## v0.2.55 - 2026-08-27
 
 增强：菜单 23 doctor 补充 agent 与 mesh-sync.timer 状态检查。

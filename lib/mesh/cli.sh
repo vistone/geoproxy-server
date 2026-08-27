@@ -14,8 +14,12 @@ gps_cmd_mesh() {
 		GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 		save_state
 		;;
-	join)
-		gps_mesh_become_member "$@"
+	join | join-export)
+		if [[ $sub == join-export ]]; then
+			gps_mesh_join_export
+		else
+			gps_mesh_become_member "$@"
+		fi
 		;;
 	role | set-role)
 		local r=${1:-}
@@ -92,6 +96,7 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh role master         # 本机升为 Master
   mesh role member <地址> <TOKEN>   # 本机加入为 Node
   mesh join <地址> <TOKEN> # 同上
+  mesh join-export         # Master：导出 join.cmd 路径与脱敏预览
   mesh export | import | sync <url-or-file>
   mesh peer add|rm ...
   mesh hop <json-file|none>

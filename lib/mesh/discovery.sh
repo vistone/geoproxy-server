@@ -138,6 +138,7 @@ gps_mesh_ensure_boot() {
 		gps_mesh_peers_upsert_self
 		gps_mesh_resolve_master_host
 		MESH_MASTER_URL=$(gps_mesh_primary_join_url)
+		gps_mesh_write_join_cmd
 		gps_mesh_expose_control_plane
 	else
 		if gps_mesh_register_and_pull; then

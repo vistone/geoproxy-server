@@ -648,3 +648,55 @@ _gps_curl_arg_after() {
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_sync_master >/dev/null 2>&1 || true
 	[ "$(_gps_curl_arg_after --max-time "$GPS_TEST_PREFIX/curl.args")" = "15" ]
 }
+
+@test "master writes join.cmd 0600 with https PIN and full token" {
+	export PORT=43020
+	export UUID="00000000-0000-4000-8000-000000000120"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.60"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="ab742daa0123456789abcdef0123456789abcdef"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	[ -f "$GPS_MESH_JOIN_CMD" ]
+	check_perm_600 "$GPS_MESH_JOIN_CMD"
+	local body
+	body=$(cat "$GPS_MESH_JOIN_CMD")
+	[[ "$body" == *https://* ]]
+	[[ "$body" == *GPS_MESH_TLS_PIN=sha256//* ]]
+	[[ "$body" == *GPS_MESH_TOKEN=ab742daa0123456789abcdef0123456789abcdef* ]]
+	[[ "$body" == *bash\ install.sh* ]]
+}
+
+@test "master join hints mask token and join-export shows path" {
+	export PORT=43021
+	export UUID="00000000-0000-4000-8000-000000000121"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.61"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="ab742daa0123456789abcdef0123456789abcdef"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	run gps_mesh_print_join_hints
+	[ "$status" -eq 0 ]
+	[[ "$output" == *ab742daa********* ]]
+	[[ "$output" != *ab742daa0123456789abcdef0123456789abcdef* ]]
+	[[ "$output" == *join.cmd* ]]
+	run gps_mesh_join_export
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"$GPS_MESH_JOIN_CMD"* ]]
+	[[ "$output" == *600* ]]
+	[[ "$output" == *ab742daa********* ]]
+}
