@@ -841,3 +841,99 @@ _gps_curl_arg_after() {
 	kill -TERM "$mpid" >/dev/null 2>&1 || true
 	kill -KILL "$mpid" >/dev/null 2>&1 || true
 }
+
+@test "mesh show includes connectivity summary" {
+	export PORT=43020
+	export UUID="00000000-0000-4000-8000-000000000119"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.58"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_cmd_init --node-id tile-master --overlay-ip 10.66.0.1
+	gps_mesh_peer_add tile-b --pubkey "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=" \
+		--overlay-ip 10.66.0.2 --endpoint 203.0.113.59:51820
+	gps_write_config
+	save_state
+	ping() {
+		local a
+		for a in "$@"; do
+			[[ $a == 10.66.0.2 ]] && return 0
+		done
+		return 1
+	}
+	export -f ping
+	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/show-conn.out" 2>&1
+	grep -q '组网连通性摘要' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q '不等于 WG 隧道已打通' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q '登记节点:' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q 'WG 配置 peer 数: 1' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q 'ping 10.66.0.2' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q '隧道可能正常' "$GPS_TEST_PREFIX/show-conn.out"
+}
+
+@test "mesh connectivity ping fail hints udp 51820" {
+	export PORT=43021
+	export UUID="00000000-0000-4000-8000-000000000120"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.60"
+	export MESH_ROLE=master
+	export WG_LISTEN_PORT=51820
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_cmd_init --node-id tile-master --overlay-ip 10.66.0.1
+	python3 - "$GPS_MESH_PEERS" <<'PY'
+import json, datetime
+from pathlib import Path
+p = Path(__import__("sys").argv[1])
+doc = json.loads(p.read_text(encoding="utf-8"))
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+doc["nodes"].append({
+    "node_id": "tile-remote",
+    "public_key": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=",
+    "endpoint": "203.0.113.61:51820",
+    "overlay_ip": "10.66.0.3",
+    "roles": ["edge"],
+    "keepalive": 25,
+    "last_seen": now,
+})
+p.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+	gps_write_config
+	save_state
+	ping() { return 1; }
+	export -f ping
+	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-fail.out" 2>&1
+	grep -q '仅控制面在线、隧道可能未通' "$GPS_TEST_PREFIX/conn-fail.out"
+	grep -q 'UDP 51820' "$GPS_TEST_PREFIX/conn-fail.out"
+}
+
+@test "mesh connectivity skips ping when no command" {
+	export PORT=43022
+	export UUID="00000000-0000-4000-8000-000000000121"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.62"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_cmd_init --node-id tile-only --overlay-ip 10.66.0.1
+	save_state
+	local old_path=$PATH
+	PATH="$GPS_TEST_PREFIX/empty-bin:$PATH"
+	mkdir -p "$GPS_TEST_PREFIX/empty-bin"
+	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-noping.out" 2>&1
+	PATH=$old_path
+	grep -q '仅本机或未配置 WG peer' "$GPS_TEST_PREFIX/conn-noping.out"
+}

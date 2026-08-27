@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.59 - 2026-08-27
+
+增强：菜单 25 `mesh show` 与 doctor 增加「组网连通性摘要」。
+
+- **登记 vs 隧道**：明确「在线」= Master 控制面心跳；不等于 WG 隧道已打通。
+- **WG 配置 peer 数**：从 sing-box `config.json` 读取 wireguard peers 数量（通常仅含心跳在线节点）。
+- **overlay 轻量探测**：对最多 2 个在线对端 overlay IP 做 `ping`（优先 10.66.0.1 网关）；无 ping 或无可测节点时优雅 SKIP。
+- **排障提示**：节点均在线但 overlay ping 失败时，提示检查各节点云安全组 UDP 51820。
+- **CLI**：新增 `mesh connectivity`（仅连通性摘要，不触发 ensure）。
+
 ## v0.2.58 - 2026-08-27
 
 修复：v0.2.57 Agent 安全模式与 v2rayA 节点池冲突。

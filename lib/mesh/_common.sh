@@ -437,6 +437,132 @@ gps_mesh_print_wg_data_plane_status() {
 	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 UDP ${port}，否则 mesh 节点无法建立 WG 隧道"
 }
 
+# mesh show / doctor：登记心跳 vs WG 配置 vs overlay 轻量探测（ping 最多 2 个在线对端）
+gps_mesh_print_connectivity_summary() {
+	gps_mesh_role_normalize 2>/dev/null || true
+	gps_mesh_defaults 2>/dev/null || true
+	gps_mesh_ensure_node_id 2>/dev/null || true
+	local wg_port=${WG_LISTEN_PORT:-51820}
+	msg "  $(_cyan "组网连通性摘要"):"
+	msg "    说明: 「在线」= Master 控制面收到心跳；不等于 WG 隧道已打通，请看待测结果。"
+	if [[ ! -f ${GPS_MESH_PEERS:-} ]] || ! have_cmd python3; then
+		msg "    （无 peers 文件或 python3，跳过统计）"
+		return 0
+	fi
+	local stats total=0 alive=0 wg_peers="?"
+	local -a targets=()
+	stats=$(
+		NODE_ID="${NODE_ID:-}" MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
+			GPS_CONFIG="${GPS_CONFIG:-}" python3 - "$GPS_MESH_PEERS" <<'PY'
+import json, os, sys
+from datetime import datetime, timezone
+
+path = sys.argv[1]
+config_path = os.environ.get("GPS_CONFIG") or ""
+self_id = os.environ.get("NODE_ID") or ""
+stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
+now = datetime.now(timezone.utc)
+
+def alive(n):
+    ls = n.get("last_seen") or ""
+    if not ls:
+        return True
+    try:
+        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return (now - ts).total_seconds() <= stale
+
+with open(path, encoding="utf-8") as f:
+    doc = json.load(f)
+nodes = doc.get("nodes") or []
+total = len(nodes)
+alive_n = 0
+candidates = []
+for n in nodes:
+    nid = n.get("node_id") or ""
+    if nid == self_id:
+        alive_n += 1
+        continue
+    if alive(n):
+        alive_n += 1
+        overlay = (n.get("overlay_ip") or "").split("/")[0]
+        if overlay:
+            priority = 0 if overlay == "10.66.0.1" else 1
+            candidates.append((priority, overlay, nid))
+candidates.sort()
+wg_peers = "?"
+if config_path:
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        for ep in cfg.get("endpoints") or []:
+            if ep.get("type") == "wireguard":
+                wg_peers = str(len(ep.get("peers") or []))
+                break
+    except Exception:
+        wg_peers = "?"
+print(f"TOTAL={total}")
+print(f"ALIVE={alive_n}")
+print(f"WG_PEERS={wg_peers}")
+for _, overlay, nid in candidates[:2]:
+    print(f"TARGET={overlay}|{nid}")
+PY
+	) || {
+		msg "    （无法解析 peers）"
+		return 0
+	}
+	while IFS= read -r line; do
+		case $line in
+		TOTAL=*) total=${line#TOTAL=} ;;
+		ALIVE=*) alive=${line#ALIVE=} ;;
+		WG_PEERS=*) wg_peers=${line#WG_PEERS=} ;;
+		TARGET=*)
+			local t=${line#TARGET=}
+			targets+=("$t")
+			;;
+		esac
+	done <<<"$stats"
+	msg "    登记节点: ${total}  心跳在线: ${alive}"
+	if [[ $wg_peers == "?" ]]; then
+		msg "    WG 配置 peer 数: （无法读取 config.json）"
+	else
+		msg "    WG 配置 peer 数: ${wg_peers}（sing-box config.json；通常仅含心跳在线节点）"
+	fi
+	local probe_ok=0 probe_fail=0 probe_skip=0
+	if ((${#targets[@]} == 0)); then
+		msg "    overlay 探测: SKIP（无其它在线节点可测）"
+		probe_skip=1
+	elif ! have_cmd ping; then
+		msg "    overlay 探测: SKIP（无 ping 命令）"
+		probe_skip=1
+	else
+		msg "    overlay 探测:"
+		local t ip nid
+		for t in "${targets[@]}"; do
+			ip=${t%%|*}
+			nid=${t#*|}
+			if ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
+				msg "      $(_green OK)  ping ${ip} (${nid})"
+				probe_ok=$((probe_ok + 1))
+			else
+				msg "      $(_red FAIL) ping ${ip} (${nid})"
+				probe_fail=$((probe_fail + 1))
+			fi
+		done
+	fi
+	if [[ $wg_peers == "0" && $alive -le 1 ]]; then
+		msg "    判定: 仅本机或未配置 WG peer（组网尚未建立或尚无其它在线节点）"
+	elif [[ $probe_ok -gt 0 ]]; then
+		msg "    判定: $(_green "隧道可能正常")（overlay 可达；仍需结合业务验证）"
+	elif [[ $probe_fail -gt 0 ]]; then
+		msg "    判定: $(_red "仅控制面在线、隧道可能未通")"
+		msg "    提示: 节点均显示在线但 overlay ping 失败时，请到各节点云安全组放行 UDP ${wg_port}"
+	elif [[ $probe_skip -eq 1 && $wg_peers != "0" && $wg_peers != "?" ]]; then
+		msg "    判定: WG 已配置 ${wg_peers} 个 peer，但未做 overlay 探测（请手工: ping <对端 overlay IP>）"
+	fi
+}
+
 # Agent 是否已配置（agent.env 含 token）
 gps_mesh_agent_enabled() {
 	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}

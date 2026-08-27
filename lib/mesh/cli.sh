@@ -37,6 +37,7 @@ gps_cmd_mesh() {
 		;;
 	init) gps_mesh_cmd_init "$@" ;;
 	show | status) gps_mesh_cmd_show "$@" ;;
+	connectivity) gps_mesh_cmd_connectivity "$@" ;;
 	menu-role) gps_mesh_menu_role ;;
 	port-checklist | ports | firewall-ports) gps_mesh_print_port_checklist ;;
 	migrate-tls | migrate_tls) gps_mesh_migrate_tls "$@" ;;
@@ -103,6 +104,7 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh ensure              # 开机/ExecStartPre：密钥 + 注册/拉 peers + 写配置
   mesh sync-master         # 周期：再注册并拉 peers（有变更则重启）
   mesh show
+  mesh connectivity        # 组网连通性摘要（登记/WG peer/overlay ping）
   mesh role master         # 本机升为 Master
   mesh role member <地址> <TOKEN>   # 本机加入为 Node
   mesh join <地址> <TOKEN> # 同上
@@ -250,4 +252,14 @@ for n in nodes:
 print(f"    合计: {len(nodes)} 节点，心跳活动可用: {alive}")
 PY
 	fi
+	gps_mesh_print_connectivity_summary
+}
+
+gps_mesh_cmd_connectivity() {
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize 2>/dev/null || true
+	gps_mesh_ensure_node_id 2>/dev/null || true
+	gps_mesh_defaults 2>/dev/null || true
+	msg "$(_cyan "Mesh 组网连通性")"
+	gps_mesh_print_connectivity_summary
 }
