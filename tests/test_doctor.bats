@@ -429,7 +429,7 @@ _doctor_systemd_end() {
 	[[ "$output" == *"OK"*"geoproxy-mesh-sync.timer active"* ]]
 }
 
-@test "doctor fails when agent binds 0.0.0.0 public" {
+@test "doctor warns when agent binds 0.0.0.0 public" {
 	export PORT=43407
 	export UUID="00000000-0000-4000-8000-00000000043407"
 	export PASSWORD="doc-pass"
@@ -468,6 +468,7 @@ _doctor_systemd_end() {
 	}
 	run gps_doctor
 	_doctor_systemd_end
-	[[ "$output" == *"FAIL"* ]]
-	[[ "$output" == *"agent 监听 0.0.0.0"* ]]
+	[[ "$output" == *"WARN"*"agent 监听 0.0.0.0"* ]]
+	[[ "$output" == *"v2rayA"* ]]
+	! [[ "$output" == *"FAIL) agent 监听 0.0.0.0"* ]]
 }

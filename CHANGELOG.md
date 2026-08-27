@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.58 - 2026-08-27
+
+修复：v0.2.57 Agent 安全模式与 v2rayA 节点池冲突。
+
+- **agent 默认 bind**：新装恢复 `GPS_AGENT_BIND=0.0.0.0`（v2rayA 远程需访问 `:19528` 明文 HTTP API）；`change agent-bind 127.0.0.1` 保留给收紧场景。
+- **doctor**：公网 `0.0.0.0:19528` 由 FAIL 改为 WARN（提示 TOKEN 强度与云 SG）；`127.0.0.1` 显示 OK 并注明 v2rayA 远程需改 bind。
+- **README / port-checklist**：与 v2rayA 集成说明对齐，不再推荐默认仅本机。
+
 ## v0.2.57 - 2026-08-27
 
 四项 backlog：Mesh 端口清单、Member TLS 修复、TOKEN 轮换、Agent 安全 bind。

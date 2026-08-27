@@ -210,13 +210,15 @@ gps_doctor() {
 	local aenv=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
 	if [[ -f $aenv ]]; then
 		gps_source_env "$aenv" 2>/dev/null || true
-		local abind=${GPS_AGENT_BIND:-127.0.0.1} aport=${GPS_AGENT_PORT:-19528}
+		local abind=${GPS_AGENT_BIND:-0.0.0.0} aport=${GPS_AGENT_PORT:-19528}
 		if [[ -n ${GPS_AGENT_TOKEN:-} ]]; then
 			if [[ $abind == 0.0.0.0 || $abind == "*" ]]; then
-				msg "  $(_red FAIL) agent 监听 ${abind}:${aport}/tcp（明文 HTTP 暴露公网；建议 change agent-bind 127.0.0.1）"
-				fail=$((fail + 1))
+				warn_item "agent 监听 ${abind}:${aport}/tcp（明文 HTTP 公网；v2rayA 需可达；请确保 TOKEN 强度与云 SG 仅放行可信源）"
+			elif [[ $abind == 127.0.0.1 || $abind == ::1 ]]; then
+				msg "  $(_green OK)  agent 监听 ${abind}:${aport}/tcp（仅本机；v2rayA 远程需 change agent-bind 0.0.0.0）"
+				ok=$((ok + 1))
 			else
-				msg "  $(_green OK)  agent 监听 ${abind}:${aport}/tcp（本机）"
+				msg "  $(_green OK)  agent 监听 ${abind}:${aport}/tcp"
 				ok=$((ok + 1))
 			fi
 		fi

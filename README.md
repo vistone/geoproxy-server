@@ -108,7 +108,7 @@ geoproxy-server change traffic-interval 300
 
 ## 上报 Agent（v2rayA 节点池）
 
-随主服务安装默认启用 `geoproxy-agent.service`（默认监听 `127.0.0.1:19528/tcp`，Bearer Token 鉴权；需远程访问时用 `change agent-bind 0.0.0.0`），
+随主服务安装默认启用 `geoproxy-agent.service`（默认监听 `0.0.0.0:19528/tcp`，Bearer Token 鉴权，供 v2rayA 远程节点池访问），
 供 v2rayA 客户端"节点池"功能轮询流量状态与远程控制：
 
 - 契约：[`docs/geoproxy-agent-api.md`](./docs/geoproxy-agent-api.md)
@@ -117,7 +117,7 @@ geoproxy-server change traffic-interval 300
 ```
 geoproxy-server agent
 geoproxy-server agent token
-geoproxy-server change agent-bind 127.0.0.1   # 默认仅本机；0.0.0.0 会 doctor FAIL
+geoproxy-server change agent-bind 127.0.0.1   # 可选收紧为仅本机（v2rayA 远程将无法访问）
 ```
 
 - 旧版升级后 agent 未就绪时执行 `geoproxy-server agent ensure`（幂等重建凭证与单元；`upgrade` 已自动调用）。

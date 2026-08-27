@@ -451,7 +451,7 @@ gps_mesh_print_agent_port_status() {
 	gps_mesh_agent_enabled || return 0
 	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
 	gps_source_env "$envf" 2>/dev/null || true
-	local bind=${GPS_AGENT_BIND:-127.0.0.1} port=${GPS_AGENT_PORT:-19528} backend
+	local bind=${GPS_AGENT_BIND:-0.0.0.0} port=${GPS_AGENT_PORT:-19528} backend
 	backend=$(gps_fw_backend)
 	msg "  Agent: ${bind}:${port}/tcp（明文 HTTP，v2rayA 节点池；非 mesh 控制面 ${MESH_MASTER_PORT:-19527}）"
 	if [[ $bind == 127.0.0.1 || $bind == ::1 ]]; then
@@ -468,7 +468,7 @@ gps_mesh_print_agent_port_status() {
 		else
 			msg "  本机防火墙: 未放行 TCP ${port}（${backend}）— v2rayA 远程可能连不上"
 		fi
-		msg "  云安全组: 若需远程访问 Agent，请放行 TCP ${port}（明文 HTTP，建议改 bind 127.0.0.1 + SSH 隧道）"
+		msg "  云安全组: 请放行 TCP ${port}（明文 HTTP；请确保 TOKEN 强度、仅放行可信源）"
 	fi
 }
 

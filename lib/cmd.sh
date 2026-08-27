@@ -659,7 +659,9 @@ gps_cmd_change() {
 		gps_install_agent_units
 		msg "$(_green "agent-bind") → ${GPS_AGENT_BIND}:${GPS_AGENT_PORT:-19528}"
 		if [[ $addr == 0.0.0.0 ]]; then
-			warn "0.0.0.0 将明文 HTTP 暴露公网；建议仅 v2rayA 同机时使用 127.0.0.1"
+			warn "0.0.0.0 将明文 HTTP 暴露公网；请确保 TOKEN 强度与云安全组仅放行可信源"
+		elif [[ $addr == 127.0.0.1 || $addr == ::1 ]]; then
+			warn "仅本机可达；v2rayA 远程节点池需 0.0.0.0 或 SSH 隧道"
 		fi
 		return 0
 		;;
@@ -689,7 +691,7 @@ gps_cmd_agent() {
 			warn "未启用：$envf 缺失或 GPS_AGENT_TOKEN 为空"
 			return 0
 		fi
-		msg "  监听:   ${GPS_AGENT_BIND:-127.0.0.1}:${GPS_AGENT_PORT:-19528}"
+		msg "  监听:   ${GPS_AGENT_BIND:-0.0.0.0}:${GPS_AGENT_PORT:-19528}"
 		msg "  Token:  $(gps_mask_key "$GPS_AGENT_TOKEN")"
 		if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]] && have_cmd systemctl; then
 			if systemctl is-active --quiet geoproxy-agent.service 2>/dev/null; then

@@ -29,7 +29,7 @@ setup() {
 	grep -q "ExecStart=/usr/bin/env python3" "$GPS_AGENT_UNIT_PATH"
 	grep -q "GPS_AGENT_TOKEN" "$GPS_AGENT_ENV"
 	grep -q "GPS_AGENT_PORT" "$GPS_AGENT_ENV"
-	grep -q '^GPS_AGENT_BIND=127.0.0.1' "$GPS_AGENT_ENV"
+	grep -q '^GPS_AGENT_BIND=0.0.0.0' "$GPS_AGENT_ENV"
 	check_perm_600 "$GPS_AGENT_ENV"
 	# 二次调用不覆盖既有 token
 	local tok

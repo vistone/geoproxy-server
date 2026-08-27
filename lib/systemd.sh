@@ -129,7 +129,7 @@ gps_remove_mesh_units() {
 # 仅写 unit 文件 + 生成/保留 token（测试前缀 / no-systemd 也调用）
 gps_agent_write_env_file() {
 	local envf="${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}"
-	local tok=${GPS_AGENT_TOKEN:-} bind=${GPS_AGENT_BIND:-127.0.0.1} port=${GPS_AGENT_PORT:-19528}
+	local tok=${GPS_AGENT_TOKEN:-} bind=${GPS_AGENT_BIND:-0.0.0.0} port=${GPS_AGENT_PORT:-19528}
 	local want_bind=${GPS_AGENT_BIND:-} want_port=${GPS_AGENT_PORT:-}
 	if [[ -f $envf ]]; then
 		gps_source_env "$envf" 2>/dev/null || true
@@ -179,14 +179,14 @@ gps_install_agent_units() {
 	systemctl daemon-reload 2>/dev/null || true
 	if systemctl enable geoproxy-agent.service >/dev/null 2>&1 &&
 		systemctl restart geoproxy-agent.service >/dev/null 2>&1; then
-		msg "$(_cyan "agent") 已启用（${GPS_AGENT_BIND:-127.0.0.1}:${GPS_AGENT_PORT:-19528}/tcp，v2rayA 节点池上报）"
+		msg "$(_cyan "agent") 已启用（${GPS_AGENT_BIND:-0.0.0.0}:${GPS_AGENT_PORT:-19528}/tcp，v2rayA 节点池上报）"
 	else
 		warn "agent restart 失败；请手动: systemctl restart geoproxy-agent"
 		msg "$(_cyan "agent") unit 已写入"
 	fi
-	# 仅 0.0.0.0 对外监听时放行防火墙；127.0.0.1 默认无需云 SG
+	# 仅 0.0.0.0 对外监听时放行防火墙；127.0.0.1 收紧时无需云 SG
 	gps_source_env "${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}" 2>/dev/null || true
-	if [[ ${GPS_AGENT_BIND:-127.0.0.1} == 0.0.0.0 || ${GPS_AGENT_BIND:-} == "*" ]]; then
+	if [[ ${GPS_AGENT_BIND:-0.0.0.0} == 0.0.0.0 || ${GPS_AGENT_BIND:-} == "*" ]]; then
 		gps_fw_allow_tcp "${GPS_AGENT_PORT:-19528}" "geoproxy-agent" 2>/dev/null || true
 	fi
 }
