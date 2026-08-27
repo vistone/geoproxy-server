@@ -168,3 +168,80 @@ setup() {
 	# 不得把宕机误报成 OK（同色行内不得出现 OK + health URL）
 	! echo "$output" | grep -E 'OK[[:space:]].*https://127\.0\.0\.1:'"${hp}"'/v1/health'
 }
+
+_member_doctor_setup() {
+	export PORT=${1:-43301}
+	export UUID="00000000-0000-4000-8000-$(printf '%012x' "$PORT")"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.100"
+	export MESH_ROLE=member
+	export MESH_CLUSTER_TOKEN="doctor-member-token-012345"
+	export WG_PUBLIC_KEY="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBEE="
+	export WG_PRIVATE_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE="
+	export MESH_OVERLAY_IP=10.66.0.10
+	export NODE_ID=doc-member
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_register_and_pull() { return 1; }
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+}
+
+@test "doctor member FAILs on public http MESH_MASTER_URL" {
+	_member_doctor_setup 43301
+	export MESH_MASTER_URL="http://203.0.113.100:19527"
+	save_state
+	run gps_doctor
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"FAIL"* ]]
+	[[ "$output" == *"http://203.0.113.100:19527"* ]]
+	[[ "$output" == *"明文"* ]]
+}
+
+@test "doctor member WARNs when https Master lacks MESH_TLS_PIN" {
+	_member_doctor_setup 43302
+	export MESH_MASTER_URL="https://203.0.113.101:19527"
+	unset MESH_TLS_PIN
+	save_state
+	curl() { return 1; }
+	run gps_doctor
+	[[ "$output" == *"WARN"* ]]
+	[[ "$output" == *"MESH_TLS_PIN"* ]]
+}
+
+@test "doctor member FAILs when master health probe times out" {
+	_member_doctor_setup 43303
+	export MESH_MASTER_URL="https://203.0.113.102:19527"
+	export MESH_TLS_PIN="sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	save_state
+	curl() { return 28; }
+	run gps_doctor
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"FAIL"* ]]
+	[[ "$output" == *"https://203.0.113.102:19527/v1/health"* ]]
+	[[ "$output" == *"TCP 19527"* ]]
+	[[ "$output" == *"云安全组"* ]]
+}
+
+@test "doctor member OK when master health responds" {
+	_member_doctor_setup 43304
+	export MESH_MASTER_URL="https://203.0.113.103:19527"
+	export MESH_TLS_PIN="sha256//BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+	save_state
+	curl() {
+		local arg
+		for arg in "$@"; do
+			case $arg in
+			https://*) return 0 ;;
+			esac
+		done
+		return 1
+	}
+	run gps_doctor
+	[[ "$output" == *"OK"* ]]
+	[[ "$output" == *"https://203.0.113.103:19527/v1/health"* ]]
+}

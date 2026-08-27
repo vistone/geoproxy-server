@@ -149,6 +149,27 @@ gps_doctor() {
 			gps_mesh_print_control_plane_status 2>/dev/null || true
 		elif [[ ${MESH_ROLE:-} == member ]]; then
 			check "MESH_MASTER_URL 已设置" test -n "${MESH_MASTER_URL:-}"
+			local member_http_public=0
+			if [[ -n ${MESH_MASTER_URL:-} && ${MESH_MASTER_URL} == http://* ]]; then
+				local mhost
+				mhost=$(gps_mesh_url_host "$MESH_MASTER_URL")
+				if ! gps_mesh_url_is_loopback "$mhost"; then
+					msg "  $(_red FAIL) 明文 http 公网 Master: ${MESH_MASTER_URL}"
+					fail=$((fail + 1))
+					member_http_public=1
+				fi
+			fi
+			if [[ -n ${MESH_MASTER_URL:-} && ${MESH_MASTER_URL} == https://* && -z ${MESH_TLS_PIN:-} ]]; then
+				warn_item "https Master 未配置 MESH_TLS_PIN（自签证书将校验失败；请在 Master 上 mesh show 获取 GPS_MESH_TLS_PIN）"
+			fi
+			if [[ -n ${MESH_MASTER_URL:-} && member_http_public -eq 0 ]]; then
+				local mh_rc=0
+				gps_mesh_print_member_health || mh_rc=$?
+				case $mh_rc in
+				0) ok=$((ok + 1)) ;;
+				*) fail=$((fail + 1)) ;;
+				esac
+			fi
 			msg "  若 Node 连不上 Master：到 Master 上确认 TCP ${MESH_MASTER_PORT:-19527} 已对外放行（本机防火墙 + 云安全组）"
 		fi
 		if [[ -n ${MESH_EXIT_NODE_ID:-} && $MESH_EXIT_NODE_ID == "${NODE_ID:-}" ]]; then

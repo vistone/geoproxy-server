@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.52 - 2026-08-27
+
+增强：菜单 23 doctor 在 mesh-member 节点上新增 Master 连通性检查。
+
+- **FAIL**：`MESH_MASTER_URL` 为公网 `http://`（非 loopback）— 明文 TOKEN/公钥过公网。
+- **WARN**：`https://` Master 未配置 `MESH_TLS_PIN`（自签证书将校验失败）。
+- **FAIL**：短超时探测 `${MESH_MASTER_URL}/v1/health`（与 boot 路径一致 3s）；无响应时提示检查 Master 侧 TCP 19527（本机防火墙 + 云安全组）。
+
 ## v0.2.51 - 2026-08-27
 
 修复：一键安装（`bash <(curl … install.sh)`）末尾误报 mesh health FAIL，且管道安装结束时因 `tmp: unbound variable` 致命退出。

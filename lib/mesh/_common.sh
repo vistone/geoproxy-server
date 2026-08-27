@@ -125,6 +125,26 @@ gps_mesh_print_local_health() {
 	return 2
 }
 
+# Member 侧探测远程 Master /v1/health（doctor；短超时与 boot 路径一致）
+gps_mesh_print_member_health() {
+	local url=${MESH_MASTER_URL:-}
+	[[ -n $url ]] || return 2
+	local health_url="${url%/}/v1/health"
+	if ! have_cmd curl; then
+		msg "  $(_red FAIL) 无 curl，无法探测 ${health_url}"
+		return 2
+	fi
+	local rc=0
+	GPS_MESH_CURL_MAX_TIME=3 GPS_MESH_CURL_CONNECT_TIMEOUT=${GPS_MESH_CURL_CONNECT_TIMEOUT:-2} \
+		gps_mesh_curl "$health_url" -o /dev/null >/dev/null 2>&1 || rc=$?
+	if [[ $rc -eq 0 ]]; then
+		msg "  $(_green OK)  ${health_url}"
+		return 0
+	fi
+	msg "  $(_red FAIL) ${health_url} 无响应（请到 Master 确认 TCP ${MESH_MASTER_PORT:-19527} 已对外放行：本机防火墙 + 云安全组）"
+	return 2
+}
+
 # 探测本机控制面实际 scheme：证书在但进程仍明文时返回 http，避免 join 命令误导
 # 仅供 mesh show / print_join_hints；ensure 路径勿调用（避免到处 curl）。
 gps_mesh_live_control_scheme() {
