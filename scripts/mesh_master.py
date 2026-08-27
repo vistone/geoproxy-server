@@ -2,6 +2,7 @@
 """GeoProxy mesh master registry — POST /v1/register, POST /v1/heartbeat, GET /v1/peers, GET /v1/health.
 
 POST /v1/hook/github：GitHub Release webhook（HMAC SHA256 签名校验）触发 upgrade self。
+GET /v1/hook/github：返回 webhook 端点说明（浏览器探测用；实际投递须 POST）。
 默认以自签 TLS 证书提供服务（节点端用证书公钥指纹钉扎），并校验所有注册输入。
 """
 from __future__ import annotations
@@ -341,6 +342,14 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/v1/health":
             self._send(200, {"ok": True, "role": "master", "prefix": str(PREFIX), "stale_sec": STALE_SEC})
+            return
+        if path == "/v1/hook/github":
+            self._send(200, {
+                "ok": True,
+                "endpoint": "github webhook",
+                "method": "POST required",
+                "configured": bool(WEBHOOK_SECRET),
+            })
             return
         if path == "/v1/peers":
             if not auth_ok(self):

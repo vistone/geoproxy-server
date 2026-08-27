@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.64 - 2026-08-27
+
+修复：浏览器 GET `/v1/hook/github` 不再误报 404，返回端点说明 JSON（`POST required`）；GitHub webhook 投递仍须 POST。
+
 ## v0.2.63 - 2026-08-27
 
 新功能：Master GitHub Release webhook 自动 upgrade self。

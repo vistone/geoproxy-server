@@ -218,6 +218,33 @@ EOF
 	_stop_master
 }
 
+@test "webhook GET returns endpoint info" {
+	export PORT=43207
+	export UUID="00000000-0000-4000-8000-000000000307"
+	export PASSWORD="wh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.207"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="wh-token-0123456789abcdef"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	_start_master "info-secret-0123456789abcdef" ""
+	local code resp
+	code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 \
+		"http://127.0.0.1:${WH_MPORT}/v1/hook/github")
+	[ "$code" = "200" ]
+	resp=$(curl -fsS --max-time 3 "http://127.0.0.1:${WH_MPORT}/v1/hook/github")
+	echo "$resp" | grep -q '"endpoint": "github webhook"'
+	echo "$resp" | grep -q '"method": "POST required"'
+	echo "$resp" | grep -q '"configured": true'
+	_stop_master
+}
+
 @test "mesh webhook set-secret writes master.env and state" {
 	export PORT=43206
 	export UUID="00000000-0000-4000-8000-000000000306"
