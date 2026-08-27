@@ -1001,7 +1001,10 @@ PY
 	save_state
 	local probe_log="$GPS_TEST_PREFIX/probe-log"
 	: >"$probe_log"
-	gps_mesh_probe_udp_endpoint() { echo "$1" >>"$probe_log"; return 0; }
+	gps_mesh_probe_udp_endpoint() {
+		echo "$1" >>"$probe_log"
+		return 0
+	}
 	gps_mesh_wg_socket_bytes() { echo "0 0"; }
 	gps_mesh_wg_listen_ok() { return 0; }
 	gps_mesh_wg_handshake_stats() { return 1; }
