@@ -10,6 +10,8 @@ fi
 export REPO_ROOT
 export GPS_TEST_PREFIX="${GPS_TEST_PREFIX:-$REPO_ROOT/tests/tmp}"
 export GPS_NO_SYSTEMD=1
+# 测试里 mock curl 时不等待 mesh-master 就绪（生产默认 8s）
+export GPS_MESH_HEALTH_WAIT=0
 # Ensure clean tmp
 rm -rf "$GPS_TEST_PREFIX"
 mkdir -p "$GPS_TEST_PREFIX"

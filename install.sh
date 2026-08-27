@@ -157,7 +157,8 @@ gps_bootstrap_main() {
 	echo "检测到远程/管道安装，正在拉取 geoproxy-server $GPS_VERSION ..."
 	local tmp
 	tmp=$(mktemp -d /tmp/gps-bootstrap.XXXXXX)
-	trap 'rm -rf "$tmp"' EXIT
+	# 须立即展开路径：local tmp 在函数返回后不可见，EXIT trap 里 "$tmp" 会在 set -u 下报 unbound
+	trap 'rm -rf "'"$tmp"'"' EXIT
 	root=$(_gps_fetch_repo "$tmp")
 	[[ -f $root/geoproxy-server.sh ]] || {
 		echo "错误: 拉取失败，缺少 geoproxy-server.sh (ROOT=$root)" >&2

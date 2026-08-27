@@ -76,34 +76,52 @@ gps_mesh_master_tls_on() {
 	[[ -f ${GPS_MESH_TLS_CERT:-} && -f ${GPS_MESH_TLS_KEY:-} ]]
 }
 
+# 本机 Master 控制面 /v1/health 单次探测（tls=1 时用 curl -k）
+_gps_mesh_curl_local_health() {
+	local url=$1 tls=${2:-0}
+	if [[ $tls == 1 ]]; then
+		curl -ksS --connect-timeout 1 --max-time 2 "$url" >/dev/null 2>&1
+	else
+		curl -fsS --connect-timeout 1 --max-time 2 "$url" >/dev/null 2>&1
+	fi
+}
+
 # 本机 Master 控制面 /v1/health 自检（doctor / mesh show / 升主后）。
 # 有证书时优先 https（curl -k）；成功打印完整 URL + OK。
+# mesh-master 刚 restart 时可能尚未 listen：默认重试 GPS_MESH_HEALTH_WAIT 秒（0=不重试）。
 # 返回：0=健康，1=证书在但仅明文 HTTP，2=两端（或唯一应通端）无响应。
 gps_mesh_print_local_health() {
 	local port=${1:-${MESH_MASTER_PORT:-19527}}
 	local https_url="https://127.0.0.1:${port}/v1/health"
 	local http_url="http://127.0.0.1:${port}/v1/health"
+	local wait=${GPS_MESH_HEALTH_WAIT:-8} end
 	if ! have_cmd curl; then
 		msg "  $(_red FAIL) 无 curl，无法探测 ${https_url}"
 		return 2
 	fi
-	if gps_mesh_master_tls_on; then
-		if curl -ksS --connect-timeout 1 --max-time 2 "$https_url" >/dev/null 2>&1; then
-			msg "  $(_green OK)  ${https_url}"
+	end=$((SECONDS + wait))
+	while :; do
+		if gps_mesh_master_tls_on; then
+			if _gps_mesh_curl_local_health "$https_url" 1; then
+				msg "  $(_green OK)  ${https_url}"
+				return 0
+			fi
+			if _gps_mesh_curl_local_health "$http_url" 0; then
+				msg "  $(_red FAIL) ${http_url} 仍为明文（证书已存在）。请: systemctl restart ${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}"
+				return 1
+			fi
+		elif _gps_mesh_curl_local_health "$http_url" 0; then
+			msg "  $(_green OK)  ${http_url}"
 			return 0
 		fi
-		if curl -fsS --connect-timeout 1 --max-time 2 "$http_url" >/dev/null 2>&1; then
-			msg "  $(_red FAIL) ${http_url} 仍为明文（证书已存在）。请: systemctl restart ${GPS_MESH_MASTER_SERVICE:-geoproxy-mesh-master}"
-			return 1
-		fi
+		((SECONDS >= end)) && break
+		sleep 0.2
+	done
+	if gps_mesh_master_tls_on; then
 		msg "  $(_red FAIL) ${https_url} 无响应（HTTP 亦不通）"
-		return 2
+	else
+		msg "  $(_red FAIL) ${http_url} 无响应"
 	fi
-	if curl -fsS --connect-timeout 1 --max-time 2 "$http_url" >/dev/null 2>&1; then
-		msg "  $(_green OK)  ${http_url}"
-		return 0
-	fi
-	msg "  $(_red FAIL) ${http_url} 无响应"
 	return 2
 }
 

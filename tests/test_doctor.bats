@@ -105,6 +105,43 @@ setup() {
 	[[ "$output" == *"明文"* ]] || [[ "$output" == *"http://127.0.0.1:${hp}/v1/health"* ]]
 }
 
+@test "health probe retries until mesh-master responds" {
+	export PORT=43205
+	export UUID="00000000-0000-4000-8000-000000000305"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.81"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="doctor-retry-token-012"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	local hp=${MESH_MASTER_PORT:-19527} n=0
+	curl() {
+		local arg
+		for arg in "$@"; do
+			case $arg in
+			https://*)
+				n=$((n + 1))
+				[[ $n -ge 3 ]] && return 0
+				return 1
+				;;
+			http://*) return 1 ;;
+			esac
+		done
+		return 1
+	}
+	GPS_MESH_HEALTH_WAIT=2 run gps_mesh_print_local_health "$hp"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"OK"* ]]
+	[[ "$output" == *"https://127.0.0.1:${hp}/v1/health"* ]]
+	[ "$n" -ge 3 ]
+}
+
 @test "doctor FAILs when TLS certs exist but neither https nor http health responds" {
 	export PORT=43204
 	export UUID="00000000-0000-4000-8000-000000000304"

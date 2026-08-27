@@ -69,6 +69,23 @@ setup() {
 	[[ "$output" == *"sha256 校验失败"* ]]
 }
 
+@test "bootstrap EXIT trap cleans tmp without unbound variable under set -u" {
+	run bash -c '
+		set -euo pipefail
+		# shellcheck source=../install.sh
+		source "'"$REPO_ROOT"'/install.sh"
+		_gps_bootstrap_trap_smoke() {
+			local tmp
+			tmp=$(mktemp -d)
+			trap "rm -rf '"'"'$tmp'"'"'" EXIT
+		}
+		_gps_bootstrap_trap_smoke
+		echo ok
+	'
+	[ "$status" -eq 0 ]
+	[[ "$output" == *ok* ]]
+}
+
 @test "unverified tag archive fallback requires explicit opt-in" {
 	git() { return 1; }
 	curl() { return 22; }

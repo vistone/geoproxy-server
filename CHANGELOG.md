@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.51 - 2026-08-27
+
+修复：一键安装（`bash <(curl … install.sh)`）末尾误报 mesh health FAIL，且管道安装结束时因 `tmp: unbound variable` 致命退出。
+
+- **health 竞态**：`mesh-master` 刚 `systemctl restart` 后 Python/TLS 进程可能尚未 listen；`gps_mesh_print_local_health` 现默认重试最多 8s（`GPS_MESH_HEALTH_WAIT`），避免安装完成瞬间误报 FAIL。
+- **管道 trap**：`install.sh` 引导临时目录的 EXIT trap 改为在注册时展开路径（`local tmp` 函数返回后对 `"$tmp"` 不可见，`set -u` 下会崩）。
+- 新增 bats：trap smoke、health 延迟就绪重试。
+
 ## v0.2.50 - 2026-08-26
 
 修复：`save_state` 每次连带重写 KiwiVM 长期凭证（`/etc/geoproxy-kiwivm.env`），当 `/etc` 只读（EROFS）时凭证持久化失败会把整个控制操作拖垮——v2rayA 节点池面板点击「熔断/恢复」等返回 500。
