@@ -714,7 +714,7 @@ if config_path:
 print(f"TOTAL={total}")
 print(f"ALIVE={alive_n}")
 print(f"WG_PEERS={wg_peers}")
-for _, overlay, endpoint, nid in candidates[:3]:
+for _, overlay, endpoint, nid in candidates:
     print(f"PEER={overlay}|{endpoint}|{nid}")
 PY
 	) || {

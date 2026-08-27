@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.62 - 2026-08-27
+
+增强：组网连通性摘要对全部在线 peer 做公网 UDP 探测，不再抽样 3 个。
+
+- **全量探测**：`mesh show` / `mesh connectivity` / doctor 对每个心跳在线节点（排除本机）逐一探测 `endpoint:51820`；Master 仍排第一。
+- **install.sh**：修复 `curl | bash` 安装时 `BASH_SOURCE[0]` 未定义导致失败。
+
 ## v0.2.61 - 2026-08-27
 
 增强：WG 握手诊断与本地自动修复，不再依赖手跑 ss/journalctl。

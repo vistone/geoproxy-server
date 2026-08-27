@@ -969,3 +969,47 @@ PY
 	grep -q 'tile-bad' "$GPS_TEST_PREFIX/conn-hs.out"
 	grep -q '部分 peer WG 握手失败' "$GPS_TEST_PREFIX/conn-hs.out"
 }
+
+@test "mesh connectivity probes all alive online peers not just three" {
+	export PORT=43024
+	export UUID="00000000-0000-4000-8000-000000000123"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.65"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_cmd_init --node-id tile-master --overlay-ip 10.66.0.1
+	local i nid
+	for i in 2 3 4 5; do
+		nid="tile-$i"
+		case $i in
+		2) gps_mesh_peer_add "$nid" --pubkey "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=" \
+			--overlay-ip "10.66.0.2" --endpoint "203.0.113.62:51820" ;;
+		3) gps_mesh_peer_add "$nid" --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" \
+			--overlay-ip "10.66.0.3" --endpoint "203.0.113.63:51820" ;;
+		4) gps_mesh_peer_add "$nid" --pubkey "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=" \
+			--overlay-ip "10.66.0.4" --endpoint "203.0.113.64:51820" ;;
+		5) gps_mesh_peer_add "$nid" --pubkey "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE=" \
+			--overlay-ip "10.66.0.5" --endpoint "203.0.113.65:51820" ;;
+		esac
+	done
+	gps_write_config
+	save_state
+	local probe_log="$GPS_TEST_PREFIX/probe-log"
+	: >"$probe_log"
+	gps_mesh_probe_udp_endpoint() { echo "$1" >>"$probe_log"; return 0; }
+	gps_mesh_wg_socket_bytes() { echo "0 0"; }
+	gps_mesh_wg_listen_ok() { return 0; }
+	gps_mesh_wg_handshake_stats() { return 1; }
+	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes gps_mesh_wg_listen_ok gps_mesh_wg_handshake_stats
+	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-all.out" 2>&1
+	[ "$(wc -l <"$probe_log")" -eq 4 ]
+	grep -q '10.66.0.2' "$GPS_TEST_PREFIX/conn-all.out"
+	grep -q '10.66.0.3' "$GPS_TEST_PREFIX/conn-all.out"
+	grep -q '10.66.0.4' "$GPS_TEST_PREFIX/conn-all.out"
+	grep -q '10.66.0.5' "$GPS_TEST_PREFIX/conn-all.out"
+}
