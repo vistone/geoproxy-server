@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.53 - 2026-08-27
+
+WG 数据面 UDP 51820 自动放行本机防火墙（Master / Member 均适用）。
+
+- 新增 `gps_fw_allow_udp` / `gps_fw_udp_allowed`（ufw → firewalld → iptables → nft，与 TCP 路径一致）。
+- `mesh ensure` / 升主 / 安装路径调用 `gps_mesh_expose_wg_data_plane`，幂等放行 `WG_LISTEN_PORT`（默认 51820）。
+- `mesh show` / doctor 并列展示 WG 数据面 UDP 51820 与本机防火墙 / 云安全组提示（说明非代理端口、非控制面 TCP 19527）。
+
 ## v0.2.52 - 2026-08-27
 
 增强：菜单 23 doctor 在 mesh-member 节点上新增 Master 连通性检查。

@@ -150,6 +150,7 @@ gps_mesh_ensure_boot() {
 			gps_mesh_peers_upsert_self || warn "无法写入本地 peers（只读沙箱？检查 systemd ReadWritePaths 含 ${GPS_ETC:-/etc/geoproxy-server}）"
 		fi
 	fi
+	gps_mesh_expose_wg_data_plane
 	gps_write_config || warn "无法写入 ${GPS_CONFIG:-config}（只读沙箱？检查 systemd ReadWritePaths）"
 }
 

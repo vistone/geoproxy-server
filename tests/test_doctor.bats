@@ -37,6 +37,8 @@ setup() {
 	[[ "$output" == *"0.0.0.0:19527"* ]]
 	[[ "$output" == *"TCP 19527"* ]]
 	[[ "$output" == *"云安全组"* ]]
+	[[ "$output" == *"UDP 51820"* ]]
+	[[ "$output" == *"WG 数据面"* ]]
 }
 
 @test "doctor probes https health when master TLS certs exist" {
@@ -120,14 +122,16 @@ setup() {
 	}
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	save_state
-	local hp=${MESH_MASTER_PORT:-19527} n=0
+	local hp=${MESH_MASTER_PORT:-19527}
+	local count_file="$GPS_TEST_PREFIX/health-retry.n"
+	: >"$count_file"
 	curl() {
 		local arg
 		for arg in "$@"; do
 			case $arg in
 			https://*)
-				n=$((n + 1))
-				[[ $n -ge 3 ]] && return 0
+				echo 1 >>"$count_file"
+				[[ $(wc -l <"$count_file") -ge 3 ]] && return 0
 				return 1
 				;;
 			http://*) return 1 ;;
@@ -139,7 +143,7 @@ setup() {
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"OK"* ]]
 	[[ "$output" == *"https://127.0.0.1:${hp}/v1/health"* ]]
-	[ "$n" -ge 3 ]
+	[[ $(wc -l <"$count_file") -ge 3 ]]
 }
 
 @test "doctor FAILs when TLS certs exist but neither https nor http health responds" {

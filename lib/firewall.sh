@@ -1,5 +1,5 @@
 #!/bin/bash
-# 本机防火墙：放行 / 查询 TCP 端口
+# 本机防火墙：放行 / 查询 TCP、UDP 端口
 # 探测顺序：活动的 ufw → 活动的 firewalld → iptables → nft → none
 # 不管云厂商安全组（阿里云/腾讯云/AWS 等需在控制台另行放行）。
 
@@ -97,6 +97,66 @@ gps_fw_nft_has_tcp() {
 	nft list ruleset 2>/dev/null | grep -qE "tcp dport ${port} .*accept"
 }
 
+# 放行 UDP 端口。comment 仅用于 ufw。成功则写入 GPS_FW_LAST_ALLOW_UDP=PORT/udp
+gps_fw_allow_udp() {
+	local port=${1:-}
+	local comment=${2:-geoproxy}
+	gps_validate_port "$port" || return 1
+	GPS_FW_LAST_ALLOW_UDP="${port}/udp"
+	GPS_FW_LAST_BACKEND=$(gps_fw_backend)
+	if gps_fw_skip_host; then
+		return 0
+	fi
+	case ${GPS_FW_LAST_BACKEND} in
+	ufw) gps_fw_allow_ufw_udp "$port" "$comment" ;;
+	firewalld) gps_fw_allow_firewalld_udp "$port" ;;
+	iptables) gps_fw_allow_iptables_udp "$port" ;;
+	nft) gps_fw_allow_nft_udp "$port" ;;
+	none) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+gps_fw_allow_ufw_udp() {
+	local port=$1 comment=$2
+	ufw allow "${port}/udp" comment "$comment" >/dev/null
+}
+
+gps_fw_allow_firewalld_udp() {
+	local port=$1
+	firewall-cmd --add-port="${port}/udp" >/dev/null 2>&1 || true
+	firewall-cmd --permanent --add-port="${port}/udp" >/dev/null 2>&1 || true
+	firewall-cmd --query-port="${port}/udp" >/dev/null 2>&1
+}
+
+gps_fw_allow_iptables_udp() {
+	local port=$1
+	if ! iptables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
+		iptables -I INPUT -p udp --dport "$port" -j ACCEPT || return 1
+	fi
+	if have_cmd ip6tables; then
+		if ! ip6tables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1; then
+			ip6tables -I INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1 || true
+		fi
+	fi
+	return 0
+}
+
+gps_fw_allow_nft_udp() {
+	local port=$1
+	if gps_fw_nft_has_udp "$port"; then
+		return 0
+	fi
+	nft add rule inet filter input udp dport "$port" accept >/dev/null 2>&1 && return 0
+	nft add rule ip filter INPUT udp dport "$port" accept >/dev/null 2>&1 && return 0
+	return 1
+}
+
+gps_fw_nft_has_udp() {
+	local port=$1
+	nft list ruleset 2>/dev/null | grep -qE "udp dport ${port} .*accept"
+}
+
 # 本机规则是否已放行该 TCP 端口（none = 没有本机防火墙可拦，视为放行）
 gps_fw_tcp_allowed() {
 	local port=${1:-}
@@ -120,6 +180,39 @@ gps_fw_tcp_allowed() {
 		;;
 	nft)
 		gps_fw_nft_has_tcp "$port"
+		;;
+	none)
+		return 0
+		;;
+	*)
+		return 1
+		;;
+	esac
+}
+
+# 本机规则是否已放行该 UDP 端口（none = 没有本机防火墙可拦，视为放行）
+gps_fw_udp_allowed() {
+	local port=${1:-}
+	gps_validate_port "$port" || return 1
+	if gps_fw_skip_host; then
+		[[ ${GPS_FW_LAST_ALLOW_UDP:-} == "${port}/udp" ]]
+		return
+	fi
+	local backend
+	backend=$(gps_fw_backend)
+	case $backend in
+	ufw)
+		ufw status 2>/dev/null | grep -qE "${port}/udp" || return 1
+		ufw status 2>/dev/null | grep -E "${port}/udp" | grep -qiE 'ALLOW|允许'
+		;;
+	firewalld)
+		firewall-cmd --query-port="${port}/udp" >/dev/null 2>&1
+		;;
+	iptables)
+		iptables -C INPUT -p udp --dport "$port" -j ACCEPT >/dev/null 2>&1
+		;;
+	nft)
+		gps_fw_nft_has_udp "$port"
 		;;
 	none)
 		return 0

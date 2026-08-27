@@ -424,8 +424,10 @@ setup() {
 		HAS_V6=0
 	}
 	GPS_FW_LAST_ALLOW=""
+	GPS_FW_LAST_ALLOW_UDP=""
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
 	[ "$GPS_FW_LAST_ALLOW" = "19527/tcp" ]
+	[ "$GPS_FW_LAST_ALLOW_UDP" = "51820/udp" ]
 }
 
 @test "member ensure boot does not open recruiting port and warns about master 19527" {
@@ -444,8 +446,10 @@ setup() {
 	}
 	gps_mesh_register_and_pull() { return 1; }
 	GPS_FW_LAST_ALLOW=""
+	GPS_FW_LAST_ALLOW_UDP=""
 	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot >"$GPS_TEST_PREFIX/member-boot.out" 2>&1
 	[ -z "${GPS_FW_LAST_ALLOW:-}" ]
+	[ "$GPS_FW_LAST_ALLOW_UDP" = "51820/udp" ]
 	grep -q '无法联系 Master' "$GPS_TEST_PREFIX/member-boot.out"
 	grep -q 'TCP 19527' "$GPS_TEST_PREFIX/member-boot.out"
 	grep -q '云安全组' "$GPS_TEST_PREFIX/member-boot.out"
@@ -482,6 +486,30 @@ setup() {
 	grep -q '云安全组' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q '203.0.113.57:19527' "$GPS_TEST_PREFIX/master-show-fw.out"
 	grep -q 'https://127.0.0.1:19527/v1/health' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q 'UDP 51820' "$GPS_TEST_PREFIX/master-show-fw.out"
+	grep -q 'WG 数据面' "$GPS_TEST_PREFIX/master-show-fw.out"
+}
+
+@test "mesh show member reports wg udp data plane firewall status" {
+	export PORT=43019
+	export UUID="00000000-0000-4000-8000-000000000118"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.21"
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="https://203.0.113.57:19527"
+	export MESH_CLUSTER_TOKEN="member-wg-token-0123456789"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_register_and_pull() { return 0; }
+	save_state
+	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/member-wg-fw.out" 2>&1
+	grep -q 'UDP 51820' "$GPS_TEST_PREFIX/member-wg-fw.out"
+	grep -q 'WG 数据面' "$GPS_TEST_PREFIX/member-wg-fw.out"
+	grep -q '云安全组' "$GPS_TEST_PREFIX/member-wg-fw.out"
 }
 
 _gps_curl_arg_after() {

@@ -383,6 +383,17 @@ gps_mesh_expose_control_plane() {
 	return 0
 }
 
+# Master / Member：放行 WG 数据面 UDP（幂等）
+gps_mesh_expose_wg_data_plane() {
+	gps_mesh_defaults 2>/dev/null || true
+	local port=${WG_LISTEN_PORT:-51820}
+	if gps_fw_allow_udp "$port" "geoproxy-mesh-wg"; then
+		return 0
+	fi
+	warn "未能放行 UDP ${port}（WG 数据面）。请手工放行本机防火墙，并在云安全组放行同一端口。"
+	return 0
+}
+
 # Master：监听地址 / 本机防火墙 / 云安全组（member 不打印招人端口）
 gps_mesh_print_control_plane_status() {
 	[[ ${MESH_ROLE:-} == master ]] || return 0
@@ -407,6 +418,25 @@ gps_mesh_print_control_plane_status() {
 	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 TCP ${port}，否则 Node 会 Connection timed out"
 }
 
+# Master / Member：WG 数据面 UDP 监听与防火墙（与控制面 TCP 19527 并列说明）
+gps_mesh_print_wg_data_plane_status() {
+	gps_mesh_defaults 2>/dev/null || true
+	local port=${WG_LISTEN_PORT:-51820}
+	local backend
+	backend=$(gps_fw_backend)
+	msg "  WG 数据面: 0.0.0.0:${port}/udp（WireGuard 隧道，供 mesh 节点互通；不是代理端口，也不是控制面 TCP ${MESH_MASTER_PORT:-19527}）"
+	if gps_fw_udp_allowed "$port"; then
+		if [[ $backend == none ]]; then
+			msg "  本机防火墙: 已放行 UDP ${port}（未检测到 ufw/firewalld/iptables/nft 活动规则；本机无防火墙可拦）"
+		else
+			msg "  本机防火墙: 已放行 UDP ${port}（${backend}）"
+		fi
+	else
+		msg "  本机防火墙: 未放行 UDP ${port}（${backend}）— WG 握手可能失败"
+	fi
+	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 UDP ${port}，否则 mesh 节点无法建立 WG 隧道"
+}
+
 # 打印成员加入命令（全部可用地址）；仅在实测 https 时附带公钥指纹
 gps_mesh_print_join_hints() {
 	[[ ${MESH_ROLE:-} == master ]] || return 0
@@ -428,6 +458,7 @@ gps_mesh_print_join_hints() {
 		msg "  GPS_MESH_MASTER=${u} ${pin_part}GPS_MESH_TOKEN=${MESH_CLUSTER_TOKEN} bash install.sh"
 	done < <(GPS_MESH_LIVE_SCHEME=$scheme gps_mesh_join_urls)
 	gps_mesh_print_control_plane_status
+	gps_mesh_print_wg_data_plane_status
 	# 与菜单 23 doctor 同款本机 health 一行，避免运维再手敲 curl
 	gps_mesh_print_local_health "$port" || true
 }

@@ -187,6 +187,7 @@ gps_doctor() {
 				warn_item "WG UDP :${WG_LISTEN_PORT} 未看到（服务未起）"
 			fi
 		fi
+		gps_mesh_print_wg_data_plane_status 2>/dev/null || true
 	fi
 	msg
 	msg "结果: ok=$ok fail=$fail"

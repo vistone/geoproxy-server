@@ -94,3 +94,38 @@ setup() {
 	gps_fw_tcp_allowed 19527
 	! gps_fw_tcp_allowed 443
 }
+
+@test "allow udp under test prefix records intent without calling host firewall" {
+	GPS_FW_LAST_ALLOW_UDP=""
+	GPS_FW_RAN=""
+	ufw() { GPS_FW_RAN=ufw; }
+	iptables() { GPS_FW_RAN=iptables; }
+	firewall-cmd() { GPS_FW_RAN=firewalld; }
+	nft() { GPS_FW_RAN=nft; }
+	gps_fw_allow_udp 51820 "geoproxy-mesh-wg"
+	[ "$GPS_FW_LAST_ALLOW_UDP" = "51820/udp" ]
+	[ -z "${GPS_FW_RAN:-}" ]
+}
+
+@test "allow udp with GPS_FW_FORCE dispatches to mocked ufw" {
+	have_cmd() {
+		[[ $1 == ufw ]] && return 0
+		type -P "$1" >/dev/null 2>&1
+	}
+	gps_fw_ufw_active() { return 0; }
+	GPS_FW_UFW_ARGS=""
+	ufw() {
+		GPS_FW_UFW_ARGS="$*"
+		return 0
+	}
+	GPS_FW_FORCE=1 gps_fw_allow_udp 51820 "geoproxy-mesh-wg"
+	[[ "$GPS_FW_UFW_ARGS" == *"51820/udp"* ]]
+}
+
+@test "udp allowed under test prefix follows last allow record" {
+	GPS_FW_LAST_ALLOW_UDP=""
+	! gps_fw_udp_allowed 51820
+	gps_fw_allow_udp 51820 "x"
+	gps_fw_udp_allowed 51820
+	! gps_fw_udp_allowed 443
+}

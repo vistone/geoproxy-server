@@ -176,6 +176,8 @@ gps_mesh_cmd_show() {
 	fi
 	if [[ ${MESH_ROLE:-} == master ]]; then
 		gps_mesh_print_join_hints
+	else
+		gps_mesh_print_wg_data_plane_status
 	fi
 	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
 	msg "  mesh-failover: ${MESH_FAILOVER:-0}  probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}"
