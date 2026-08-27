@@ -249,3 +249,182 @@ _member_doctor_setup() {
 	[[ "$output" == *"OK"* ]]
 	[[ "$output" == *"https://203.0.113.103:19527/v1/health"* ]]
 }
+
+_doctor_systemd_begin() {
+	have_cmd() { [[ $1 == systemctl ]]; }
+	_DOCTOR_SAVED_PREFIX=$GPS_TEST_PREFIX
+	GPS_TEST_PREFIX=
+	GPS_NO_SYSTEMD=0
+}
+
+_doctor_systemd_end() {
+	GPS_TEST_PREFIX=${_DOCTOR_SAVED_PREFIX:-}
+	GPS_NO_SYSTEMD=1
+	unset -f have_cmd systemctl 2>/dev/null || true
+}
+
+@test "doctor OK when geoproxy-agent enabled and active" {
+	export PORT=43401
+	export UUID="00000000-0000-4000-8000-00000000043401"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.201"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	save_state
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 0 ;;
+		"is-active --quiet geoproxy-agent.service") return 0 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[[ "$output" == *"OK"*"geoproxy-agent.service active"* ]]
+}
+
+@test "doctor FAILs inactive geoproxy-agent when unit enabled" {
+	export PORT=43402
+	export UUID="00000000-0000-4000-8000-00000000043402"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.202"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	save_state
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 0 ;;
+		"is-active --quiet geoproxy-agent.service") return 1 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"FAIL"* ]]
+	[[ "$output" == *"geoproxy-agent.service 未 active"* ]]
+	[[ "$output" == *"systemctl restart geoproxy-agent"* ]]
+}
+
+@test "doctor skips geoproxy-agent when unit not enabled" {
+	export PORT=43403
+	export UUID="00000000-0000-4000-8000-00000000043403"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.203"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	save_state
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 1 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[[ ! "$output" == *"geoproxy-agent.service active"* ]]
+	[[ ! "$output" == *"geoproxy-agent.service 未 active"* ]]
+}
+
+@test "doctor member OK when mesh-sync.timer enabled and active" {
+	_member_doctor_setup 43404
+	export MESH_MASTER_URL="https://203.0.113.204:19527"
+	export MESH_TLS_PIN="sha256//CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC="
+	save_state
+	curl() {
+		case "$1" in
+		https://*) return 0 ;;
+		esac
+		return 1
+	}
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 1 ;;
+		"is-enabled --quiet geoproxy-mesh-sync.timer") return 0 ;;
+		"is-active --quiet geoproxy-mesh-sync.timer") return 0 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[[ "$output" == *"OK"*"geoproxy-mesh-sync.timer active"* ]]
+}
+
+@test "doctor member FAILs inactive mesh-sync.timer when enabled" {
+	_member_doctor_setup 43405
+	export MESH_MASTER_URL="https://203.0.113.205:19527"
+	export MESH_TLS_PIN="sha256//DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD="
+	save_state
+	curl() { return 1; }
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 1 ;;
+		"is-enabled --quiet geoproxy-mesh-sync.timer") return 0 ;;
+		"is-active --quiet geoproxy-mesh-sync.timer") return 1 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[[ "$output" == *"FAIL"* ]]
+	[[ "$output" == *"geoproxy-mesh-sync.timer 未 active"* ]]
+	[[ "$output" == *"systemctl restart geoproxy-mesh-sync.timer"* ]]
+}
+
+@test "doctor master checks mesh-sync.timer when enabled" {
+	export PORT=43406
+	export UUID="00000000-0000-4000-8000-00000000043406"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.206"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="doctor-sync-timer-token"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	curl() {
+		case "$1" in
+		http://*) return 0 ;;
+		esac
+		return 1
+	}
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 1 ;;
+		"is-enabled --quiet geoproxy-mesh-sync.timer") return 0 ;;
+		"is-active --quiet geoproxy-mesh-sync.timer") return 0 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[[ "$output" == *"OK"*"geoproxy-mesh-sync.timer active"* ]]
+}

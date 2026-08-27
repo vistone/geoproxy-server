@@ -11,7 +11,10 @@ gps_disk_usage_pct() {
 }
 
 gps_doctor() {
-	local ok=0 fail=0
+	local ok=0 fail=0 drc=0 doctor_systemd_checks=0
+	if have_cmd systemctl && [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]]; then
+		doctor_systemd_checks=1
+	fi
 	check() {
 		local name=$1
 		shift
@@ -58,8 +61,14 @@ gps_doctor() {
 	else
 		msg "  $(_yellow SKIP) sing-box check（缺二进制或配置）"
 	fi
-	if have_cmd systemctl && [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]]; then
+	if ((doctor_systemd_checks)); then
 		check "服务 active" systemctl is-active --quiet "$GPS_SERVICE"
+		drc=0
+		_gps_doctor_systemd_active_if_enabled "${GPS_AGENT_SERVICE}.service" "${GPS_AGENT_SERVICE}.service" "${GPS_AGENT_SERVICE}" || drc=$?
+		case $drc in
+		0) ok=$((ok + 1)) ;;
+		1) fail=$((fail + 1)) ;;
+		esac
 	elif [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
 		check "sing-box 进程 (no-systemd)" gps_pid_running
 	fi
@@ -188,6 +197,14 @@ gps_doctor() {
 			fi
 		fi
 		gps_mesh_print_wg_data_plane_status 2>/dev/null || true
+		if ((doctor_systemd_checks)); then
+			drc=0
+			_gps_doctor_systemd_active_if_enabled "${GPS_MESH_SYNC_TIMER}" "${GPS_MESH_SYNC_TIMER}" "${GPS_MESH_SYNC_TIMER}" || drc=$?
+			case $drc in
+			0) ok=$((ok + 1)) ;;
+			1) fail=$((fail + 1)) ;;
+			esac
+		fi
 	fi
 	msg
 	msg "结果: ok=$ok fail=$fail"
@@ -196,4 +213,18 @@ gps_doctor() {
 
 need_systemd_ok() {
 	have_cmd systemctl
+}
+
+# 若 unit 已 enable 则检查 active；未 enable 则跳过。返回 0=OK 1=FAIL 2=SKIP
+_gps_doctor_systemd_active_if_enabled() {
+	local label=$1 unit=$2 restart_name=$3
+	if ! systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+		return 2
+	fi
+	if systemctl is-active --quiet "$unit" 2>/dev/null; then
+		msg "  $(_green OK)  ${label} active"
+		return 0
+	fi
+	msg "  $(_red FAIL) ${label} 未 active — 请: systemctl restart ${restart_name}"
+	return 1
 }

@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.55 - 2026-08-27
+
+增强：菜单 23 doctor 补充 agent 与 mesh-sync.timer 状态检查。
+
+- **geoproxy-agent.service**：unit 已 enable 时检查 active；未 active 提示 `systemctl restart geoproxy-agent`。
+- **geoproxy-mesh-sync.timer**：Master / Member 均检查（安装路径对两种角色均 enable timer）；未 active 提示 `systemctl restart geoproxy-mesh-sync.timer`。
+- unit 未 enable 时跳过（不 FAIL）；`load_state` 后仍沿用 doctor 入口时的 systemd 检查判定。
+
 ## v0.2.54 - 2026-08-27
 
 修正 http/https 文档与菜单示例一致性。
