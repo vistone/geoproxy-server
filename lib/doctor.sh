@@ -206,6 +206,21 @@ gps_doctor() {
 			esac
 		fi
 	fi
+	# Agent 监听安全（明文 HTTP）
+	local aenv=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
+	if [[ -f $aenv ]]; then
+		gps_source_env "$aenv" 2>/dev/null || true
+		local abind=${GPS_AGENT_BIND:-127.0.0.1} aport=${GPS_AGENT_PORT:-19528}
+		if [[ -n ${GPS_AGENT_TOKEN:-} ]]; then
+			if [[ $abind == 0.0.0.0 || $abind == "*" ]]; then
+				msg "  $(_red FAIL) agent 监听 ${abind}:${aport}/tcp（明文 HTTP 暴露公网；建议 change agent-bind 127.0.0.1）"
+				fail=$((fail + 1))
+			else
+				msg "  $(_green OK)  agent 监听 ${abind}:${aport}/tcp（本机）"
+				ok=$((ok + 1))
+			fi
+		fi
+	fi
 	msg
 	msg "结果: ok=$ok fail=$fail"
 	((fail == 0))

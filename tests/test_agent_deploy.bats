@@ -29,6 +29,7 @@ setup() {
 	grep -q "ExecStart=/usr/bin/env python3" "$GPS_AGENT_UNIT_PATH"
 	grep -q "GPS_AGENT_TOKEN" "$GPS_AGENT_ENV"
 	grep -q "GPS_AGENT_PORT" "$GPS_AGENT_ENV"
+	grep -q '^GPS_AGENT_BIND=127.0.0.1' "$GPS_AGENT_ENV"
 	check_perm_600 "$GPS_AGENT_ENV"
 	# 二次调用不覆盖既有 token
 	local tok
@@ -90,4 +91,26 @@ setup() {
 	local before=$tok_from_file
 	run gps_cmd_agent token
 	[[ "$output" == "$before" ]]
+}
+
+@test "change agent-bind updates env and keeps token" {
+	export PORT=43901
+	export UUID="00000000-0000-4000-8000-000000000901"
+	export PASSWORD="agent-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.91"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	save_state
+	gps_install_agent_units_files_only
+	local tok before
+	tok=$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)
+	gps_cmd_change agent-bind 0.0.0.0
+	grep -q '^GPS_AGENT_BIND=0.0.0.0' "$GPS_AGENT_ENV"
+	[ "$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)" = "$tok" ]
+	gps_cmd_change agent-bind 127.0.0.1
+	grep -q '^GPS_AGENT_BIND=127.0.0.1' "$GPS_AGENT_ENV"
 }

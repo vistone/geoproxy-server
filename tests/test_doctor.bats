@@ -428,3 +428,46 @@ _doctor_systemd_end() {
 	_doctor_systemd_end
 	[[ "$output" == *"OK"*"geoproxy-mesh-sync.timer active"* ]]
 }
+
+@test "doctor fails when agent binds 0.0.0.0 public" {
+	export PORT=43407
+	export UUID="00000000-0000-4000-8000-00000000043407"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.207"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="doctor-agent-bind-token"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	umask 077
+	{
+		printf 'GPS_AGENT_TOKEN=%s\n' "doctor-agent-bind-tok-0123456789"
+		printf 'GPS_AGENT_BIND=%s\n' "0.0.0.0"
+		printf 'GPS_AGENT_PORT=%s\n' "19528"
+	} >"$GPS_AGENT_ENV"
+	chmod 600 "$GPS_AGENT_ENV" 2>/dev/null || true
+	curl() {
+		case "$1" in
+		http://*) return 0 ;;
+		esac
+		return 1
+	}
+	_doctor_systemd_begin
+	systemctl() {
+		case "$*" in
+		"is-active --quiet geoproxy-tuic") return 0 ;;
+		"is-enabled --quiet geoproxy-agent.service") return 1 ;;
+		"is-enabled --quiet geoproxy-mesh-sync.timer") return 1 ;;
+		esac
+		return 0
+	}
+	run gps_doctor
+	_doctor_systemd_end
+	[[ "$output" == *"FAIL"* ]]
+	[[ "$output" == *"agent 监听 0.0.0.0"* ]]
+}

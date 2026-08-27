@@ -44,6 +44,7 @@ gps_menu() {
 		msg " 27) 设置 mesh-exit 跳板"
 		msg " 28) 卸载"
 		msg " 29) Agent 状态 / Token（v2rayA 节点池）"
+		msg " 30) Mesh 防火墙端口清单"
 		msg "  0) 退出"
 		msg "--------------------------------------------"
 		local c
@@ -157,6 +158,7 @@ gps_menu() {
 				msg "  完整 Token:  $(gps_cmd_agent token)"
 			fi
 			;;
+		30) gps_mesh_print_port_checklist || true ;;
 		0 | q | quit | exit) exit 0 ;;
 		*) warn "无效选项" ;;
 		esac

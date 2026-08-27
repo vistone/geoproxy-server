@@ -644,8 +644,27 @@ gps_cmd_change() {
 		msg "$(_green "检查间隔") → ${TRAFFIC_CHECK_SEC}s"
 		return 0
 		;;
+	agent-bind | agent_bind)
+		local addr=${1:-}
+		[[ -n $addr ]] || err "用法: change agent-bind <127.0.0.1|0.0.0.0|::1>"
+		gps_validate_single_line "$addr" || err "bind 地址非法"
+		case $addr in
+		127.0.0.1 | 0.0.0.0 | ::1 | localhost) ;;
+		*)
+			gps_validate_ipv4 "$addr" 2>/dev/null || err "agent-bind 需为 127.0.0.1、0.0.0.0、::1 或合法 IPv4"
+			;;
+		esac
+		GPS_AGENT_BIND=$addr
+		gps_agent_write_env_file
+		gps_install_agent_units
+		msg "$(_green "agent-bind") → ${GPS_AGENT_BIND}:${GPS_AGENT_PORT:-19528}"
+		if [[ $addr == 0.0.0.0 ]]; then
+			warn "0.0.0.0 将明文 HTTP 暴露公网；建议仅 v2rayA 同机时使用 127.0.0.1"
+		fi
+		return 0
+		;;
 	*)
-		err "用法: change port|uuid|passwd|protocol|profile|mesh-exit|mesh-failover|mesh-failover-probe|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
+		err "用法: change port|uuid|passwd|protocol|profile|mesh-exit|mesh-failover|mesh-failover-probe|agent-bind|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config
@@ -670,7 +689,7 @@ gps_cmd_agent() {
 			warn "未启用：$envf 缺失或 GPS_AGENT_TOKEN 为空"
 			return 0
 		fi
-		msg "  监听:   ${GPS_AGENT_BIND:-0.0.0.0}:${GPS_AGENT_PORT:-19528}"
+		msg "  监听:   ${GPS_AGENT_BIND:-127.0.0.1}:${GPS_AGENT_PORT:-19528}"
 		msg "  Token:  $(gps_mask_key "$GPS_AGENT_TOKEN")"
 		if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]] && have_cmd systemctl; then
 			if systemctl is-active --quiet geoproxy-agent.service 2>/dev/null; then
@@ -810,8 +829,8 @@ Usage: $GPS_NAME [command] [args...]
   status | start | stop | restart
   info | url | qr | log [--once]
   protocols
-  mesh ensure|show|export|import|sync|sync-master|peer|hop
-  change port|uuid|passwd|protocol|mesh-exit|mesh-master-host|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  mesh ensure|show|export|import|sync|sync-master|migrate-tls|token|peer|hop|port-checklist
+  change port|uuid|passwd|protocol|mesh-exit|mesh-master-host|agent-bind|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor

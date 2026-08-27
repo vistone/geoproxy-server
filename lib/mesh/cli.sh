@@ -38,6 +38,16 @@ gps_cmd_mesh() {
 	init) gps_mesh_cmd_init "$@" ;;
 	show | status) gps_mesh_cmd_show "$@" ;;
 	menu-role) gps_mesh_menu_role ;;
+	port-checklist | ports | firewall-ports) gps_mesh_print_port_checklist ;;
+	migrate-tls | migrate_tls) gps_mesh_migrate_tls "$@" ;;
+	token)
+		local top=${1:-}
+		shift || true
+		case $top in
+		rotate) gps_mesh_token_rotate ;;
+		*) err "用法: mesh token rotate" ;;
+		esac
+		;;
 	peer)
 		local op=${1:-}
 		shift || true
@@ -97,6 +107,9 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh role member <地址> <TOKEN>   # 本机加入为 Node
   mesh join <地址> <TOKEN> # 同上
   mesh join-export         # Master：导出 join.cmd 路径与脱敏预览
+  mesh port-checklist      # 防火墙端口清单（Master/Member checklist）
+  mesh migrate-tls [join]  # Member：修复 http/PIN/连通性（可粘贴 join 整行）
+  mesh token rotate        # Master：轮换集群 TOKEN（Member 须重 join）
   mesh export | import | sync <url-or-file>
   mesh peer add|rm ...
   mesh hop <json-file|none>

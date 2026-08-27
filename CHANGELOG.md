@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.57 - 2026-08-27
+
+四项 backlog：Mesh 端口清单、Member TLS 修复、TOKEN 轮换、Agent 安全 bind。
+
+- **菜单 30 / mesh port-checklist**：按 Master/Member 角色输出可复制防火墙端口清单（控制面 TCP 19527、WG UDP 51820、代理 UDP PORT、Agent TCP 19528、云 SG 提示）；复用 `gps_mesh_print_*` 与防火墙状态。
+- **mesh migrate-tls / 菜单 26→3**：Member 检测公网 http、https 缺 PIN、Master 不可达；引导粘贴 join.cmd 整行修复 URL/PIN/TOKEN 并 `sync-master`。
+- **mesh token rotate / 菜单 26→4**：仅 Master；生成新 `MESH_CLUSTER_TOKEN` 写 `master.env` 并 restart mesh-master，旧 TOKEN 立即失效；刷新 join.cmd（0600）与控制台脱敏。
+- **change agent-bind**：新装默认 `GPS_AGENT_BIND=127.0.0.1`；菜单/CLI 改 bind 后 restart geoproxy-agent；doctor FAIL 公网 `0.0.0.0:19528` 明文 Agent；仅 0.0.0.0 时本机防火墙放行 19528。
+
 ## v0.2.56 - 2026-08-27
 
 增强：Master 侧 mesh join 命令落盘与 TOKEN 脱敏展示。

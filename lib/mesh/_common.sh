@@ -437,6 +437,192 @@ gps_mesh_print_wg_data_plane_status() {
 	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 UDP ${port}，否则 mesh 节点无法建立 WG 隧道"
 }
 
+# Agent 是否已配置（agent.env 含 token）
+gps_mesh_agent_enabled() {
+	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
+	[[ -f $envf ]] || return 1
+	local tok
+	tok=$(grep -E '^GPS_AGENT_TOKEN=' "$envf" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]')
+	[[ -n $tok ]]
+}
+
+# Agent 监听与防火墙（port checklist / doctor 复用）
+gps_mesh_print_agent_port_status() {
+	gps_mesh_agent_enabled || return 0
+	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
+	gps_source_env "$envf" 2>/dev/null || true
+	local bind=${GPS_AGENT_BIND:-127.0.0.1} port=${GPS_AGENT_PORT:-19528} backend
+	backend=$(gps_fw_backend)
+	msg "  Agent: ${bind}:${port}/tcp（明文 HTTP，v2rayA 节点池；非 mesh 控制面 ${MESH_MASTER_PORT:-19527}）"
+	if [[ $bind == 127.0.0.1 || $bind == ::1 ]]; then
+		msg "  本机防火墙: 仅本机 ${bind}，通常无需云 SG 放行"
+		return 0
+	fi
+	if [[ $bind == 0.0.0.0 || $bind == "*" ]]; then
+		if gps_fw_tcp_allowed "$port"; then
+			if [[ $backend == none ]]; then
+				msg "  本机防火墙: 已放行 TCP ${port}（未检测到活动防火墙）"
+			else
+				msg "  本机防火墙: 已放行 TCP ${port}（${backend}）"
+			fi
+		else
+			msg "  本机防火墙: 未放行 TCP ${port}（${backend}）— v2rayA 远程可能连不上"
+		fi
+		msg "  云安全组: 若需远程访问 Agent，请放行 TCP ${port}（明文 HTTP，建议改 bind 127.0.0.1 + SSH 隧道）"
+	fi
+}
+
+# 结构化端口清单（运维 checklist；Master / Member 按角色区分）
+gps_mesh_print_port_checklist() {
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize 2>/dev/null || true
+	gps_mesh_defaults 2>/dev/null || true
+	local role=${MESH_ROLE:-?} proxy=${PORT:-?} mport=${MESH_MASTER_PORT:-19527} wg=${WG_LISTEN_PORT:-51820}
+	msg "$(_cyan "=== Mesh 防火墙端口清单（可复制 checklist）===")"
+	msg "角色: ${role}  协议: ${PROTOCOL:-tuic}  生成: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	msg "--------------------------------------------"
+	msg "[ ] UDP ${proxy}/udp — 代理入站（GeoProxy 客户端连此端口，非 mesh）"
+	if [[ -n ${PORT:-} ]]; then
+		local backend
+		backend=$(gps_fw_backend)
+		if gps_fw_udp_allowed "$PORT"; then
+			msg "    本机: 已放行（${backend}）"
+		else
+			msg "    本机: 未放行（${backend}）"
+		fi
+		msg "    云 SG: 放行 UDP ${proxy}"
+	fi
+	msg "[ ] UDP ${wg}/udp — WireGuard mesh 数据面（节点间隧道）"
+	gps_mesh_print_wg_data_plane_status 2>/dev/null || true
+	if [[ $role == master ]]; then
+		msg "[ ] TCP ${mport}/tcp — mesh 控制面（供 Member 注册/拉 peers；非代理 ${proxy}）"
+		gps_mesh_print_control_plane_status 2>/dev/null || true
+	else
+		msg "[ ] 出站到 Master TCP ${mport} — Member 无需在本机监听控制面"
+		msg "    Master URL: ${MESH_MASTER_URL:-（未设置）}"
+		msg "    若连不上：到 Master 确认 TCP ${mport} 已放行（本机防火墙 + 云 SG）"
+	fi
+	if gps_mesh_agent_enabled; then
+		msg "[ ] TCP ${GPS_AGENT_PORT:-19528}/tcp — Agent（若启用）"
+		gps_mesh_print_agent_port_status 2>/dev/null || true
+	fi
+	msg "--------------------------------------------"
+	msg "云安全组需在各云控制台手工放行；本脚本仅管理本机 ufw/firewalld/iptables/nft。"
+}
+
+# Member：检测 TLS/连通性问题（stdout 每行一个 issue 标签；返回 issue 数）
+gps_mesh_migrate_tls_detect() {
+	local n=0
+	[[ ${MESH_ROLE:-} == member ]] || return 0
+	[[ -n ${MESH_MASTER_URL:-} ]] || {
+		printf '%s\n' "no_master_url"
+		return 1
+	}
+	if [[ ${MESH_MASTER_URL} == http://* ]]; then
+		local mhost
+		mhost=$(gps_mesh_url_host "$MESH_MASTER_URL")
+		if ! gps_mesh_url_is_loopback "$mhost"; then
+			printf '%s\n' "http_public"
+			n=$((n + 1))
+		fi
+	fi
+	if [[ ${MESH_MASTER_URL} == https://* && -z ${MESH_TLS_PIN:-} ]]; then
+		printf '%s\n' "https_no_pin"
+		n=$((n + 1))
+	fi
+	local health_url="${MESH_MASTER_URL%/}/v1/health"
+	if have_cmd curl; then
+		local rc=0
+		GPS_MESH_CURL_MAX_TIME=3 GPS_MESH_CURL_CONNECT_TIMEOUT=${GPS_MESH_CURL_CONNECT_TIMEOUT:-2} \
+			gps_mesh_curl "$health_url" -o /dev/null >/dev/null 2>&1 || rc=$?
+		if [[ $rc -ne 0 ]]; then
+			printf '%s\n' "master_unreachable"
+			n=$((n + 1))
+		fi
+	else
+		printf '%s\n' "no_curl"
+		n=$((n + 1))
+	fi
+	return "$n"
+}
+
+# Member：交互式修复 TLS/连通性（可传入 join 整行非交互）
+gps_mesh_migrate_tls() {
+	local join_line=${1:-}
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize
+	[[ ${MESH_ROLE:-} == member ]] || err "migrate-tls 仅 Member 可执行"
+	gps_mesh_defaults
+	local -a issues=()
+	local issue
+	while IFS= read -r issue; do
+		[[ -n $issue ]] && issues+=("$issue")
+	done < <(gps_mesh_migrate_tls_detect || true)
+	if ((${#issues[@]} == 0)); then
+		msg "$(_green "无需修复") Master URL / TLS 钉扎 / 连通性正常"
+		return 0
+	fi
+	msg "$(_cyan "检测到问题"):"
+	for issue in "${issues[@]}"; do
+		case $issue in
+		http_public) msg "  - 公网明文 http Master（应改用 https + PIN）" ;;
+		https_no_pin) msg "  - https Master 缺少 MESH_TLS_PIN" ;;
+		master_unreachable)
+			msg "  - 无法访问 Master /v1/health（防火墙 / 云 SG / 地址错误）"
+			;;
+		no_master_url) msg "  - 未设置 MESH_MASTER_URL" ;;
+		no_curl) msg "  - 无 curl，无法探测" ;;
+		*) msg "  - $issue" ;;
+		esac
+	done
+	if [[ -z $join_line && -t 0 ]]; then
+		msg ""
+		msg "请粘贴 Master 上 ${GPS_MESH_JOIN_CMD:-join.cmd} 的整行，或 mesh show 打印的 join 命令:"
+		msg "  GPS_MESH_MASTER=https://... GPS_MESH_TLS_PIN=sha256//... GPS_MESH_TOKEN=... bash install.sh"
+		printf '%s' "粘贴整行（空=取消）: "
+		read -r join_line
+	fi
+	if [[ -z $join_line ]]; then
+		warn "未提供 join 命令，无法自动修复。"
+		msg "下一步:"
+		msg "  1) 到 Master 菜单 25 / mesh join-export 获取 join.cmd"
+		msg "  2) 确认 Master 云安全组已放行 TCP ${MESH_MASTER_PORT:-19527}"
+		msg "  3) 重试: geoproxy-server mesh migrate-tls"
+		return 1
+	fi
+	gps_mesh_become_member "$join_line" ""
+	GPS_MESH_SYNC_RESTART=1 gps_mesh_sync_master
+	msg "$(_green "migrate-tls 完成") 已更新 Master URL / TLS PIN / TOKEN 并 sync-master"
+}
+
+# Master：轮换集群 TOKEN（旧 token 立即失效；Member 须重新 join）
+gps_mesh_token_rotate() {
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize
+	[[ ${MESH_ROLE:-} == master ]] || err "token rotate 仅 Master 可执行"
+	if [[ -t 0 && ${GPS_MESH_TOKEN_ROTATE_YES:-} != 1 ]]; then
+		msg "$(_yellow "警告") 轮换后所有 Member 必须用新 join 命令重新加入。"
+		confirm_yes "确认轮换集群 TOKEN?" || err "已取消"
+	fi
+	local old=${MESH_CLUSTER_TOKEN:-}
+	if have_cmd openssl; then
+		MESH_CLUSTER_TOKEN=$(openssl rand -hex 24)
+	else
+		MESH_CLUSTER_TOKEN=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+	fi
+	gps_mesh_ensure_dirs
+	umask 077
+	printf '%s\n' "$MESH_CLUSTER_TOKEN" >"$GPS_MESH_TOKEN_FILE"
+	chmod 600 "$GPS_MESH_TOKEN_FILE" 2>/dev/null || true
+	save_state
+	gps_install_mesh_units 2>/dev/null || true
+	gps_mesh_write_join_cmd
+	msg "$(_green "集群 TOKEN 已轮换")"
+	[[ -n $old ]] && msg "  旧 TOKEN: $(gps_mesh_mask_token "$old")（已失效）"
+	msg "  新 TOKEN: $(gps_mesh_mask_token "$MESH_CLUSTER_TOKEN")"
+	gps_mesh_join_export
+}
+
 # 控制台打印时对集群 TOKEN 脱敏（前 8 字符 + ********）
 gps_mesh_mask_token() {
 	local k=${1:-}
@@ -696,6 +882,10 @@ gps_mesh_menu_role() {
 	msg "  当前: MESH_ROLE=${MESH_ROLE:-?}  Master=${show_url}"
 	msg "  1) 本机作为 Master（其它机器来加入）"
 	msg "  2) 本机作为 Node（加入已有 Master）"
+	msg "  3) Member：TLS/连通性修复 (migrate-tls)"
+	if [[ ${MESH_ROLE:-} == master ]]; then
+		msg "  4) Master：轮换集群 TOKEN（Member 须重 join）"
+	fi
 	msg "  0) 返回"
 	local c
 	printf '%s' "请选择: "
@@ -718,6 +908,16 @@ gps_mesh_menu_role() {
 			printf '%s' "集群 TOKEN: "
 			read -r token
 			gps_mesh_become_member "$line" "$token"
+		fi
+		;;
+	3)
+		gps_mesh_migrate_tls
+		;;
+	4)
+		if [[ ${MESH_ROLE:-} == master ]]; then
+			gps_mesh_token_rotate
+		else
+			warn "无效选项"
 		fi
 		;;
 	0 | "") ;;

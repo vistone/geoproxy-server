@@ -127,20 +127,36 @@ gps_remove_mesh_units() {
 # ---------- geoagent（v2rayA 节点池上报/控制面 :19528） ----------
 
 # 仅写 unit 文件 + 生成/保留 token（测试前缀 / no-systemd 也调用）
+gps_agent_write_env_file() {
+	local envf="${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}"
+	local tok=${GPS_AGENT_TOKEN:-} bind=${GPS_AGENT_BIND:-127.0.0.1} port=${GPS_AGENT_PORT:-19528}
+	local want_bind=${GPS_AGENT_BIND:-} want_port=${GPS_AGENT_PORT:-}
+	if [[ -f $envf ]]; then
+		gps_source_env "$envf" 2>/dev/null || true
+		tok=${GPS_AGENT_TOKEN:-$tok}
+		bind=${GPS_AGENT_BIND:-$bind}
+		port=${GPS_AGENT_PORT:-$port}
+	fi
+	[[ -n $want_bind ]] && bind=$want_bind
+	[[ -n $want_port ]] && port=$want_port
+	[[ -n $tok ]] || tok=$(openssl rand -hex 24 2>/dev/null || head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+	umask 077
+	mkdir -p "$(dirname "$envf")"
+	{
+		printf 'GPS_AGENT_TOKEN=%s\n' "$tok"
+		printf 'GPS_AGENT_BIND=%s\n' "$bind"
+		printf 'GPS_AGENT_PORT=%s\n' "$port"
+	} >"$envf"
+	chmod 600 "$envf" 2>/dev/null || true
+	GPS_AGENT_TOKEN=$tok
+	GPS_AGENT_BIND=$bind
+	GPS_AGENT_PORT=$port
+}
+
 gps_install_agent_units_files_only() {
 	local tpl="${GPS_TMPL}/geoproxy-agent.service"
 	local envf="${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}"
-	# 生成/保留 agent token（0600；不进 argv）
-	if [[ ! -f $envf ]]; then
-		umask 077
-		mkdir -p "$(dirname "$envf")"
-		{
-			printf 'GPS_AGENT_TOKEN=%s\n' "$(openssl rand -hex 24)"
-			printf 'GPS_AGENT_BIND=%s\n' "${GPS_AGENT_BIND:-0.0.0.0}"
-			printf 'GPS_AGENT_PORT=%s\n' "${GPS_AGENT_PORT:-19528}"
-		} >"$envf"
-	fi
-	chmod 600 "$envf" 2>/dev/null || true
+	gps_agent_write_env_file
 	[[ -f $tpl && -n ${GPS_AGENT_UNIT_PATH:-} ]] || return 0
 	mkdir -p "$(dirname "$GPS_AGENT_UNIT_PATH")" 2>/dev/null || true
 	local bin=${GPS_BIN_LINK:-/usr/local/bin/geoproxy-server}
@@ -163,13 +179,16 @@ gps_install_agent_units() {
 	systemctl daemon-reload 2>/dev/null || true
 	if systemctl enable geoproxy-agent.service >/dev/null 2>&1 &&
 		systemctl restart geoproxy-agent.service >/dev/null 2>&1; then
-		msg "$(_cyan "agent") 已启用（${GPS_AGENT_BIND:-0.0.0.0}:${GPS_AGENT_PORT:-19528}/tcp，v2rayA 节点池上报）"
+		msg "$(_cyan "agent") 已启用（${GPS_AGENT_BIND:-127.0.0.1}:${GPS_AGENT_PORT:-19528}/tcp，v2rayA 节点池上报）"
 	else
 		warn "agent restart 失败；请手动: systemctl restart geoproxy-agent"
 		msg "$(_cyan "agent") unit 已写入"
 	fi
-	# 防火墙放行（活动的 ufw → firewalld → iptables → nft；云厂商安全组需控制台放行）
-	gps_fw_allow_tcp "${GPS_AGENT_PORT:-19528}" "geoproxy-agent" 2>/dev/null || true
+	# 仅 0.0.0.0 对外监听时放行防火墙；127.0.0.1 默认无需云 SG
+	gps_source_env "${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}" 2>/dev/null || true
+	if [[ ${GPS_AGENT_BIND:-127.0.0.1} == 0.0.0.0 || ${GPS_AGENT_BIND:-} == "*" ]]; then
+		gps_fw_allow_tcp "${GPS_AGENT_PORT:-19528}" "geoproxy-agent" 2>/dev/null || true
+	fi
 }
 
 gps_remove_agent_units() {

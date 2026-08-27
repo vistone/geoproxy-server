@@ -700,3 +700,144 @@ _gps_curl_arg_after() {
 	[[ "$output" == *600* ]]
 	[[ "$output" == *ab742daa********* ]]
 }
+
+@test "mesh port-checklist shows role-specific ports" {
+	export PORT=43024
+	export UUID="00000000-0000-4000-8000-000000000123"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.62"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="checklist-token-0123456789"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	run gps_mesh_print_port_checklist
+	[ "$status" -eq 0 ]
+	[[ "$output" == *checklist* ]]
+	[[ "$output" == *UDP\ 43024* ]]
+	[[ "$output" == *19527* ]]
+	[[ "$output" == *51820* ]]
+	[[ "$output" == *控制面* ]]
+}
+
+@test "member migrate-tls detects http public and fixes from join line" {
+	export PORT=43025
+	export UUID="00000000-0000-4000-8000-000000000124"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="198.51.100.25"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="migrate-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	local mport pin join_line
+	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	MESH_CLUSTER_TOKEN=migrate-token-0123456789ab GPS_MESH_PEERS="$GPS_MESH_PEERS" \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-migrate.log" 2>&1 </dev/null 3>&- 4>&- &
+	local mpid=$!
+	local i
+	for i in $(seq 1 20); do
+		curl -fsS --max-time 1 -k "https://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
+		sleep 0.2
+	done
+	pin=$(tr -d '[:space:]' <"$GPS_MESH_TLS_FP")
+	join_line="GPS_MESH_MASTER=https://127.0.0.1:${mport} GPS_MESH_TLS_PIN=${pin} GPS_MESH_TOKEN=migrate-token-0123456789ab bash install.sh"
+
+	export MESH_ROLE=member
+	export MESH_MASTER_URL="http://198.51.100.1:${mport}"
+	export MESH_CLUSTER_TOKEN="old-wrong-token-0123456789"
+	export MESH_TLS_PIN=""
+	save_state
+	run gps_mesh_migrate_tls_detect
+	[ "$status" -ne 0 ]
+	[[ "$output" == *http_public* ]]
+
+	gps_restart_svc() { :; }
+	curl() {
+		command curl "$@"
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_migrate_tls "$join_line"
+	[[ "$MESH_MASTER_URL" == https://127.0.0.1:${mport} ]]
+	[[ "$MESH_TLS_PIN" == "$pin" ]]
+	[[ "$MESH_CLUSTER_TOKEN" == migrate-token-0123456789ab ]]
+
+	kill -TERM "$mpid" >/dev/null 2>&1 || true
+	kill -KILL "$mpid" >/dev/null 2>&1 || true
+}
+
+@test "master token rotate invalidates old token on register API" {
+	export PORT=43026
+	export UUID="00000000-0000-4000-8000-000000000125"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.63"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="rotate-old-token-0123456789ab"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	local mport old_tok
+	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	old_tok=$MESH_CLUSTER_TOKEN
+	MESH_CLUSTER_TOKEN=$old_tok GPS_MESH_PEERS="$GPS_MESH_PEERS" \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-rotate.log" 2>&1 </dev/null 3>&- 4>&- &
+	local mpid=$!
+	local i
+	for i in $(seq 1 20); do
+		curl -fsS --max-time 1 -k "https://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
+		sleep 0.2
+	done
+
+	GPS_MESH_TOKEN_ROTATE_YES=1 gps_mesh_token_rotate >/dev/null
+	local new_tok
+	new_tok=$(tr -d '[:space:]' <"$GPS_MESH_TOKEN_FILE")
+	[[ "$new_tok" != "$old_tok" ]]
+	grep -q "^MESH_CLUSTER_TOKEN=${new_tok}$" "$GPS_MESH_ENV"
+
+	kill -TERM "$mpid" >/dev/null 2>&1 || true
+	kill -KILL "$mpid" >/dev/null 2>&1 || true
+	MESH_CLUSTER_TOKEN=$new_tok GPS_MESH_PEERS="$GPS_MESH_PEERS" \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-rotate2.log" 2>&1 </dev/null 3>&- 4>&- &
+	mpid=$!
+	for i in $(seq 1 20); do
+		curl -fsS --max-time 1 -k "https://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
+		sleep 0.2
+	done
+
+	local code
+	code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 -k \
+		-H "Authorization: Bearer ${old_tok}" \
+		-H "Content-Type: application/json" \
+		-d '{"node_id":"t-old","public_key":"PkOld=","endpoint":""}' \
+		"https://127.0.0.1:${mport}/v1/register")
+	[ "$code" = "401" ]
+	code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 -k \
+		-H "Authorization: Bearer ${new_tok}" \
+		-H "Content-Type: application/json" \
+		-d '{"node_id":"t-new","public_key":"PkNew=","endpoint":""}' \
+		"https://127.0.0.1:${mport}/v1/register")
+	[ "$code" = "200" ]
+	[ -f "$GPS_MESH_JOIN_CMD" ]
+	check_perm_600 "$GPS_MESH_JOIN_CMD"
+	grep -q "$new_tok" "$GPS_MESH_JOIN_CMD"
+
+	kill -TERM "$mpid" >/dev/null 2>&1 || true
+	kill -KILL "$mpid" >/dev/null 2>&1 || true
+}

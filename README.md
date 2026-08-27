@@ -108,7 +108,7 @@ geoproxy-server change traffic-interval 300
 
 ## 上报 Agent（v2rayA 节点池）
 
-随主服务安装默认启用 `geoproxy-agent.service`（监听 `0.0.0.0:19528/tcp`，Bearer Token 鉴权），
+随主服务安装默认启用 `geoproxy-agent.service`（默认监听 `127.0.0.1:19528/tcp`，Bearer Token 鉴权；需远程访问时用 `change agent-bind 0.0.0.0`），
 供 v2rayA 客户端"节点池"功能轮询流量状态与远程控制：
 
 - 契约：[`docs/geoproxy-agent-api.md`](./docs/geoproxy-agent-api.md)
@@ -117,6 +117,7 @@ geoproxy-server change traffic-interval 300
 ```
 geoproxy-server agent
 geoproxy-server agent token
+geoproxy-server change agent-bind 127.0.0.1   # 默认仅本机；0.0.0.0 会 doctor FAIL
 ```
 
 - 旧版升级后 agent 未就绪时执行 `geoproxy-server agent ensure`（幂等重建凭证与单元；`upgrade` 已自动调用）。
@@ -172,6 +173,9 @@ GPS_MESH_MASTER=https://MASTER_IP:19527 GPS_MESH_TLS_PIN=sha256//... GPS_MESH_TO
 
 # 排障
 geoproxy-server mesh show
+geoproxy-server mesh port-checklist   # 防火墙端口清单（菜单 30）
+geoproxy-server mesh migrate-tls        # Member：修复 http/PIN/连通性
+geoproxy-server mesh token rotate       # Master：轮换集群 TOKEN
 geoproxy-server mesh export
 
 # 可选：指定 L3 出口跳板
