@@ -859,24 +859,19 @@ _gps_curl_arg_after() {
 		--overlay-ip 10.66.0.2 --endpoint 203.0.113.59:51820
 	gps_write_config
 	save_state
-	ping() {
-		local a
-		for a in "$@"; do
-			[[ $a == 10.66.0.2 ]] && return 0
-		done
-		return 1
-	}
-	export -f ping
+	gps_mesh_probe_udp_endpoint() { [[ ${1:-} == *203.0.113.59* ]]; }
+	gps_mesh_wg_socket_bytes() { echo "1024 2048"; }
+	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes
 	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/show-conn.out" 2>&1
 	grep -q '组网连通性摘要' "$GPS_TEST_PREFIX/show-conn.out"
-	grep -q '不等于 WG 隧道已打通' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q '10.66.0.x' "$GPS_TEST_PREFIX/show-conn.out"
 	grep -q '登记节点:' "$GPS_TEST_PREFIX/show-conn.out"
 	grep -q 'WG 配置 peer 数: 1' "$GPS_TEST_PREFIX/show-conn.out"
-	grep -q 'ping 10.66.0.2' "$GPS_TEST_PREFIX/show-conn.out"
-	grep -q '隧道可能正常' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q '203.0.113.59:51820' "$GPS_TEST_PREFIX/show-conn.out"
+	grep -q '数据面可能流通' "$GPS_TEST_PREFIX/show-conn.out"
 }
 
-@test "mesh connectivity ping fail hints udp 51820" {
+@test "mesh connectivity endpoint fail hints udp 51820" {
 	export PORT=43021
 	export UUID="00000000-0000-4000-8000-000000000120"
 	export PASSWORD="mesh-pass"
@@ -909,14 +904,15 @@ p.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf
 PY
 	gps_write_config
 	save_state
-	ping() { return 1; }
-	export -f ping
+	gps_mesh_probe_udp_endpoint() { return 1; }
+	gps_mesh_wg_socket_bytes() { return 1; }
+	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes
 	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-fail.out" 2>&1
-	grep -q '仅控制面在线、隧道可能未通' "$GPS_TEST_PREFIX/conn-fail.out"
+	grep -q '公网 UDP 不可达' "$GPS_TEST_PREFIX/conn-fail.out"
 	grep -q 'UDP 51820' "$GPS_TEST_PREFIX/conn-fail.out"
 }
 
-@test "mesh connectivity skips ping when no command" {
+@test "mesh connectivity skips probe when no peer" {
 	export PORT=43022
 	export UUID="00000000-0000-4000-8000-000000000121"
 	export PASSWORD="mesh-pass"

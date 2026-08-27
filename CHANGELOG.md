@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.60 - 2026-08-27
+
+增强：组网连通性摘要改用公网 UDP 与 WG 流量显示，不再依赖 overlay ping。
+
+- **overlay 说明**：明确 `10.66.0.x` 为隧道内地址；本机 overlay 用颜色标出。
+- **数据面探测**：对在线节点公网 `endpoint:51820` 做 UDP 可达性探测（IPv4/IPv6），绿/红/黄显示；注明勿用内核 `ping 10.66.x` 判断 userspace WG。
+- **WG 流量**：读取本机 sing-box UDP 51820 的 `bytes_sent/received`（ss）与近期 wireguard 日志条数，有动静则绿色「有流量」。
+- **判定**：公网 UDP 可达 + WG 有流量/日志 → 绿色「10.66.0.0/16 数据面可能流通」。
+
 ## v0.2.59 - 2026-08-27
 
 增强：菜单 25 `mesh show` 与 doctor 增加「组网连通性摘要」。

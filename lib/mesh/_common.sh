@@ -437,20 +437,101 @@ gps_mesh_print_wg_data_plane_status() {
 	msg "  云安全组: 脚本无法修改；请在云控制台同样放行 UDP ${port}，否则 mesh 节点无法建立 WG 隧道"
 }
 
-# mesh show / doctor：登记心跳 vs WG 配置 vs overlay 轻量探测（ping 最多 2 个在线对端）
+# 解析 peers endpoint：host port（支持 [v6]:port）
+gps_mesh_parse_endpoint() {
+	local ep=$1
+	python3 - "$ep" <<'PY'
+import sys
+ep = (sys.argv[1] or "").strip()
+if not ep:
+    raise SystemExit(1)
+if ep.startswith("["):
+    i = ep.rfind("]:")
+    if i < 0:
+        raise SystemExit(1)
+    host, port = ep[1:i], ep[i + 2 :]
+else:
+    host, _, port = ep.rpartition(":")
+if not host or not port.isdigit():
+    raise SystemExit(1)
+print(host)
+print(port)
+PY
+}
+
+# 公网 UDP 探测（WG 数据面；非 overlay ping）
+gps_mesh_probe_udp_endpoint() {
+	local ep=$1
+	local host port
+	[[ -n $ep ]] || return 1
+	host=$(gps_mesh_parse_endpoint "$ep" 2>/dev/null | sed -n '1p') || return 1
+	port=$(gps_mesh_parse_endpoint "$ep" 2>/dev/null | sed -n '2p') || return 1
+	local tout=2
+	[[ -n ${GPS_TEST_PREFIX:-} ]] && tout=0
+	python3 - "$host" "$port" "$tout" <<'PY'
+import socket, sys
+host, port, tout = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+for af in (socket.AF_INET, socket.AF_INET6):
+    try:
+        s = socket.socket(af, socket.SOCK_DGRAM)
+        s.settimeout(tout)
+        s.sendto(b"\x00", (host, port))
+        s.close()
+        raise SystemExit(0)
+    except OSError:
+        continue
+raise SystemExit(1)
+PY
+}
+
+# sing-box WG listen 口 UDP 累计字节（本机 51820 是否有动静）
+gps_mesh_wg_socket_bytes() {
+	local wg_port=${WG_LISTEN_PORT:-51820}
+	local ssline
+	ssline=$(ss -H -u -i "sport = :${wg_port}" 2>/dev/null | head -1)
+	[[ -n $ssline ]] || return 1
+	python3 - "$ssline" <<'PY'
+import re, sys
+line = sys.argv[1]
+sent = recv = 0
+m = re.search(r"bytes_sent:(\d+)", line)
+if m:
+    sent = int(m.group(1))
+m = re.search(r"bytes_received:(\d+)", line)
+if m:
+    recv = int(m.group(1))
+if sent == 0 and recv == 0:
+    m = re.search(r"\bb(\d+)\b", line)
+    if m:
+        recv = int(m.group(1))
+print(f"{sent} {recv}")
+PY
+}
+
+# 近期 sing-box 日志中 wireguard 相关行数（流量/握手动静）
+gps_mesh_wg_log_recent_count() {
+	local logf=${GPS_LOG:-}
+	local n=${1:-80}
+	[[ -f $logf ]] || return 1
+	tail -n "$n" "$logf" 2>/dev/null | grep -ciE 'wireguard|wg-ep' || true
+}
+
+# mesh show / doctor：登记心跳 vs WG 配置 vs 公网 UDP 数据面（非 overlay ping）
 gps_mesh_print_connectivity_summary() {
 	gps_mesh_role_normalize 2>/dev/null || true
 	gps_mesh_defaults 2>/dev/null || true
 	gps_mesh_ensure_node_id 2>/dev/null || true
 	local wg_port=${WG_LISTEN_PORT:-51820}
 	msg "  $(_cyan "组网连通性摘要"):"
-	msg "    说明: 「在线」= Master 控制面收到心跳；不等于 WG 隧道已打通，请看待测结果。"
+	msg "    说明: 「在线」= Master 心跳；$(_cyan "10.66.0.x") = 隧道内 overlay（非公网）。数据面走 公网 UDP ${wg_port} → 隧道内 overlay。"
+	local my_overlay=${MESH_OVERLAY_IP:-?}
+	msg "    本机 overlay: $(_cyan "${my_overlay}")（经 wg-ep；流量在 ${MESH_OVERLAY_PREFIX:-10.66.0.0/16} 内路由）"
 	if [[ ! -f ${GPS_MESH_PEERS:-} ]] || ! have_cmd python3; then
 		msg "    （无 peers 文件或 python3，跳过统计）"
 		return 0
 	fi
 	local stats total=0 alive=0 wg_peers="?"
-	local -a targets=()
+	local -a peer_lines=()
 	stats=$(
 		NODE_ID="${NODE_ID:-}" MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
 			GPS_CONFIG="${GPS_CONFIG:-}" python3 - "$GPS_MESH_PEERS" <<'PY'
@@ -487,9 +568,10 @@ for n in nodes:
     if alive(n):
         alive_n += 1
         overlay = (n.get("overlay_ip") or "").split("/")[0]
+        endpoint = (n.get("endpoint") or "").strip()
         if overlay:
             priority = 0 if overlay == "10.66.0.1" else 1
-            candidates.append((priority, overlay, nid))
+            candidates.append((priority, overlay, endpoint, nid))
 candidates.sort()
 wg_peers = "?"
 if config_path:
@@ -505,8 +587,8 @@ if config_path:
 print(f"TOTAL={total}")
 print(f"ALIVE={alive_n}")
 print(f"WG_PEERS={wg_peers}")
-for _, overlay, nid in candidates[:2]:
-    print(f"TARGET={overlay}|{nid}")
+for _, overlay, endpoint, nid in candidates[:3]:
+    print(f"PEER={overlay}|{endpoint}|{nid}")
 PY
 	) || {
 		msg "    （无法解析 peers）"
@@ -517,9 +599,8 @@ PY
 		TOTAL=*) total=${line#TOTAL=} ;;
 		ALIVE=*) alive=${line#ALIVE=} ;;
 		WG_PEERS=*) wg_peers=${line#WG_PEERS=} ;;
-		TARGET=*)
-			local t=${line#TARGET=}
-			targets+=("$t")
+		PEER=*)
+			peer_lines+=("${line#PEER=}")
 			;;
 		esac
 	done <<<"$stats"
@@ -529,37 +610,55 @@ PY
 	else
 		msg "    WG 配置 peer 数: ${wg_peers}（sing-box config.json；通常仅含心跳在线节点）"
 	fi
-	local probe_ok=0 probe_fail=0 probe_skip=0
-	if ((${#targets[@]} == 0)); then
-		msg "    overlay 探测: SKIP（无其它在线节点可测）"
-		probe_skip=1
-	elif ! have_cmd ping; then
-		msg "    overlay 探测: SKIP（无 ping 命令）"
-		probe_skip=1
+	local ep_ok=0 ep_fail=0 ep_skip=0
+	local wg_sent=0 wg_recv=0 wg_log=0
+	local b1
+	if b1=$(gps_mesh_wg_socket_bytes 2>/dev/null); then
+		read -r wg_sent wg_recv <<<"$b1"
+	fi
+	wg_log=$(gps_mesh_wg_log_recent_count 100 2>/dev/null || echo 0)
+	if [[ ${wg_sent:-0} -gt 0 || ${wg_recv:-0} -gt 0 ]]; then
+		msg "    WG 端口 ${wg_port}: $(_green "有流量")  bytes_sent=${wg_sent} bytes_received=${wg_recv}（本机 sing-box UDP 51820 累计）"
+	elif [[ ${wg_log:-0} -gt 0 ]]; then
+		msg "    WG 端口 ${wg_port}: $(_yellow "待观察")  日志近期 ${wg_log} 条 wireguard 记录（端口统计不可用）"
 	else
-		msg "    overlay 探测:"
-		local t ip nid
-		for t in "${targets[@]}"; do
-			ip=${t%%|*}
-			nid=${t#*|}
-			if ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
-				msg "      $(_green OK)  ping ${ip} (${nid})"
-				probe_ok=$((probe_ok + 1))
+		msg "    WG 端口 ${wg_port}: $(_yellow "暂无统计")  （服务刚启动或 ss 无 bytes 字段）"
+	fi
+	if ((${#peer_lines[@]} == 0)); then
+		msg "    数据面探测: $(_yellow SKIP)（无其它在线节点可测）"
+		ep_skip=1
+	else
+		msg "    数据面探测（公网 endpoint → overlay $(_cyan "10.66.x")）:"
+		local pl overlay endpoint nid
+		for pl in "${peer_lines[@]}"; do
+			overlay=${pl%%|*}
+			local rest=${pl#*|}
+			endpoint=${rest%%|*}
+			nid=${rest##*|}
+			msg "      $(_cyan "${overlay}") ← ${nid}"
+			if [[ -z $endpoint ]]; then
+				msg "        公网 endpoint: $(_yellow SKIP)（未登记 endpoint）"
+				ep_skip=$((ep_skip + 1))
+			elif gps_mesh_probe_udp_endpoint "$endpoint"; then
+				msg "        公网 UDP ${endpoint}: $(_green OK)（可达；overlay 流量经 WG，勿用内核 ping 10.66.x 判断）"
+				ep_ok=$((ep_ok + 1))
 			else
-				msg "      $(_red FAIL) ping ${ip} (${nid})"
-				probe_fail=$((probe_fail + 1))
+				msg "        公网 UDP ${endpoint}: $(_red FAIL)（不可达；查云安全组 UDP ${wg_port}）"
+				ep_fail=$((ep_fail + 1))
 			fi
 		done
 	fi
 	if [[ $wg_peers == "0" && $alive -le 1 ]]; then
-		msg "    判定: 仅本机或未配置 WG peer（组网尚未建立或尚无其它在线节点）"
-	elif [[ $probe_ok -gt 0 ]]; then
-		msg "    判定: $(_green "隧道可能正常")（overlay 可达；仍需结合业务验证）"
-	elif [[ $probe_fail -gt 0 ]]; then
-		msg "    判定: $(_red "仅控制面在线、隧道可能未通")"
-		msg "    提示: 节点均显示在线但 overlay ping 失败时，请到各节点云安全组放行 UDP ${wg_port}"
-	elif [[ $probe_skip -eq 1 && $wg_peers != "0" && $wg_peers != "?" ]]; then
-		msg "    判定: WG 已配置 ${wg_peers} 个 peer，但未做 overlay 探测（请手工: ping <对端 overlay IP>）"
+		msg "    判定: $(_yellow "仅本机或未配置 WG peer")（组网尚未建立）"
+	elif [[ $ep_ok -gt 0 && (${wg_sent:-0} -gt 0 || ${wg_recv:-0} -gt 0 || ${wg_log:-0} -gt 5) ]]; then
+		msg "    判定: $(_green "10.66.0.0/16 数据面可能流通")（公网 UDP 可达 + WG 端口有流量/日志动静）"
+	elif [[ $ep_ok -gt 0 ]]; then
+		msg "    判定: $(_yellow "公网 UDP 可达，overlay 待确认")（建议观察 WG bytes 是否增长）"
+	elif [[ $ep_fail -gt 0 ]]; then
+		msg "    判定: $(_red "公网 UDP 不可达")（心跳在线但数据面可能被云 SG 拦截 UDP ${wg_port}）"
+		msg "    提示: overlay $(_cyan "10.66.x") 流量必须经公网 UDP ${wg_port} 加密传输"
+	elif [[ $ep_skip -ge 1 && $wg_peers != "0" && $wg_peers != "?" ]]; then
+		msg "    判定: $(_yellow "WG 已配置 ${wg_peers} 个 peer")（未探测 endpoint；请菜单 30 查端口清单）"
 	fi
 }
 

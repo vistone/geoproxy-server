@@ -104,7 +104,7 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh ensure              # 开机/ExecStartPre：密钥 + 注册/拉 peers + 写配置
   mesh sync-master         # 周期：再注册并拉 peers（有变更则重启）
   mesh show
-  mesh connectivity        # 组网连通性摘要（登记/WG peer/overlay ping）
+  mesh connectivity        # 组网连通性摘要（公网 UDP / WG 流量 / overlay 10.66.x）
   mesh role master         # 本机升为 Master
   mesh role member <地址> <TOKEN>   # 本机加入为 Node
   mesh join <地址> <TOKEN> # 同上
