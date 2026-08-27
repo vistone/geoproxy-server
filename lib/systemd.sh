@@ -54,6 +54,8 @@ gps_install_mesh_units_files_only() {
 				printf 'GPS_MESH_MASTER_BIND=%s\n' "${GPS_MESH_MASTER_BIND:-0.0.0.0}"
 				printf 'GPS_MESH_MASTER_PORT=%s\n' "${MESH_MASTER_PORT:-${GPS_MESH_MASTER_PORT:-19527}}"
 				printf 'GPS_MESH_MASTER_TLS=%s\n' "${GPS_MESH_MASTER_TLS:-1}"
+				[[ -n ${GPS_GITHUB_WEBHOOK_SECRET:-} ]] &&
+					printf 'GPS_GITHUB_WEBHOOK_SECRET=%s\n' "$GPS_GITHUB_WEBHOOK_SECRET"
 			} >"$GPS_MESH_ENV"
 			chmod 600 "$GPS_MESH_ENV" 2>/dev/null || true
 		fi
@@ -64,6 +66,10 @@ gps_install_mesh_units_files_only() {
 			-e "s|__GPS_MESH_ENV__|${GPS_MESH_ENV}|g" \
 			-e "s|__GPS_MESH_DIR__|${GPS_MESH_DIR}|g" \
 			-e "s|__GPS_MESH_PEERS__|${GPS_MESH_PEERS}|g" \
+			-e "s|__GPS_ETC_DIR__|${GPS_ETC}|g" \
+			-e "s|__GPS_LIB_DIR__|${GPS_LIB_DIR}|g" \
+			-e "s|__GPS_LOG_DIR__|${GPS_LOG_DIR}|g" \
+			-e "s|__BIN__|${bin}|g" \
 			-e "s|__MESH_MASTER_PY__|${GPS_MESH_MASTER_PY}|g" \
 			"$mtpl" >"$GPS_MESH_MASTER_UNIT_PATH"
 	fi

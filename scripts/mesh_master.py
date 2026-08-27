@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """GeoProxy mesh master registry — POST /v1/register, POST /v1/heartbeat, GET /v1/peers, GET /v1/health.
 
+POST /v1/hook/github：GitHub Release webhook（HMAC SHA256 签名校验）触发 upgrade self。
 默认以自签 TLS 证书提供服务（节点端用证书公钥指纹钉扎），并校验所有注册输入。
 """
 from __future__ import annotations
@@ -33,6 +34,8 @@ def _env_int(name: str, default: int) -> int:
 
 PEERS_PATH = Path(os.environ.get("GPS_MESH_PEERS", "/etc/geoproxy-server/mesh/peers.json"))
 TOKEN = os.environ.get("MESH_CLUSTER_TOKEN", "")
+WEBHOOK_SECRET = os.environ.get("GPS_GITHUB_WEBHOOK_SECRET", "")
+UPGRADE_CLI = os.environ.get("GPS_UPGRADE_CLI", "/usr/local/bin/geoproxy-server")
 HOST = os.environ.get("GPS_MESH_MASTER_BIND", "0.0.0.0")
 PORT = _env_int("GPS_MESH_MASTER_PORT", 19527)
 try:
@@ -48,6 +51,9 @@ TLS_CERT = Path(os.environ.get("GPS_MESH_MASTER_TLS_CERT") or PEERS_PATH.parent 
 TLS_KEY = Path(os.environ.get("GPS_MESH_MASTER_TLS_KEY") or PEERS_PATH.parent / "master-tls.key")
 TLS_FP_FILE = Path(os.environ.get("GPS_MESH_TLS_FP") or PEERS_PATH.parent / "master-tls.fp")
 LOCK = threading.Lock()
+_UPGRADE_LOCK = threading.Lock()
+_UPGRADE_RUNNING = False
+_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
 # 首个 /24 内分配（与旧版行为一致）；.1 保留给 Master 自身
 _ALLOC_NET = PREFIX if PREFIX.prefixlen >= 24 else ipaddress.ip_network(
@@ -156,6 +162,60 @@ def _clean(s, limit: int) -> str | None:
     return s
 
 
+# ---------- GitHub Release webhook → upgrade self ----------
+
+def verify_github_signature(raw: bytes, sig_hdr: str) -> bool:
+    """校验 X-Hub-Signature-256: sha256=<hex>（HMAC SHA256）。"""
+    if not WEBHOOK_SECRET or not sig_hdr.startswith("sha256="):
+        return False
+    expected = hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig_hdr[7:], expected)
+
+
+def extract_release_tag(event: str, payload: dict) -> str | None:
+    """从 release published 或 push tag 事件提取 vX.Y.Z tag；其它事件返回 None。"""
+    tag = ""
+    if event == "release":
+        if payload.get("action") != "published":
+            return None
+        tag = ((payload.get("release") or {}).get("tag_name") or "").strip()
+    elif event == "push":
+        ref = (payload.get("ref") or "").strip()
+        if not ref.startswith("refs/tags/"):
+            return None
+        tag = ref[len("refs/tags/"):].strip()
+    else:
+        return None
+    return tag if _TAG_RE.fullmatch(tag) else None
+
+
+def _run_upgrade(tag: str) -> None:
+    global _UPGRADE_RUNNING
+    try:
+        subprocess.run(
+            [UPGRADE_CLI, "upgrade", "self", "--ver", tag],
+            capture_output=True,
+            timeout=900,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        sys.stderr.write("mesh-master webhook upgrade failed: %s\n" % e)
+    finally:
+        with _UPGRADE_LOCK:
+            _UPGRADE_RUNNING = False
+
+
+def schedule_upgrade(tag: str) -> tuple[int, dict]:
+    """后台触发 upgrade self；立即返回，避免 GitHub webhook 超时。"""
+    global _UPGRADE_RUNNING
+    with _UPGRADE_LOCK:
+        if _UPGRADE_RUNNING:
+            return 409, {"error": "upgrade already in progress"}
+        _UPGRADE_RUNNING = True
+    threading.Thread(target=_run_upgrade, args=(tag,), daemon=True).start()
+    return 202, {"ok": True, "upgrade": tag, "status": "scheduled"}
+
+
 def auth_ok(handler: BaseHTTPRequestHandler) -> bool:
     if not TOKEN:
         return True
@@ -221,8 +281,8 @@ class Handler(BaseHTTPRequestHandler):
         if data:
             self.wfile.write(data)
 
-    def _read_json(self) -> tuple[dict | None, int]:
-        """读请求体并解析 JSON；返回 (obj, http_status)，status==200 时 obj 有效。"""
+    def _read_raw_body(self) -> tuple[bytes | None, int]:
+        """读原始请求体；返回 (raw, http_status)。"""
         raw_len = self.headers.get("Content-Length", "0") or "0"
         try:
             length = int(raw_len)
@@ -231,6 +291,13 @@ class Handler(BaseHTTPRequestHandler):
         if length < 0 or length > MAX_BODY:
             return None, 413
         raw = self.rfile.read(length) if length else b"{}"
+        return raw, 200
+
+    def _read_json(self) -> tuple[dict | None, int]:
+        """读请求体并解析 JSON；返回 (obj, http_status)，status==200 时 obj 有效。"""
+        raw, st = self._read_raw_body()
+        if st != 200 or raw is None:
+            return None, st
         try:
             obj = json.loads(raw.decode() or "{}")
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -238,6 +305,37 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(obj, dict):
             return None, 400
         return obj, 200
+
+    def _handle_github_webhook(self) -> None:
+        if not WEBHOOK_SECRET:
+            self._send(503, {"error": "webhook not configured"})
+            return
+        raw, st = self._read_raw_body()
+        if st != 200 or raw is None:
+            self._send(st, {"error": "bad request" if st == 400 else "body too large"})
+            return
+        sig = self.headers.get("X-Hub-Signature-256", "")
+        if not verify_github_signature(raw, sig):
+            self._send(401, {"error": "invalid signature"})
+            return
+        try:
+            payload = json.loads(raw.decode() or "{}")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send(400, {"error": "bad json"})
+            return
+        if not isinstance(payload, dict):
+            self._send(400, {"error": "bad json"})
+            return
+        event = self.headers.get("X-GitHub-Event", "")
+        if event == "ping":
+            self._send(200, {"ok": True, "pong": True})
+            return
+        tag = extract_release_tag(event, payload)
+        if not tag:
+            self._send(200, {"ok": True, "ignored": True, "event": event})
+            return
+        code, body = schedule_upgrade(tag)
+        self._send(code, body)
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
@@ -255,6 +353,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if path == "/v1/hook/github":
+            self._handle_github_webhook()
+            return
         if path not in ("/v1/register", "/v1/heartbeat"):
             self._send(404, {"error": "not found"})
             return

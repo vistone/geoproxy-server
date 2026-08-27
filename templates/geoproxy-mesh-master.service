@@ -6,15 +6,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# 只喂最小凭证（token），不再加载整个 state.env
+# 只喂最小凭证（token + webhook secret），不再加载整个 state.env
 EnvironmentFile=-__GPS_MESH_ENV__
 Environment=GPS_MESH_PEERS=__GPS_MESH_PEERS__
+Environment=GPS_UPGRADE_CLI=__BIN__
 ExecStart=/usr/bin/env python3 __MESH_MASTER_PY__
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=__GPS_MESH_DIR__
+ReadWritePaths=__GPS_MESH_DIR__ __GPS_ETC_DIR__ __GPS_LIB_DIR__ /usr/local/bin /etc/systemd/system __GPS_LOG_DIR__
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true

@@ -1015,6 +1015,59 @@ gps_mesh_token_rotate() {
 	gps_mesh_join_export
 }
 
+# Master：GitHub Release webhook 公网 URL（TLS 控制面 + /v1/hook/github）
+gps_mesh_webhook_url() {
+	local base
+	base=$(gps_mesh_primary_join_url 2>/dev/null || true)
+	[[ -n $base ]] || base="https://127.0.0.1:${MESH_MASTER_PORT:-19527}"
+	printf '%s/v1/hook/github' "${base%/}"
+}
+
+# Master：设置 GitHub webhook secret（写入 state.env + master.env 并 restart mesh-master）
+gps_mesh_webhook_set_secret() {
+	local sec=${1:-}
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize
+	[[ ${MESH_ROLE:-} == master ]] || err "webhook 仅 Master 可配置"
+	if [[ -z $sec ]]; then
+		if have_cmd openssl; then
+			sec=$(openssl rand -hex 32)
+		else
+			sec=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+		fi
+		msg "已生成新 webhook secret（请复制到 GitHub Hook Secret）"
+	fi
+	sec=$(printf '%s' "$sec" | tr -d '[:space:]')
+	((${#sec} >= 16)) || err "secret 至少 16 字符"
+	GPS_GITHUB_WEBHOOK_SECRET=$sec
+	save_state
+	gps_install_mesh_units 2>/dev/null || gps_install_mesh_units_files_only
+	msg "$(_green "GitHub webhook secret 已设置")"
+	gps_mesh_webhook_show
+}
+
+# Master：展示 webhook 配置说明（secret 脱敏）
+gps_mesh_webhook_show() {
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize
+	gps_mesh_defaults 2>/dev/null || true
+	gps_mesh_resolve_master_host 2>/dev/null || true
+	[[ ${MESH_ROLE:-} == master ]] || err "webhook 仅 Master 可查看"
+	local url masked
+	url=$(gps_mesh_webhook_url)
+	msg "$(_cyan "GitHub Release webhook（Master 自动 upgrade self）")"
+	msg "  URL:    ${url}"
+	msg "  事件:   Release → published（推荐）；亦接受 push tag v*"
+	if [[ -n ${GPS_GITHUB_WEBHOOK_SECRET:-} ]]; then
+		masked=$(gps_mesh_mask_token "$GPS_GITHUB_WEBHOOK_SECRET")
+		msg "  Secret: ${masked}（已配置；完整值见 ${GPS_MESH_ENV}）"
+	else
+		msg "  Secret: （未配置）— geoproxy-server mesh webhook set-secret"
+	fi
+	msg "  说明:   GitHub 推送 Release 后 Master 自动 geoproxy-server upgrade self --ver <tag>"
+	msg "  Member: 仍可用 mesh-sync timer + 手动 upgrade self；或 cron 轮询 GitHub Releases API"
+}
+
 # 控制台打印时对集群 TOKEN 脱敏（前 8 字符 + ********）
 gps_mesh_mask_token() {
 	local k=${1:-}

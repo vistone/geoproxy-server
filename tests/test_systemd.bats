@@ -139,6 +139,17 @@ setup() {
 	grep -qE '^ReadWritePaths=__ETC_DIR__' "$tpl"
 }
 
+@test "gps_install_mesh_units_files_only renders mesh-master upgrade paths" {
+	export MESH_CLUSTER_TOKEN="master-token-0123456789"
+	export GPS_GITHUB_WEBHOOK_SECRET="whsec-unit-test-0123456789"
+	gps_mesh_defaults
+	gps_mesh_ensure_dirs
+	gps_install_mesh_units_files_only
+	grep -qE '^GPS_GITHUB_WEBHOOK_SECRET=whsec-unit-test-0123456789$' "$GPS_MESH_ENV"
+	grep -F "ReadWritePaths=${GPS_MESH_DIR} ${GPS_ETC}" "$GPS_MESH_MASTER_UNIT_PATH"
+	grep -F "GPS_UPGRADE_CLI=${GPS_BIN_LINK}" "$GPS_MESH_MASTER_UNIT_PATH"
+}
+
 @test "gps_install_mesh_units_files_only renders mesh-sync write paths" {
 	export MESH_CLUSTER_TOKEN="sync-token-0123456789"
 	gps_mesh_defaults

@@ -176,6 +176,8 @@ geoproxy-server mesh show
 geoproxy-server mesh port-checklist   # 防火墙端口清单（菜单 30）
 geoproxy-server mesh migrate-tls        # Member：修复 http/PIN/连通性
 geoproxy-server mesh token rotate       # Master：轮换集群 TOKEN
+geoproxy-server mesh webhook set-secret # Master：GitHub Release 自动升级 webhook
+geoproxy-server mesh webhook show       # Master：webhook URL 与配置说明
 geoproxy-server mesh export
 
 # 可选：指定 L3 出口跳板
@@ -194,6 +196,31 @@ geoproxy-server change mesh-failover-probe <url>
 
 自 v0.2.33 起拒绝向**非本机** Master 发起明文 `http://` 注册（TOKEN/公钥会明文过网）。
 旧成员升级后请重新执行上面临入流程；仅 loopback 明文仍放行（排障用）。
+
+### GitHub Release 自动升级（Master）
+
+发布新版本后，可在 GitHub 仓库 **Settings → Webhooks** 配置 webhook，让 Master 节点自动执行 `upgrade self`，无需逐台 SSH。
+
+```bash
+# 1) Master 上生成并保存 webhook secret（写入 state.env + master.env）
+geoproxy-server mesh webhook set-secret
+# 或指定 secret：mesh webhook set-secret 'your-long-random-secret'
+
+# 2) 查看要填到 GitHub 的 URL 与说明
+geoproxy-server mesh webhook show
+```
+
+GitHub Webhook 配置要点：
+
+| 项 | 值 |
+|----|-----|
+| Payload URL | `https://<Master域名或IP>:19527/v1/hook/github`（与 join 命令同 host，TLS 自签） |
+| Content type | `application/json` |
+| Secret | 与 `mesh webhook set-secret` 输出一致 |
+| 事件 | **Release** → 勾选 **Published**（推荐） |
+
+校验：`X-Hub-Signature-256` HMAC SHA256；secret 仅存于 `master.env`（600），不进 argv。
+Member 节点未接 webhook；可用 cron 定期 `geoproxy-server upgrade self` 或手动升级。
 
 ## 路径
 

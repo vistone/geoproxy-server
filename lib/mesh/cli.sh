@@ -50,6 +50,15 @@ gps_cmd_mesh() {
 		*) err "用法: mesh token rotate" ;;
 		esac
 		;;
+	webhook)
+		local top=${1:-show}
+		shift || true
+		case $top in
+		set-secret) gps_mesh_webhook_set_secret "$@" ;;
+		show) gps_mesh_webhook_show ;;
+		*) err "用法: mesh webhook set-secret [SECRET] | mesh webhook show" ;;
+		esac
+		;;
 	peer)
 		local op=${1:-}
 		shift || true
@@ -114,6 +123,8 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh port-checklist      # 防火墙端口清单（Master/Member checklist）
   mesh migrate-tls [join]  # Member：修复 http/PIN/连通性（可粘贴 join 整行）
   mesh token rotate        # Master：轮换集群 TOKEN（Member 须重 join）
+  mesh webhook set-secret  # Master：配置 GitHub Release webhook secret
+  mesh webhook show        # Master：webhook URL 与配置说明
   mesh export | import | sync <url-or-file>
   mesh peer add|rm ...
   mesh hop <json-file|none>
@@ -198,6 +209,11 @@ gps_mesh_cmd_show() {
 	fi
 	if [[ ${MESH_ROLE:-} == master ]]; then
 		gps_mesh_print_join_hints
+		if [[ -n ${GPS_GITHUB_WEBHOOK_SECRET:-} ]]; then
+			msg "  GitHub webhook: $(gps_mesh_webhook_url) （Release published → 自动 upgrade self）"
+		else
+			msg "  GitHub webhook: （未配置）mesh webhook set-secret"
+		fi
 	else
 		gps_mesh_print_wg_data_plane_status
 	fi
