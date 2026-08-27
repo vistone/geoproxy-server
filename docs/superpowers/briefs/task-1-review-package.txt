@@ -1,0 +1,219 @@
+=== COMMITS ===
+ff149d8 fix: 补强 mesh-failover 测试断言与 python3 检查
+714b665 feat: mesh-failover 状态变量与在线对端判定（MESH_FAILOVER / gps_mesh_has_live_peer）
+
+=== DIFF STAT ===
+ lib/common.sh                 |  2 +
+ lib/mesh/_common.sh           |  2 +
+ lib/mesh/wireguard.sh         | 32 +++++++++++++++
+ tests/test_mesh_failover.bats | 90 +++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 126 insertions(+)
+
+=== FULL DIFF ===
+diff --git a/lib/common.sh b/lib/common.sh
+index a51f89b..d347034 100644
+--- a/lib/common.sh
++++ b/lib/common.sh
+@@ -464,20 +464,22 @@ gps_save_state_unlocked() {
+ 		gps_env_assign MESH_WG_LIVE_ONLY "${MESH_WG_LIVE_ONLY:-}"
+ 		gps_env_assign NODE_ID "${NODE_ID:-}"
+ 		gps_env_assign WG_PRIVATE_KEY "${WG_PRIVATE_KEY:-}"
+ 		gps_env_assign WG_PUBLIC_KEY "${WG_PUBLIC_KEY:-}"
+ 		gps_env_assign WG_LISTEN_PORT "${WG_LISTEN_PORT:-}"
+ 		gps_env_assign MESH_OVERLAY_IP "${MESH_OVERLAY_IP:-}"
+ 		gps_env_assign MESH_OVERLAY_PREFIX "${MESH_OVERLAY_PREFIX:-}"
+ 		gps_env_assign MESH_EXIT_NODE_ID "${MESH_EXIT_NODE_ID:-}"
+ 		gps_env_assign MESH_ROLES "${MESH_ROLES:-}"
+ 		gps_env_assign MESH_L7_OUTBOUNDS_JSON "${MESH_L7_OUTBOUNDS_JSON:-}"
++		gps_env_assign MESH_FAILOVER "${MESH_FAILOVER:-0}"
++		gps_env_assign MESH_FAILOVER_PROBE "${MESH_FAILOVER_PROBE:-}"
+ 	} | gps_atomic_write_env "$GPS_STATE"
+ 	gps_kiwi_save_persist
+ }
+ 
+ # 公共：持项目锁写状态（timer 与 CLI 的所有变更入口）
+ save_state() {
+ 	gps_with_state_lock gps_save_state_unlocked
+ }
+ 
+ rand_port() {
+diff --git a/lib/mesh/_common.sh b/lib/mesh/_common.sh
+index 2474bbe..13a240c 100644
+--- a/lib/mesh/_common.sh
++++ b/lib/mesh/_common.sh
+@@ -231,20 +231,22 @@ gps_mesh_ensure_node_id() {
+ }
+ 
+ # 默认 overlay 前缀与本机 /32
+ gps_mesh_defaults() {
+ 	MESH_OVERLAY_PREFIX=${MESH_OVERLAY_PREFIX:-10.66.0.0/16}
+ 	WG_LISTEN_PORT=${WG_LISTEN_PORT:-51820}
+ 	MESH_MASTER_PORT=${MESH_MASTER_PORT:-${GPS_MESH_MASTER_PORT:-19527}}
+ 	MESH_SYNC_SEC=${MESH_SYNC_SEC:-60}
+ 	MESH_PEER_STALE_SEC=${MESH_PEER_STALE_SEC:-180}
+ 	MESH_WG_LIVE_ONLY=${MESH_WG_LIVE_ONLY:-1}
++	MESH_FAILOVER=${MESH_FAILOVER:-0}
++	MESH_FAILOVER_PROBE=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
+ 	gps_validate_port "$WG_LISTEN_PORT" || err "无效 WG_LISTEN_PORT: $WG_LISTEN_PORT"
+ 	gps_validate_port "$MESH_MASTER_PORT" || err "无效 MESH_MASTER_PORT: $MESH_MASTER_PORT"
+ }
+ 
+ gps_mesh_ensure_cluster_token() {
+ 	if [[ -z ${MESH_CLUSTER_TOKEN:-} ]]; then
+ 		if [[ -f ${GPS_MESH_TOKEN_FILE:-} ]]; then
+ 			MESH_CLUSTER_TOKEN=$(tr -d '[:space:]' <"$GPS_MESH_TOKEN_FILE")
+ 		fi
+ 	fi
+diff --git a/lib/mesh/wireguard.sh b/lib/mesh/wireguard.sh
+index 3547e89..3df74cb 100644
+--- a/lib/mesh/wireguard.sh
++++ b/lib/mesh/wireguard.sh
+@@ -157,20 +157,52 @@ gps_mesh_route_json() {
+       {
+         "ip_cidr": ["${prefix}"],
+         "outbound": "wg-ep"
+       }
+     ],
+     "final": "${final_tag}"
+   }
+ EOF
+ }
+ 
++# 是否存在非本机且心跳在线的 peer（与 peers 渲染的 alive 判定一致；无心跳字段视为可用）
++gps_mesh_has_live_peer() {
++	local self=${NODE_ID:-}
++	[[ -f ${GPS_MESH_PEERS:-} ]] || return 1
++	have_cmd python3 || return 1
++	MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" python3 - "$GPS_MESH_PEERS" "$self" <<'PY'
++import json, os, sys
++from datetime import datetime, timezone
++path, self_id = sys.argv[1], sys.argv[2]
++stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
++try:
++    with open(path, "r", encoding="utf-8") as f:
++        doc = json.load(f)
++except Exception:
++    sys.exit(1)
++now = datetime.now(timezone.utc)
++for n in doc.get("nodes") or []:
++    if (n.get("node_id") or "") == self_id:
++        continue
++    ls = n.get("last_seen") or ""
++    if not ls:
++        sys.exit(0)
++    try:
++        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
++    except ValueError:
++        continue
++    if (now - ts).total_seconds() <= stale:
++        sys.exit(0)
++sys.exit(1)
++PY
++}
++
+ gps_mesh_outbounds_json() {
+ 	# 始终至少有 direct；L7 hop 占位（MESH_L7_DETOUR_JSON 高级用户/后续）
+ 	local extra=${MESH_L7_OUTBOUNDS_JSON:-}
+ 	if [[ -n ${extra//[[:space:]]/} ]]; then
+ 		cat <<EOF
+     {
+       "type": "direct",
+       "tag": "direct"
+     },
+ ${extra}
+diff --git a/tests/test_mesh_failover.bats b/tests/test_mesh_failover.bats
+new file mode 100644
+index 0000000..42b8cb2
+--- /dev/null
++++ b/tests/test_mesh_failover.bats
+@@ -0,0 +1,90 @@
++#!/usr/bin/env bats
++
++setup() {
++	source "$BATS_TEST_DIRNAME/_setup.bash"
++	# shellcheck source=../lib/cmd.sh
++	source "$REPO_ROOT/lib/cmd.sh"
++	# shellcheck source=../lib/systemd.sh
++	source "$REPO_ROOT/lib/systemd.sh" 2>/dev/null || true
++	gps_restart_svc() { :; }
++}
++
++# 公共初始化：master 角色 + 假公网 IP + v4only 栈
++mesh_init() {
++	export PORT=${PORT:-43011}
++	export UUID="00000000-0000-4000-8000-000000000201"
++	export PASSWORD="mesh-pass"
++	export PROTOCOL=tuic
++	export PUBLIC_IP="203.0.113.10"
++	export MESH_ROLE=master
++	detect_local_stack() {
++		STACK_MODE=v4only
++		HAS_V4=1
++		HAS_V6=0
++	}
++	gps_mesh_cmd_init --node-id tile-a --overlay-ip 10.66.0.1 --wg-port 51820
++}
++
++@test "failover defaults are off with standard probe" {
++	gps_mesh_defaults
++	[ "$MESH_FAILOVER" = "0" ]
++	[ "$MESH_FAILOVER_PROBE" = "https://www.gstatic.com/generate_204" ]
++}
++
++@test "has_live_peer is false without peers" {
++	mesh_init
++	run gps_mesh_has_live_peer
++	[ "$status" -ne 0 ]
++}
++
++@test "has_live_peer is true with an online peer" {
++	mesh_init
++	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
++	run gps_mesh_has_live_peer
++	[ "$status" -eq 0 ]
++}
++
++@test "has_live_peer honors fresh and stale last_seen" {
++	mesh_init
++	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
++	# 直接改写 peers 文件里该 peer 的 last_seen：先写当前 UTC 时间（fresh → 在线）
++	python3 - "$GPS_MESH_PEERS" <<'PY'
++import json, sys, datetime
++path = sys.argv[1]
++with open(path, "r", encoding="utf-8") as f:
++    doc = json.load(f)
++for n in doc["nodes"]:
++    if n.get("node_id") == "tile-b":
++        n["last_seen"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
++with open(path, "w", encoding="utf-8") as f:
++    json.dump(doc, f, ensure_ascii=False, indent=2)
++    f.write("\n")
++PY
++	run gps_mesh_has_live_peer
++	[ "$status" -eq 0 ]
++	# 再写 200 秒前（超过 MESH_PEER_STALE_SEC=180 过期窗口 → 无在线 peer）
++	python3 - "$GPS_MESH_PEERS" <<'PY'
++import json, sys, datetime
++path = sys.argv[1]
++with open(path, "r", encoding="utf-8") as f:
++    doc = json.load(f)
++for n in doc["nodes"]:
++    if n.get("node_id") == "tile-b":
++        n["last_seen"] = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
++with open(path, "w", encoding="utf-8") as f:
++    json.dump(doc, f, ensure_ascii=False, indent=2)
++    f.write("\n")
++PY
++	run gps_mesh_has_live_peer
++	[ "$status" -ne 0 ]
++}
++
++@test "state persists failover variables" {
++	mesh_init
++	MESH_FAILOVER=1
++	MESH_FAILOVER_PROBE="https://www.google.com/generate_204"
++	save_state
++	# state.env 是 shell 赋值格式（%q 序列化，值无特殊字符时不带引号）；grep -E 宽松匹配两种形式
++	grep -Eq '^MESH_FAILOVER="?1"?$' "$GPS_STATE"
++	grep -Eq '^MESH_FAILOVER_PROBE="?https://www.google.com/generate_204"?$' "$GPS_STATE"
++}

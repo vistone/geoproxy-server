@@ -67,6 +67,17 @@ PY
 		return 1
 	}
 
+	local cluster_tag
+	cluster_tag=$(
+		python3 - "$tmp" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    resp = json.load(f)
+cluster = resp.get("cluster") or {}
+print((cluster.get("target_version") or "").strip())
+PY
+	) || cluster_tag=""
+
 	gps_mesh_ensure_dirs
 	# 应用分配的 overlay + 写入 peers 快照
 	eval "$(
@@ -89,6 +100,7 @@ if overlay:
 PY
 	)"
 	rm -f "$tmp"
+	gps_mesh_cluster_schedule_upgrade "$cluster_tag"
 	return 0
 }
 

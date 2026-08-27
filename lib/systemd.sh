@@ -41,6 +41,7 @@ gps_install_mesh_units_files_only() {
 	local mtpl="${GPS_TMPL}/geoproxy-mesh-master.service"
 	local stpl="${GPS_TMPL}/geoproxy-mesh-sync.service"
 	local ttpl="${GPS_TMPL}/geoproxy-mesh-sync.timer"
+	local utpl="${GPS_TMPL}/geoproxy-mesh-upgrade.service"
 	# master 专用最小凭证：只含 token，网络服务不再接触整个 state.env
 	if [[ -n ${GPS_MESH_DIR:-} ]]; then
 		local tok=${MESH_CLUSTER_TOKEN:-}
@@ -85,6 +86,13 @@ gps_install_mesh_units_files_only() {
 		((sec < 15)) && sec=15
 		sed -e "s|__SYNC_SEC__|${sec}|g" "$ttpl" >"$GPS_MESH_SYNC_TIMER_PATH"
 	fi
+	if [[ -f $utpl && -n ${GPS_MESH_UPGRADE_UNIT_PATH:-} ]]; then
+		sed -e "s|__BIN__|${bin}|g" \
+			-e "s|__ETC_DIR__|${GPS_ETC}|g" \
+			-e "s|__LOG_DIR__|${GPS_LOG_DIR}|g" \
+			-e "s|__GPS_LIB_DIR__|${GPS_LIB_DIR}|g" \
+			"$utpl" >"$GPS_MESH_UPGRADE_UNIT_PATH"
+	fi
 }
 
 gps_install_mesh_units() {
@@ -125,7 +133,8 @@ gps_remove_mesh_units() {
 		systemctl disable --now geoproxy-mesh-master.service >/dev/null 2>&1 || true
 		rm -f /etc/systemd/system/geoproxy-mesh-master.service \
 			/etc/systemd/system/geoproxy-mesh-sync.service \
-			/etc/systemd/system/geoproxy-mesh-sync.timer
+			/etc/systemd/system/geoproxy-mesh-sync.timer \
+			/etc/systemd/system/geoproxy-mesh-upgrade.service
 		systemctl daemon-reload 2>/dev/null || true
 	fi
 }

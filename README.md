@@ -220,7 +220,8 @@ GitHub Webhook 配置要点：
 | 事件 | **Release** → 勾选 **Published**（推荐） |
 
 校验：`X-Hub-Signature-256` HMAC SHA256；secret 仅存于 `master.env`（600），不进 argv。
-Member 节点未接 webhook；可用 cron 定期 `geoproxy-server upgrade self` 或手动升级。
+
+**Member 集群自动升级（v0.2.65+）**：GitHub Release → Master webhook 写入 `cluster-version.json` 并自升级；Member 每 `mesh-sync`（默认 60s）注册时读取 `cluster.target_version`，若与本地脚本版本不一致则自动 `upgrade self --ver <tag>`。关闭：`geoproxy-server change cluster-auto-upgrade off`。
 
 ## 路径
 

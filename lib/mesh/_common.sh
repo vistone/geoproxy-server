@@ -1064,8 +1064,74 @@ gps_mesh_webhook_show() {
 	else
 		msg "  Secret: （未配置）— geoproxy-server mesh webhook set-secret"
 	fi
-	msg "  说明:   GitHub 推送 Release 后 Master 自动 geoproxy-server upgrade self --ver <tag>"
-	msg "  Member: 仍可用 mesh-sync timer + 手动 upgrade self；或 cron 轮询 GitHub Releases API"
+	msg "  说明:   GitHub Release 后 Master 自动 upgrade self；Member 经 mesh-sync 同步 cluster 目标版本并自动升级"
+	msg "  Member: mesh-sync 每 ${MESH_SYNC_SEC:-60}s 拉取 cluster.target_version；可用 change cluster-auto-upgrade 0 关闭"
+}
+
+# 已安装脚本版本（VPS 上 lib/scripts/VERSION）
+gps_mesh_installed_version() {
+	if [[ -f ${GPS_LIB_DIR}/scripts/VERSION ]]; then
+		tr -d '[:space:]' <"${GPS_LIB_DIR}/scripts/VERSION"
+	else
+		printf '%s' "${GPS_SH_VER:-unknown}"
+	fi
+}
+
+# Member：Master 广播的目标版本与本地不一致时，调度 upgrade-cluster unit
+gps_mesh_cluster_schedule_upgrade() {
+	local target=${1:-}
+	gps_mesh_role_normalize 2>/dev/null || true
+	[[ ${MESH_ROLE:-} == member ]] || return 0
+	[[ ${MESH_CLUSTER_AUTO_UPGRADE:-1} == 1 ]] || return 0
+	target=$(printf '%s' "$target" | tr -d '[:space:]')
+	[[ -n $target && $target == v*.*.* ]] || return 0
+	local cur
+	cur=$(gps_mesh_installed_version)
+	[[ $cur != "$target" ]] || return 0
+	local pending=${GPS_MESH_UPGRADE_PENDING:-${GPS_MESH_DIR}/upgrade-pending}
+	gps_mesh_ensure_dirs 2>/dev/null || true
+	printf '%s\n' "$target" >"$pending"
+	chmod 600 "$pending" 2>/dev/null || true
+	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
+		gps_mesh_cmd_upgrade_cluster 2>/dev/null || true
+		return 0
+	fi
+	if have_cmd systemctl; then
+		systemctl start "${GPS_MESH_UPGRADE_SERVICE:-geoproxy-mesh-upgrade}.service" 2>/dev/null ||
+			warn "无法启动 ${GPS_MESH_UPGRADE_SERVICE}（请 upgrade self 安装 unit）"
+	fi
+}
+
+# mesh-sync / geoproxy-mesh-upgrade.service：执行 pending 集群升级
+gps_mesh_cmd_upgrade_cluster() {
+	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
+		need_root
+	fi
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize 2>/dev/null || true
+	local pending=${GPS_MESH_UPGRADE_PENDING:-${GPS_MESH_DIR}/upgrade-pending}
+	local tag
+	if [[ -f $pending ]]; then
+		tag=$(tr -d '[:space:]' <"$pending")
+	elif [[ -n ${1:-} ]]; then
+		tag=$(printf '%s' "$1" | tr -d '[:space:]')
+	else
+		err "无待升级版本（${pending} 不存在）"
+	fi
+	[[ -n $tag && $tag == v*.*.* ]] || {
+		rm -f "$pending"
+		err "无效 cluster 目标版本: ${tag:-?}"
+	}
+	local cur
+	cur=$(gps_mesh_installed_version)
+	if [[ $cur == "$tag" ]]; then
+		rm -f "$pending"
+		msg "$(_green "无需升级") 脚本已是 $cur（Master 目标版本）"
+		return 0
+	fi
+	msg "$(_cyan "集群自动升级") Master 目标 ${tag}，本机 ${cur} → 开始 upgrade self…"
+	gps_cmd_upgrade_self --ver "$tag"
+	rm -f "$pending"
 }
 
 # 控制台打印时对集群 TOKEN 脱敏（前 8 字符 + ********）

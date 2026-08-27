@@ -1,0 +1,13 @@
+[Unit]
+Description=GeoProxy cluster upgrade (Master 通知的目标版本)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=+__BIN__ mesh upgrade-cluster
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=__ETC_DIR__ __LOG_DIR__ __GPS_LIB_DIR__ /usr/local/bin /etc/systemd/system
+ProtectHome=true
+PrivateTmp=true

@@ -39,6 +39,7 @@ gps_cmd_mesh() {
 	show | status) gps_mesh_cmd_show "$@" ;;
 	connectivity) gps_mesh_cmd_connectivity "$@" ;;
 	remediate) gps_mesh_cmd_remediate "$@" ;;
+	upgrade-cluster) gps_mesh_cmd_upgrade_cluster "$@" ;;
 	menu-role) gps_mesh_menu_role ;;
 	port-checklist | ports | firewall-ports) gps_mesh_print_port_checklist ;;
 	migrate-tls | migrate_tls) gps_mesh_migrate_tls "$@" ;;
@@ -125,6 +126,7 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh token rotate        # Master：轮换集群 TOKEN（Member 须重 join）
   mesh webhook set-secret  # Master：配置 GitHub Release webhook secret
   mesh webhook show        # Master：webhook URL 与配置说明
+  mesh upgrade-cluster     # Member：执行 Master 通知的 pending 集群升级
   mesh export | import | sync <url-or-file>
   mesh peer add|rm ...
   mesh hop <json-file|none>

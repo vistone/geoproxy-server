@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.65 - 2026-08-27
+
+增强：Member 经 Master 通知集群自动升级（GitHub Release → 全员跟进）。
+
+- **Master**：webhook / 手动升级前写入 `mesh/cluster-version.json`；`/v1/register`、`/v1/peers`、`/v1/cluster` 响应含 `cluster.target_version`。
+- **Member**：`mesh-sync` 注册时若目标版本与本地不一致，触发 `geoproxy-mesh-upgrade.service` → `mesh upgrade-cluster` → `upgrade self --ver <tag>`。
+- **CLI**：`mesh upgrade-cluster`；`change cluster-auto-upgrade on|off`（默认 on）。
+
 ## v0.2.64 - 2026-08-27
 
 修复：浏览器 GET `/v1/hook/github` 不再误报 404，返回端点说明 JSON（`POST required`）；GitHub webhook 投递仍须 POST。

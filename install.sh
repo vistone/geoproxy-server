@@ -168,6 +168,6 @@ gps_bootstrap_main() {
 }
 
 # 仅直接执行时引导；被 source 时只暴露函数（供 bats 测试）
-if [[ ${BASH_SOURCE[0]:-$0} == "$0" ]]; then
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
 	gps_bootstrap_main "$@"
 fi

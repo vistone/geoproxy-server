@@ -567,6 +567,18 @@ gps_cmd_change() {
 		msg "$(_green "failover 探测地址") → ${MESH_FAILOVER_PROBE}"
 		return 0
 		;;
+	cluster-auto-upgrade | cluster-upgrade)
+		local v=${1:-}
+		[[ $v == on || $v == off || $v == 1 || $v == 0 ]] || err "用法: change cluster-auto-upgrade on|off"
+		if [[ $v == on || $v == 1 ]]; then
+			MESH_CLUSTER_AUTO_UPGRADE=1
+		else
+			MESH_CLUSTER_AUTO_UPGRADE=0
+		fi
+		save_state
+		msg "$(_green "cluster-auto-upgrade") → ${MESH_CLUSTER_AUTO_UPGRADE}（Member 经 mesh-sync 跟随 Master 目标版本）"
+		return 0
+		;;
 	mesh-master-host | master-host | mesh-host)
 		local h=${1:-}
 		[[ -n $h ]] || err "用法: change mesh-master-host <域名|none>"

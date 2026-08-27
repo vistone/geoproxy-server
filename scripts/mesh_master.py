@@ -34,6 +34,9 @@ def _env_int(name: str, default: int) -> int:
 
 
 PEERS_PATH = Path(os.environ.get("GPS_MESH_PEERS", "/etc/geoproxy-server/mesh/peers.json"))
+CLUSTER_VERSION_PATH = Path(
+    os.environ.get("GPS_MESH_CLUSTER_VERSION", str(PEERS_PATH.parent / "cluster-version.json"))
+)
 TOKEN = os.environ.get("MESH_CLUSTER_TOKEN", "")
 WEBHOOK_SECRET = os.environ.get("GPS_GITHUB_WEBHOOK_SECRET", "")
 UPGRADE_CLI = os.environ.get("GPS_UPGRADE_CLI", "/usr/local/bin/geoproxy-server")
@@ -206,15 +209,51 @@ def _run_upgrade(tag: str) -> None:
             _UPGRADE_RUNNING = False
 
 
+def load_cluster_target() -> str | None:
+    if not CLUSTER_VERSION_PATH.is_file():
+        return None
+    try:
+        with CLUSTER_VERSION_PATH.open("r", encoding="utf-8") as f:
+            doc = json.load(f)
+        tag = (doc.get("target_version") or "").strip()
+        return tag if _TAG_RE.fullmatch(tag) else None
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+
+
+def save_cluster_target(tag: str) -> None:
+    if not _TAG_RE.fullmatch(tag):
+        return
+    CLUSTER_VERSION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"target_version": tag, "set_at": utc_now()}
+    tmp = CLUSTER_VERSION_PATH.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    tmp.replace(CLUSTER_VERSION_PATH)
+    try:
+        os.chmod(CLUSTER_VERSION_PATH, 0o600)
+    except OSError:
+        pass
+
+
+def cluster_payload() -> dict:
+    tag = load_cluster_target()
+    if not tag:
+        return {"cluster": {"target_version": None, "auto_upgrade": True}}
+    return {"cluster": {"target_version": tag, "auto_upgrade": True}}
+
+
 def schedule_upgrade(tag: str) -> tuple[int, dict]:
     """后台触发 upgrade self；立即返回，避免 GitHub webhook 超时。"""
     global _UPGRADE_RUNNING
+    save_cluster_target(tag)
     with _UPGRADE_LOCK:
         if _UPGRADE_RUNNING:
             return 409, {"error": "upgrade already in progress"}
         _UPGRADE_RUNNING = True
     threading.Thread(target=_run_upgrade, args=(tag,), daemon=True).start()
-    return 202, {"ok": True, "upgrade": tag, "status": "scheduled"}
+    return 202, {"ok": True, "upgrade": tag, "status": "scheduled", **cluster_payload()}
 
 
 def auth_ok(handler: BaseHTTPRequestHandler) -> bool:
@@ -356,7 +395,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"error": "unauthorized"})
                 return
             with LOCK:
-                self._send(200, annotate_alive(load_doc()))
+                self._send(200, {**annotate_alive(load_doc()), **cluster_payload()})
+            return
+        if path == "/v1/cluster":
+            if not auth_ok(self):
+                self._send(401, {"error": "unauthorized"})
+                return
+            self._send(200, {"ok": True, **cluster_payload()})
             return
         self._send(404, {"error": "not found"})
 
@@ -391,7 +436,7 @@ class Handler(BaseHTTPRequestHandler):
                         if ep:
                             n["endpoint"] = ep
                         save_doc(doc)
-                        self._send(200, {"ok": True, "peers": annotate_alive(doc)})
+                        self._send(200, {"ok": True, "peers": annotate_alive(doc), **cluster_payload()})
                         return
                 self._send(404, {"error": "unknown node; register first"})
             return
@@ -449,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
             nodes.append(entry)
             doc["nodes"] = nodes
             save_doc(doc)
-            self._send(200, {"node": entry, "peers": annotate_alive(doc)})
+            self._send(200, {"node": entry, "peers": annotate_alive(doc), **cluster_payload()})
 
 
 def main() -> None:

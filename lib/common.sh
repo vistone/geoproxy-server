@@ -490,6 +490,7 @@ gps_save_state_unlocked() {
 		gps_env_assign MESH_L7_OUTBOUNDS_JSON "${MESH_L7_OUTBOUNDS_JSON:-}"
 		gps_env_assign MESH_FAILOVER "${MESH_FAILOVER:-0}"
 		gps_env_assign MESH_FAILOVER_PROBE "${MESH_FAILOVER_PROBE:-}"
+		gps_env_assign MESH_CLUSTER_AUTO_UPGRADE "${MESH_CLUSTER_AUTO_UPGRADE:-1}"
 		gps_env_assign GPS_GITHUB_WEBHOOK_SECRET "${GPS_GITHUB_WEBHOOK_SECRET:-}"
 	} | gps_atomic_write_env "$GPS_STATE"
 	gps_kiwi_save_persist
