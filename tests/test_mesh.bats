@@ -861,7 +861,12 @@ _gps_curl_arg_after() {
 	save_state
 	gps_mesh_probe_udp_endpoint() { [[ ${1:-} == *203.0.113.59* ]]; }
 	gps_mesh_wg_socket_bytes() { echo "1024 2048"; }
-	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes
+	gps_mesh_wg_listen_ok() { return 0; }
+	gps_mesh_wg_handshake_stats() {
+		echo "HS_SUMMARY ok=1 fail=0"
+		echo "HS_OK=tile-b|10.66.0.2|203.0.113.59:51820"
+	}
+	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes gps_mesh_wg_listen_ok gps_mesh_wg_handshake_stats
 	gps_mesh_cmd_show >"$GPS_TEST_PREFIX/show-conn.out" 2>&1
 	grep -q '组网连通性摘要' "$GPS_TEST_PREFIX/show-conn.out"
 	grep -q '10.66.0.x' "$GPS_TEST_PREFIX/show-conn.out"
@@ -906,7 +911,9 @@ PY
 	save_state
 	gps_mesh_probe_udp_endpoint() { return 1; }
 	gps_mesh_wg_socket_bytes() { return 1; }
-	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes
+	gps_mesh_wg_listen_ok() { return 0; }
+	gps_mesh_wg_handshake_stats() { return 1; }
+	export -f gps_mesh_probe_udp_endpoint gps_mesh_wg_socket_bytes gps_mesh_wg_listen_ok gps_mesh_wg_handshake_stats
 	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-fail.out" 2>&1
 	grep -q '公网 UDP 不可达' "$GPS_TEST_PREFIX/conn-fail.out"
 	grep -q 'UDP 51820' "$GPS_TEST_PREFIX/conn-fail.out"
@@ -932,4 +939,33 @@ PY
 	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-noping.out" 2>&1
 	PATH=$old_path
 	grep -q '仅本机或未配置 WG peer' "$GPS_TEST_PREFIX/conn-noping.out"
+}
+
+@test "mesh connectivity lists handshake failures" {
+	export PORT=43023
+	export UUID="00000000-0000-4000-8000-000000000122"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.63"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	gps_mesh_cmd_init --node-id tile-master --overlay-ip 10.66.0.1
+	gps_mesh_peer_add tile-bad --pubkey "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=" \
+		--overlay-ip 10.66.0.4 --endpoint 203.0.113.64:51820
+	gps_write_config
+	save_state
+	gps_mesh_wg_listen_ok() { return 0; }
+	gps_mesh_wg_handshake_stats() {
+		echo "HS_SUMMARY ok=1 fail=1"
+		echo "HS_FAIL=tile-bad|10.66.0.4|203.0.113.64:51820"
+	}
+	export -f gps_mesh_wg_listen_ok gps_mesh_wg_handshake_stats
+	gps_mesh_cmd_connectivity >"$GPS_TEST_PREFIX/conn-hs.out" 2>&1
+	grep -q 'WG 握手' "$GPS_TEST_PREFIX/conn-hs.out"
+	grep -q 'tile-bad' "$GPS_TEST_PREFIX/conn-hs.out"
+	grep -q '部分 peer WG 握手失败' "$GPS_TEST_PREFIX/conn-hs.out"
 }

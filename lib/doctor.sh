@@ -197,6 +197,7 @@ gps_doctor() {
 			fi
 		fi
 		gps_mesh_print_wg_data_plane_status 2>/dev/null || true
+		gps_mesh_remediate_local_wg 2>/dev/null || true
 		gps_mesh_print_connectivity_summary 2>/dev/null || true
 		if ((doctor_systemd_checks)); then
 			drc=0

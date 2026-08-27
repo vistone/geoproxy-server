@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.61 - 2026-08-27
+
+增强：WG 握手诊断与本地自动修复，不再依赖手跑 ss/journalctl。
+
+- **WG 监听检测**：用 `ss -ulnp sport = :51820` 确认 sing-box 是否在监听（修复 v0.2.60 误报「暂无统计」）。
+- **握手统计**：从 journal/日志解析各 peer 握手成功/失败，映射到 node_id 与 endpoint，在 `mesh show` / `mesh connectivity` / doctor 中列出失败节点及修复提示。
+- **mesh remediate**：本机自动放行 UDP 51820 防火墙；未 listen 则重启 geoproxy-tuic。
+- **doctor**：健康检查前自动执行本机 WG remediate。
+
 ## v0.2.60 - 2026-08-27
 
 增强：组网连通性摘要改用公网 UDP 与 WG 流量显示，不再依赖 overlay ping。

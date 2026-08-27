@@ -40,7 +40,8 @@ setup() {
 	[[ "$output" == *"UDP 51820"* ]]
 	[[ "$output" == *"WG 数据面"* ]]
 	[[ "$output" == *"组网连通性摘要"* ]]
-	[[ "$output" == *"不等于 WG 隧道已打通"* ]]
+	[[ "$output" == *"Master 心跳"* ]]
+	[[ "$output" == *"WG 监听"* ]]
 }
 
 @test "doctor probes https health when master TLS certs exist" {

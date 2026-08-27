@@ -484,11 +484,18 @@ raise SystemExit(1)
 PY
 }
 
+# sing-box 是否在本地 UDP listen（userspace WG 为 UNCONN 态，需 -l）
+gps_mesh_wg_listen_ok() {
+	local wg_port=${WG_LISTEN_PORT:-51820}
+	ss -ulnp "sport = :${wg_port}" 2>/dev/null | grep -q sing-box
+}
+
 # sing-box WG listen 口 UDP 累计字节（本机 51820 是否有动静）
 gps_mesh_wg_socket_bytes() {
 	local wg_port=${WG_LISTEN_PORT:-51820}
 	local ssline
-	ssline=$(ss -H -u -i "sport = :${wg_port}" 2>/dev/null | head -1)
+	ssline=$(ss -H -u -l -i "sport = :${wg_port}" 2>/dev/null | head -1)
+	[[ -n $ssline ]] || ssline=$(ss -H -u -i "dport = :${wg_port}" 2>/dev/null | head -1)
 	[[ -n $ssline ]] || return 1
 	python3 - "$ssline" <<'PY'
 import re, sys
@@ -510,10 +517,130 @@ PY
 
 # 近期 sing-box 日志中 wireguard 相关行数（流量/握手动静）
 gps_mesh_wg_log_recent_count() {
-	local logf=${GPS_LOG:-}
 	local n=${1:-80}
-	[[ -f $logf ]] || return 1
-	tail -n "$n" "$logf" 2>/dev/null | grep -ciE 'wireguard|wg-ep' || true
+	local logf=${GPS_LOG:-}
+	local cnt=0
+	if [[ -f $logf ]]; then
+		cnt=$(tail -n "$n" "$logf" 2>/dev/null | grep -ciE 'wireguard|wg-ep' || true)
+		[[ ${cnt:-0} -gt 0 ]] && printf '%s' "$cnt" && return 0
+	fi
+	if have_cmd journalctl; then
+		cnt=$(journalctl -u "${GPS_SERVICE:-geoproxy-tuic}" -n "$((n * 2))" --no-pager 2>/dev/null | grep -ciE 'wireguard|wg-ep' || true)
+	fi
+	printf '%s' "${cnt:-0}"
+}
+
+# 从 journal/日志解析 WG 握手：输出 HS_SUMMARY ok=N fail=N / HS_FAIL=node|overlay|ep / HS_OK=...
+gps_mesh_wg_handshake_stats() {
+	local peers_path=${GPS_MESH_PEERS:-}
+	local config_path=${GPS_CONFIG:-}
+	local svc=${GPS_SERVICE:-geoproxy-tuic}
+	local logf=${GPS_LOG:-}
+	[[ -f $peers_path && -f $config_path && -n ${NODE_ID:-} ]] || return 1
+	have_cmd python3 || return 1
+	NODE_ID="${NODE_ID:-}" GPS_LOG="${logf:-}" python3 - "$peers_path" "$config_path" "$svc" <<'PY'
+import json, os, re, subprocess, sys
+
+peers_path, config_path, svc = sys.argv[1], sys.argv[2], sys.argv[3]
+self_id = os.environ.get("NODE_ID") or ""
+logf = os.environ.get("GPS_LOG") or ""
+
+def read_log(n=400):
+    lines = []
+    if os.path.isfile(logf):
+        try:
+            with open(logf, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()[-n:]
+        except OSError:
+            pass
+    if not lines:
+        try:
+            out = subprocess.check_output(
+                ["journalctl", "-u", svc, "-n", str(n * 2), "--no-pager"],
+                text=True,
+                errors="replace",
+            )
+            lines = out.splitlines()
+        except (OSError, subprocess.CalledProcessError):
+            return []
+    return lines
+
+lines = read_log()
+fail_p, ok_p = set(), set()
+for line in lines:
+    m = re.search(r"peer\(([A-Za-z0-9+/=]{4})", line)
+    if not m:
+        continue
+    pref = m.group(1)
+    low = line.lower()
+    if "did not complete" in low or "stopped hearing" in low:
+        fail_p.add(pref)
+    if any(
+        x in low
+        for x in (
+            "received handshake response",
+            "receiving keepalive",
+            "received handshake initiation",
+            "sending handshake response",
+        )
+    ):
+        ok_p.add(pref)
+
+with open(peers_path, encoding="utf-8") as f:
+    by_pk = {n.get("public_key", ""): n for n in json.load(f).get("nodes") or []}
+with open(config_path, encoding="utf-8") as f:
+    cfg = json.load(f)
+wg = next((e for e in cfg.get("endpoints") or [] if e.get("type") == "wireguard"), None)
+if not wg:
+    sys.exit(0)
+ok_n, fail_n = [], []
+for p in wg.get("peers") or []:
+    pk = p.get("public_key") or ""
+    if not pk:
+        continue
+    pref = pk[:4]
+    n = by_pk.get(pk, {})
+    nid = n.get("node_id") or "?"
+    overlay = (n.get("overlay_ip") or "").split("/")[0] or "?"
+    ep = n.get("endpoint") or ""
+    if not ep and p.get("address"):
+        ep = f"{p.get('address')}:{p.get('port') or 51820}"
+    row = f"{nid}|{overlay}|{ep}"
+    if pref in ok_p:
+        ok_n.append(row)
+    elif pref in fail_p and pref not in ok_p:
+        fail_n.append(row)
+print(f"HS_SUMMARY ok={len(ok_n)} fail={len(fail_n)}")
+for row in fail_n:
+    print(f"HS_FAIL={row}")
+for row in ok_n[:5]:
+    print(f"HS_OK={row}")
+PY
+}
+
+# 本机 WG 数据面：自动放行防火墙；未 listen 则重启 sing-box（doctor / mesh remediate）
+gps_mesh_remediate_local_wg() {
+	gps_mesh_defaults 2>/dev/null || true
+	local wg_port=${WG_LISTEN_PORT:-51820}
+	gps_mesh_expose_wg_data_plane 2>/dev/null || true
+	if [[ ${MESH_ROLE:-} == master ]]; then
+		gps_mesh_expose_control_plane 2>/dev/null || true
+	fi
+	if gps_mesh_wg_listen_ok; then
+		msg "  WG 修复: $(_green OK) sing-box 已在 UDP ${wg_port} 监听"
+		return 0
+	fi
+	warn "WG 修复: sing-box 未在 UDP ${wg_port} 监听，尝试重启 ${GPS_SERVICE:-geoproxy-tuic}…"
+	if declare -F gps_restart_svc >/dev/null 2>&1; then
+		gps_restart_svc 2>/dev/null || true
+		sleep 2
+	fi
+	if gps_mesh_wg_listen_ok; then
+		msg "  WG 修复: $(_green OK) 重启后已在 UDP ${wg_port} 监听"
+		return 0
+	fi
+	warn "WG 修复: 仍无 UDP ${wg_port} 监听 — 请检查 geoproxy-tuic 日志与 config.json endpoints"
+	return 1
 }
 
 # mesh show / doctor：登记心跳 vs WG 配置 vs 公网 UDP 数据面（非 overlay ping）
@@ -612,17 +739,51 @@ PY
 	fi
 	local ep_ok=0 ep_fail=0 ep_skip=0
 	local wg_sent=0 wg_recv=0 wg_log=0
+	local hs_ok=0 hs_fail=0
+	local -a hs_fail_lines=()
 	local b1
+	if gps_mesh_wg_listen_ok; then
+		msg "    WG 监听 UDP ${wg_port}: $(_green OK)（sing-box 已在 0.0.0.0:${wg_port} / [::]:${wg_port} 监听）"
+	else
+		msg "    WG 监听 UDP ${wg_port}: $(_red FAIL)（sing-box 未监听；运行 geoproxy-server mesh remediate 或菜单 23 doctor）"
+	fi
 	if b1=$(gps_mesh_wg_socket_bytes 2>/dev/null); then
 		read -r wg_sent wg_recv <<<"$b1"
 	fi
 	wg_log=$(gps_mesh_wg_log_recent_count 100 2>/dev/null || echo 0)
 	if [[ ${wg_sent:-0} -gt 0 || ${wg_recv:-0} -gt 0 ]]; then
-		msg "    WG 端口 ${wg_port}: $(_green "有流量")  bytes_sent=${wg_sent} bytes_received=${wg_recv}（本机 sing-box UDP 51820 累计）"
+		msg "    WG 流量统计: $(_green "有流量")  bytes_sent=${wg_sent} bytes_received=${wg_recv}"
 	elif [[ ${wg_log:-0} -gt 0 ]]; then
-		msg "    WG 端口 ${wg_port}: $(_yellow "待观察")  日志近期 ${wg_log} 条 wireguard 记录（端口统计不可用）"
+		msg "    WG 流量统计: $(_yellow "待观察")  近期 ${wg_log} 条 wireguard 日志"
 	else
-		msg "    WG 端口 ${wg_port}: $(_yellow "暂无统计")  （服务刚启动或 ss 无 bytes 字段）"
+		msg "    WG 流量统计: $(_yellow "暂无")  （UNCONN 监听口无 bytes；以握手日志为准）"
+	fi
+	local hs_out hs_line
+	if hs_out=$(gps_mesh_wg_handshake_stats 2>/dev/null); then
+		while IFS= read -r hs_line; do
+			case $hs_line in
+			HS_SUMMARY*)
+				hs_ok=${hs_line#*ok=}
+				hs_ok=${hs_ok%% fail=*}
+				hs_fail=${hs_line#*fail=}
+				;;
+			HS_FAIL=*)
+				hs_fail_lines+=("${hs_line#HS_FAIL=}")
+				;;
+			esac
+		done <<<"$hs_out"
+		if [[ ${hs_ok:-0} -gt 0 || ${hs_fail:-0} -gt 0 ]]; then
+			msg "    WG 握手（journal 解析）: $(_green "${hs_ok}") 已通  $(_red "${hs_fail}") 失败"
+			local hf nid ov ep
+			for hf in "${hs_fail_lines[@]}"; do
+				nid=${hf%%|*}
+				local rest=${hf#*|}
+				ov=${rest%%|*}
+				ep=${rest##*|}
+				msg "      $(_red FAIL) $(_cyan "${ov}") ← ${nid}  endpoint=${ep}"
+				msg "        修复: 在该节点运行 geoproxy-server mesh remediate；云控制台放行 UDP ${wg_port} 入站"
+			done
+		fi
 	fi
 	if ((${#peer_lines[@]} == 0)); then
 		msg "    数据面探测: $(_yellow SKIP)（无其它在线节点可测）"
@@ -650,10 +811,16 @@ PY
 	fi
 	if [[ $wg_peers == "0" && $alive -le 1 ]]; then
 		msg "    判定: $(_yellow "仅本机或未配置 WG peer")（组网尚未建立）"
+	elif [[ ${hs_fail:-0} -gt 0 && ${hs_ok:-0} -gt 0 ]]; then
+		msg "    判定: $(_yellow "部分 peer WG 握手失败")（${hs_ok} 通 / ${hs_fail} 失败；见上方失败列表）"
+	elif [[ ${hs_fail:-0} -gt 0 && ${hs_ok:-0} -eq 0 ]]; then
+		msg "    判定: $(_red "WG 握手全部失败")（查对端 UDP ${wg_port} 与 geoproxy-tuic 是否运行）"
+	elif [[ ${hs_ok:-0} -gt 0 && ${hs_fail:-0} -eq 0 ]]; then
+		msg "    判定: $(_green "10.66.0.0/16 数据面可能流通")（${hs_ok} 个 peer WG 握手已通）"
 	elif [[ $ep_ok -gt 0 && (${wg_sent:-0} -gt 0 || ${wg_recv:-0} -gt 0 || ${wg_log:-0} -gt 5) ]]; then
 		msg "    判定: $(_green "10.66.0.0/16 数据面可能流通")（公网 UDP 可达 + WG 端口有流量/日志动静）"
 	elif [[ $ep_ok -gt 0 ]]; then
-		msg "    判定: $(_yellow "公网 UDP 可达，overlay 待确认")（建议观察 WG bytes 是否增长）"
+		msg "    判定: $(_yellow "公网 UDP 可达，WG 握手待确认")（UDP 探测≠握手成功；看上方握手统计）"
 	elif [[ $ep_fail -gt 0 ]]; then
 		msg "    判定: $(_red "公网 UDP 不可达")（心跳在线但数据面可能被云 SG 拦截 UDP ${wg_port}）"
 		msg "    提示: overlay $(_cyan "10.66.x") 流量必须经公网 UDP ${wg_port} 加密传输"

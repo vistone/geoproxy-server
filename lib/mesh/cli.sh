@@ -38,6 +38,7 @@ gps_cmd_mesh() {
 	init) gps_mesh_cmd_init "$@" ;;
 	show | status) gps_mesh_cmd_show "$@" ;;
 	connectivity) gps_mesh_cmd_connectivity "$@" ;;
+	remediate) gps_mesh_cmd_remediate "$@" ;;
 	menu-role) gps_mesh_menu_role ;;
 	port-checklist | ports | firewall-ports) gps_mesh_print_port_checklist ;;
 	migrate-tls | migrate_tls) gps_mesh_migrate_tls "$@" ;;
@@ -105,6 +106,7 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh sync-master         # 周期：再注册并拉 peers（有变更则重启）
   mesh show
   mesh connectivity        # 组网连通性摘要（公网 UDP / WG 流量 / overlay 10.66.x）
+  mesh remediate           # 本机 WG 数据面自动修复（防火墙 + 未 listen 则重启）
   mesh role master         # 本机升为 Master
   mesh role member <地址> <TOKEN>   # 本机加入为 Node
   mesh join <地址> <TOKEN> # 同上
@@ -261,5 +263,16 @@ gps_mesh_cmd_connectivity() {
 	gps_mesh_ensure_node_id 2>/dev/null || true
 	gps_mesh_defaults 2>/dev/null || true
 	msg "$(_cyan "Mesh 组网连通性")"
+	gps_mesh_print_connectivity_summary
+}
+
+gps_mesh_cmd_remediate() {
+	load_state 2>/dev/null || true
+	gps_mesh_role_normalize 2>/dev/null || true
+	gps_mesh_ensure_node_id 2>/dev/null || true
+	gps_mesh_defaults 2>/dev/null || true
+	msg "$(_cyan "Mesh WG 数据面修复")（本机）"
+	gps_mesh_remediate_local_wg || true
+	msg ""
 	gps_mesh_print_connectivity_summary
 }
