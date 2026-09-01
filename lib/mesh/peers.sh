@@ -30,7 +30,7 @@ gps_mesh_peers_upsert_self() {
 	fi
 	have_cmd python3 || err "mesh 需要 python3"
 	NODE_ID="$NODE_ID" WG_PUBLIC_KEY="$WG_PUBLIC_KEY" MESH_OVERLAY_IP="$MESH_OVERLAY_IP" \
-		ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" \
+		ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" TRIPPED="${TRAFFIC_TRIPPED:-$(gps_traffic_tripped_from_state)}" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys, datetime
 path = sys.argv[1]
@@ -46,6 +46,7 @@ entry = {
     "overlay_ip": os.environ["MESH_OVERLAY_IP"],
     "roles": roles or ["edge"],
     "keepalive": 25,
+    "tripped": 1 if os.environ.get("TRIPPED") == "1" else 0,
     "last_seen": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
 out = [n for n in nodes if n.get("node_id") != nid]

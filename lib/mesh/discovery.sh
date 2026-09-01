@@ -38,7 +38,7 @@ gps_mesh_register_and_pull() {
 	tmp=$(mktemp)
 	body=$(
 		MESH_OVERLAY_IP="$MESH_OVERLAY_IP" NODE_ID="$NODE_ID" WG_PUBLIC_KEY="$WG_PUBLIC_KEY" \
-			ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" python3 - <<'PY'
+			ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" TRIPPED="${TRAFFIC_TRIPPED:-$(gps_traffic_tripped_from_state)}" python3 - <<'PY'
 import json, os
 print(json.dumps({
     "node_id": os.environ["NODE_ID"],
@@ -47,6 +47,7 @@ print(json.dumps({
     "overlay_ip": os.environ.get("MESH_OVERLAY_IP") or "",
     "roles": [r for r in (os.environ.get("ROLES") or "edge").replace(",", " ").split() if r] or ["edge"],
     "keepalive": 25,
+    "tripped": 1 if os.environ.get("TRIPPED") == "1" else 0,
 }, ensure_ascii=False))
 PY
 	) || {

@@ -197,6 +197,77 @@ setup() {
 	kill -KILL "$mpid" >/dev/null 2>&1 || true
 }
 
+@test "wg peers 渲染排除熔断(tripped)节点" {
+	export NODE_ID=tile-self
+	export MESH_EXIT_NODE_ID=
+	export MESH_PEER_STALE_SEC=180
+	export MESH_WG_LIVE_ONLY=1
+	local fresh
+	fresh=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	gps_mesh_ensure_dirs
+	cat >"$GPS_MESH_PEERS" <<EOF
+{"schema":1,"nodes":[
+  {"node_id":"node-a","public_key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE=","overlay_ip":"10.66.0.2","endpoint":"203.0.113.2:51820","last_seen":"$fresh"},
+  {"node_id":"node-b","public_key":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBE=","overlay_ip":"10.66.0.3","endpoint":"203.0.113.3:51820","last_seen":"$fresh","tripped":1}
+]}
+EOF
+	out=$(gps_mesh_peers_endpoint_json)
+	# 正常节点在 WG peers 中
+	echo "$out" | grep -q 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEE='
+	# 熔断节点必须被排除出 WG peers
+	! echo "$out" | grep -q 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBE='
+}
+
+@test "master 注册/心跳记录 tripped 并同步到 peers" {
+	export PORT=43019
+	export UUID="00000000-0000-4000-8000-000000000118"
+	export PASSWORD="mesh-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.60"
+	export MESH_ROLE=master
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+
+	local master_peers=$GPS_MESH_PEERS
+	local mport
+	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	MESH_CLUSTER_TOKEN=test-token-bbcc GPS_MESH_PEERS="$master_peers" GPS_MESH_MASTER_TLS=0 \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$GPS_TEST_PREFIX/master-tripped.log" 2>&1 </dev/null 3>&- 4>&- &
+	local mpid=$!
+	local i
+	for i in 1 2 3 4 5 6; do
+		curl -fsS --max-time 1 "http://127.0.0.1:${mport}/v1/health" >/dev/null 2>&1 && break
+		sleep 0.5
+	done
+
+	# 注册一个熔断节点
+	curl -fsS --max-time 5 \
+		-H "Authorization: Bearer test-token-bbcc" \
+		-H "Content-Type: application/json" \
+		-d '{"node_id":"tile-trip","public_key":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCE=","endpoint":"203.0.113.61:51820","overlay_ip":"10.66.0.21","roles":["edge"],"tripped":1}' \
+		"http://127.0.0.1:${mport}/v1/register" >/dev/null
+	grep -q '"tripped": 1' "$master_peers"
+
+	# 成员 register_and_pull 在 TRAFFIC_TRIPPED=1 时应带上 tripped 标记
+	MESH_ROLE=member MESH_MASTER_URL="http://127.0.0.1:${mport}" MESH_CLUSTER_TOKEN=test-token-bbcc \
+		NODE_ID=tile-trip WG_PUBLIC_KEY="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCE=" \
+		WG_PRIVATE_KEY="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCE=" \
+		MESH_OVERLAY_IP=10.66.0.21 TRAFFIC_TRIPPED=1 \
+		gps_mesh_register_and_pull
+	# 成员本地 peers 快照保留 tripped 标记（供 WG 渲染过滤）
+	grep -q '"tripped": 1' "$GPS_MESH_PEERS"
+
+	kill -TERM "$mpid" >/dev/null 2>&1 || true
+	sleep 0.2
+	kill -KILL "$mpid" >/dev/null 2>&1 || true
+}
+
 @test "mesh show auto-ensures keys and join url" {
 	export PORT=43009
 	export UUID="00000000-0000-4000-8000-000000000108"

@@ -435,6 +435,7 @@ class Handler(BaseHTTPRequestHandler):
                         ep = _clean(req.get("endpoint"), _FIELD_MAX)
                         if ep:
                             n["endpoint"] = ep
+                        n["tripped"] = 1 if int(req.get("tripped") or 0) else 0
                         save_doc(doc)
                         self._send(200, {"ok": True, "peers": annotate_alive(doc), **cluster_payload()})
                         return
@@ -489,6 +490,7 @@ class Handler(BaseHTTPRequestHandler):
                 "overlay_ip": overlay,
                 "roles": roles,
                 "keepalive": keepalive,
+                "tripped": 1 if int(req.get("tripped") or 0) else 0,
                 "last_seen": utc_now(),
             }
             nodes.append(entry)

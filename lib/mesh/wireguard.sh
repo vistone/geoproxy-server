@@ -102,6 +102,9 @@ for n in nodes:
     nid = n.get("node_id") or ""
     if not nid or nid == self_id:
         continue
+    # 熔断节点（TRAFFIC_TRIPPED=1）不加入 WG 组网：服务已停，握手只会徒劳重试
+    if int(n.get("tripped") or 0):
+        continue
     if live_only and not alive(n):
         continue
     pk = n.get("public_key") or ""

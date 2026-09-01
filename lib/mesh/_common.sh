@@ -282,6 +282,17 @@ gps_mesh_defaults() {
 	gps_validate_port "$MESH_MASTER_PORT" || err "无效 MESH_MASTER_PORT: $MESH_MASTER_PORT"
 }
 
+# 只读 state.env 中的熔断标记（1/0）。绝不 source 整个 state.env：
+# load_state 会把 save_state 之后才生成/更新的变量（NODE_ID / WG 公钥 / overlay 等）
+# 用空值覆盖，导致 mesh 注册/配置渲染失败。
+gps_traffic_tripped_from_state() {
+	local v=0
+	if [[ -f ${GPS_STATE:-} ]]; then
+		v=$(sed -n 's/^TRAFFIC_TRIPPED=//p' "$GPS_STATE" 2>/dev/null | tail -1)
+	fi
+	[[ $v == 1 ]] && echo 1 || echo 0
+}
+
 gps_mesh_ensure_cluster_token() {
 	if [[ -z ${MESH_CLUSTER_TOKEN:-} ]]; then
 		if [[ -f ${GPS_MESH_TOKEN_FILE:-} ]]; then

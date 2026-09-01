@@ -2,7 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
-## v0.2.65 - 2026-08-27
+## v0.2.66 - 2026-09-01
+
+功能：被熔断（`TRAFFIC_TRIPPED=1`）的节点自动从 WG 组网中摘除——只有未熔断的 VPS 才是 WireGuard peer，避免对已停服节点徒劳握手重试。
+
+- 成员注册/心跳负载携带 `tripped` 标记（`gps_mesh_register_and_pull` / Master 自身 `gps_mesh_peers_upsert_self`）。
+- Master 注册表记录 `tripped`（`mesh_master.py` register + heartbeat），随 `/v1/peers` 同步给全体成员。
+- WG 配置渲染（`gps_mesh_peers_endpoint_json`）跳过 `tripped=1` 的节点；节点恢复（resume）后下次同步自动回归组网。
+- 新增 `gps_traffic_tripped_from_state`：只读 state.env 的熔断标记，避免 `load_state` 中途调用把内存中后生成的值（NODE_ID/WG 密钥/overlay）覆盖为空。
+- 新增 bats 用例：WG 渲染排除熔断节点；Master 注册/心跳记录 tripped 并同步。
+
+## v0.2.65 - 2026-09-01
 
 增强：Member 经 Master 通知集群自动升级（GitHub Release → 全员跟进）。
 
