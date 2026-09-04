@@ -663,9 +663,9 @@ gps_mesh_print_connectivity_summary() {
 	gps_mesh_ensure_node_id 2>/dev/null || true
 	local wg_port=${WG_LISTEN_PORT:-51820}
 	msg "  $(_cyan "组网连通性摘要"):"
-	msg "    说明: 「在线」= Master 心跳；$(_cyan "10.66.0.x") = 隧道内 overlay（非公网）。数据面走 公网 UDP ${wg_port} → 隧道内 overlay。"
+	msg "    说明: 「在线」= Master 心跳；$(_cyan "10.66.0.x") = 隧道内 overlay（非公网）。节点互联走 公网 UDP ${wg_port}；代理流量不经 WG（出口恒 direct）。"
 	local my_overlay=${MESH_OVERLAY_IP:-?}
-	msg "    本机 overlay: $(_cyan "${my_overlay}")（经 wg-ep；流量在 ${MESH_OVERLAY_PREFIX:-10.66.0.0/16} 内路由）"
+	msg "    本机 overlay: $(_cyan "${my_overlay}")（经 wg-ep 与其它 peer 的 overlay /32 互联；仅节点管理面，不承载代理流量）"
 	if [[ ! -f ${GPS_MESH_PEERS:-} ]] || ! have_cmd python3; then
 		msg "    （无 peers 文件或 python3，跳过统计）"
 		return 0
@@ -750,7 +750,7 @@ PY
 	else
 		msg "    WG 配置 peer 数: ${wg_peers}（sing-box config.json；通常仅含心跳在线节点）"
 	fi
-	local ep_ok=0 ep_fail=0 ep_skip=0
+	local ep_sent=0 ep_fail=0 ep_skip=0
 	local wg_sent=0 wg_recv=0 wg_log=0
 	local hs_ok=0 hs_fail=0
 	local -a hs_fail_lines=()
@@ -814,10 +814,10 @@ PY
 				msg "        公网 endpoint: $(_yellow SKIP)（未登记 endpoint）"
 				ep_skip=$((ep_skip + 1))
 			elif gps_mesh_probe_udp_endpoint "$endpoint"; then
-				msg "        公网 UDP ${endpoint}: $(_green OK)（可达；overlay 流量经 WG，勿用内核 ping 10.66.x 判断）"
-				ep_ok=$((ep_ok + 1))
+				msg "        公网 UDP ${endpoint}: $(_yellow "已发包")（盲发无回执，不能证明可达；以 WG 握手统计为准）"
+				ep_sent=$((ep_sent + 1))
 			else
-				msg "        公网 UDP ${endpoint}: $(_red FAIL)（不可达；查云安全组 UDP ${wg_port}）"
+				msg "        公网 UDP ${endpoint}: $(_red FAIL)（发包即失败：endpoint 域名解析或本机出网异常）"
 				ep_fail=$((ep_fail + 1))
 			fi
 		done
@@ -829,14 +829,14 @@ PY
 	elif [[ ${hs_fail:-0} -gt 0 && ${hs_ok:-0} -eq 0 ]]; then
 		msg "    判定: $(_red "WG 握手全部失败")（查对端 UDP ${wg_port} 与 geoproxy-tuic 是否运行）"
 	elif [[ ${hs_ok:-0} -gt 0 && ${hs_fail:-0} -eq 0 ]]; then
-		msg "    判定: $(_green "10.66.0.0/16 数据面可能流通")（${hs_ok} 个 peer WG 握手已通）"
-	elif [[ $ep_ok -gt 0 && (${wg_sent:-0} -gt 0 || ${wg_recv:-0} -gt 0 || ${wg_log:-0} -gt 5) ]]; then
-		msg "    判定: $(_green "10.66.0.0/16 数据面可能流通")（公网 UDP 可达 + WG 端口有流量/日志动静）"
-	elif [[ $ep_ok -gt 0 ]]; then
-		msg "    判定: $(_yellow "公网 UDP 可达，WG 握手待确认")（UDP 探测≠握手成功；看上方握手统计）"
+		msg "    判定: $(_green "数据面可能流通")（${hs_ok} 个 peer WG 握手已通；仅 overlay /32 互联，代理不经 WG）"
+	elif [[ $ep_sent -gt 0 && (${wg_sent:-0} -gt 0 || ${wg_recv:-0} -gt 0 || ${wg_log:-0} -gt 5) ]]; then
+		msg "    判定: $(_yellow "WG 握手待确认")（已向对端发出 UDP 探测包 + WG 端口有流量/日志动静，但无握手成功记录）"
+	elif [[ $ep_sent -gt 0 ]]; then
+		msg "    判定: $(_yellow "WG 握手待确认")（UDP 探测包已发出但无回执；看上方握手统计）"
 	elif [[ $ep_fail -gt 0 ]]; then
-		msg "    判定: $(_red "公网 UDP 不可达")（心跳在线但数据面可能被云 SG 拦截 UDP ${wg_port}）"
-		msg "    提示: overlay $(_cyan "10.66.x") 流量必须经公网 UDP ${wg_port} 加密传输"
+		msg "    判定: $(_red "公网 UDP 不可达")（发包失败：endpoint 域名/本机出网异常；云 SG 拦截 UDP 的表现是发包成功但握手失败）"
+		msg "    提示: overlay $(_cyan "10.66.x") 互联依赖公网 UDP ${wg_port} 加密传输"
 	elif [[ $ep_skip -ge 1 && $wg_peers != "0" && $wg_peers != "?" ]]; then
 		msg "    判定: $(_yellow "WG 已配置 ${wg_peers} 个 peer")（未探测 endpoint；请菜单 30 查端口清单）"
 	fi
