@@ -373,12 +373,17 @@ PY
 	local f="${GPS_MESH_EXIT_HEALTH:-${GPS_MESH_DIR}/exit-health}"
 	umask 077
 	local tmp="${f}.tmp.$$"
-	{
+	if {
 		printf 'FAILS=%s\n' "$fails"
 		printf 'SUSPENDED=%s\n' "$suspended"
 		printf 'SUSPENDED_AT=%s\n' "$suspended_at"
 		printf 'STRIKE=%s\n' "$strike"
-	} >"$tmp" 2>/dev/null && chmod 600 "$tmp" && mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+	} >"$tmp" 2>/dev/null; then
+		chmod 600 "$tmp" 2>/dev/null || true
+		mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+	else
+		rm -f "$tmp"
+	fi
 	return 0
 }
 
