@@ -164,6 +164,8 @@ gps_mesh_ensure_boot() {
 			gps_mesh_peers_upsert_self || warn "无法写入本地 peers（只读沙箱？检查 systemd ReadWritePaths 含 ${GPS_ETC:-/etc/geoproxy-server}）"
 		fi
 	fi
+	# exit 数据面健康门禁：握手连续失败 → 暂停 0.0.0.0/0 下发（渲染前评估）
+	gps_mesh_exit_health_gate
 	gps_mesh_expose_wg_data_plane
 	gps_write_config || warn "无法写入 ${GPS_CONFIG:-config}（只读沙箱？检查 systemd ReadWritePaths）"
 }
@@ -179,9 +181,14 @@ gps_mesh_sync_master() {
 		GPS_MESH_CURL_MAX_TIME=15
 		GPS_MESH_CURL_CONNECT_TIMEOUT=${GPS_MESH_CURL_CONNECT_TIMEOUT:-15}
 	fi
-	local before after
+	local before after cfg_prev=""
 	before=""
 	[[ -f $GPS_CONFIG ]] && before=$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')
+	# 留一份改写前副本：重启时打印脱敏 diff，让「为什么重启」可追溯
+	if [[ -f $GPS_CONFIG ]]; then
+		cfg_prev=$(mktemp)
+		cp -f "$GPS_CONFIG" "$cfg_prev" 2>/dev/null || cfg_prev=""
+	fi
 
 	gps_mesh_ensure_boot
 	save_state 2>/dev/null || true
@@ -191,6 +198,15 @@ gps_mesh_sync_master() {
 
 	# 只看 config.json：peers.json 的 last_seen 每次 upsert 都会变，不能据此重启代理
 	if [[ ${GPS_MESH_SYNC_RESTART:-1} == 1 && $before != "$after" ]]; then
+		msg "mesh: config 变更 → 重启 ${GPS_SERVICE}。差异摘要（凭证已脱敏）:"
+		if [[ -n $cfg_prev ]]; then
+			diff -u "$cfg_prev" "$GPS_CONFIG" 2>/dev/null |
+				sed -E 's/("private_key"[^:]*: *")[^"]*/\1***/; s/("password"[^:]*: *")[^"]*/\1***/' |
+				head -20 || true
+			rm -f "$cfg_prev"
+		fi
 		gps_restart_svc 2>/dev/null || true
+	elif [[ -n $cfg_prev ]]; then
+		rm -f "$cfg_prev"
 	fi
 }

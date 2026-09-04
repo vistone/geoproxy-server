@@ -276,10 +276,110 @@ gps_mesh_defaults() {
 	MESH_SYNC_SEC=${MESH_SYNC_SEC:-60}
 	MESH_PEER_STALE_SEC=${MESH_PEER_STALE_SEC:-180}
 	MESH_WG_LIVE_ONLY=${MESH_WG_LIVE_ONLY:-1}
+	MESH_WG_MTU=${MESH_WG_MTU:-1408}
 	MESH_FAILOVER=${MESH_FAILOVER:-0}
 	MESH_FAILOVER_PROBE=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
 	gps_validate_port "$WG_LISTEN_PORT" || err "无效 WG_LISTEN_PORT: $WG_LISTEN_PORT"
 	gps_validate_port "$MESH_MASTER_PORT" || err "无效 MESH_MASTER_PORT: $MESH_MASTER_PORT"
+	# WG MTU 1280（IPv6 最小）到 1500（以太网上限）；路径受限时可调小缓解大包黑洞
+	[[ $MESH_WG_MTU =~ ^[0-9]+$ ]] || err "无效 MESH_WG_MTU: $MESH_WG_MTU"
+	((10#$MESH_WG_MTU >= 1280 && 10#$MESH_WG_MTU <= 1500)) || err "MESH_WG_MTU 需在 1280-1500: $MESH_WG_MTU"
+}
+
+# ---------- mesh-exit 数据面健康门禁 ----------
+# 心跳在线 ≠ WG 隧道可用。以 sing-box 日志里的真实握手成败（gps_mesh_wg_handshake_stats）
+# 为证据：连续 MESH_EXIT_SUSPEND_AFTER（默认 3）个同步周期出现「exit 握手失败且无成功」
+# → 暂停 exit（渲染不下发 0.0.0.0/0，流量回落本机 direct，服务不断）；
+# 冷却 MESH_EXIT_RETRY_SEC（默认 600s）后自动放行一个观察窗，若再次失败立即重新暂停（阈值 1）。
+# 状态文件 ${GPS_MESH_DIR}/exit-health（0600）：FAILS/SUSPENDED/SUSPENDED_AT/STRIKE。
+
+gps_mesh_exit_health_read() {
+	local f="${GPS_MESH_EXIT_HEALTH:-${GPS_MESH_DIR:-/etc/geoproxy-server/mesh}/exit-health}"
+	[[ -f $f ]] || return 0
+	cat "$f" 2>/dev/null || true
+}
+
+gps_mesh_exit_suspended() {
+	local v
+	v=$(gps_mesh_exit_health_read | sed -n 's/^SUSPENDED=//p' | head -1)
+	[[ ${v:-0} == 1 ]]
+}
+
+# ensure/sync 每周期调用一次；渲染经 gps_mesh_exit_suspended 读取结果
+gps_mesh_exit_health_gate() {
+	[[ -n ${MESH_EXIT_NODE_ID:-} ]] || return 0
+	have_cmd python3 || return 0
+	# exit 无公网 endpoint：渲染层会拒绝授予 0.0.0.0/0（黑洞），此处周期性告警提醒补 endpoint
+	if [[ -f ${GPS_MESH_PEERS:-} ]]; then
+		local ep
+		ep=$(
+			python3 - "$GPS_MESH_PEERS" "$MESH_EXIT_NODE_ID" <<'PY' 2>/dev/null
+import json, sys
+try:
+    doc = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+for n in doc.get("nodes") or []:
+    if n.get("node_id") == sys.argv[2]:
+        print(n.get("endpoint") or "")
+        sys.exit(0)
+PY
+		)
+		if [[ -z ${ep:-} ]]; then
+			warn "mesh-exit(${MESH_EXIT_NODE_ID}) 未登记公网 endpoint（对端需有公网 IP 并放行 UDP ${WG_LISTEN_PORT:-51820}）— 出口路由暂不下发"
+		fi
+	fi
+	local fails=0 suspended=0 suspended_at=0 strike=0 now
+	now=$(date +%s)
+	local line
+	while IFS= read -r line; do
+		case $line in
+		FAILS=*) fails=${line#FAILS=} ;;
+		SUSPENDED=*) suspended=${line#SUSPENDED=} ;;
+		SUSPENDED_AT=*) suspended_at=${line#SUSPENDED_AT=} ;;
+		STRIKE=*) strike=${line#STRIKE=} ;;
+		esac
+	done < <(gps_mesh_exit_health_read)
+	# 真实数据面证据：exit 出现在握手失败列表（parser 保证「有成功则不算失败」）
+	local evidence=fail
+	if ! gps_mesh_wg_handshake_stats 2>/dev/null | grep -q "^HS_FAIL=${MESH_EXIT_NODE_ID}|"; then
+		evidence=ok
+	fi
+	local after=${MESH_EXIT_SUSPEND_AFTER:-3}
+	if ((strike == 1)); then
+		after=1 # 曾暂停过：复停阈值收紧，避免出口 IP 长时间来回跳
+	fi
+	if ((suspended)); then
+		if ((now - suspended_at >= ${MESH_EXIT_RETRY_SEC:-600})); then
+			suspended=0
+			strike=1
+			fails=0
+			warn "mesh-exit(${MESH_EXIT_NODE_ID}) 冷却到期，重新放行观察窗（隧道仍不可用将立即再次暂停）"
+		fi
+	else
+		if [[ $evidence == fail ]]; then
+			fails=$((fails + 1))
+		else
+			fails=0
+			strike=0
+		fi
+		if ((fails >= after)); then
+			suspended=1
+			suspended_at=$now
+			warn "mesh-exit(${MESH_EXIT_NODE_ID}) WG 握手连续 ${fails} 次失败，暂停出口路由 — 流量暂走本机 direct（$((${MESH_EXIT_RETRY_SEC:-600} / 60)) 分钟后自动重试）"
+		fi
+	fi
+	gps_mesh_ensure_dirs 2>/dev/null || true
+	local f="${GPS_MESH_EXIT_HEALTH:-${GPS_MESH_DIR}/exit-health}"
+	umask 077
+	local tmp="${f}.tmp.$$"
+	{
+		printf 'FAILS=%s\n' "$fails"
+		printf 'SUSPENDED=%s\n' "$suspended"
+		printf 'SUSPENDED_AT=%s\n' "$suspended_at"
+		printf 'STRIKE=%s\n' "$strike"
+	} >"$tmp" 2>/dev/null && chmod 600 "$tmp" && mv -f "$tmp" "$f" 2>/dev/null || rm -f "$tmp"
+	return 0
 }
 
 # 只读 state.env 中的熔断标记（1/0）。绝不 source 整个 state.env：
@@ -1104,7 +1204,7 @@ gps_mesh_cluster_schedule_upgrade() {
 	printf '%s\n' "$target" >"$pending"
 	chmod 600 "$pending" 2>/dev/null || true
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
-		gps_mesh_cmd_upgrade_cluster 2>/dev/null || true
+		gps_mesh_cmd_upgrade_cluster "$target" 2>/dev/null || true
 		return 0
 	fi
 	if have_cmd systemctl; then

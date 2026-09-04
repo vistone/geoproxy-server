@@ -183,6 +183,9 @@ geoproxy-server mesh export
 # 可选：指定 L3 出口跳板
 geoproxy-server change mesh-exit <node_id>
 
+# 可选：WG MTU（默认 1408；路径受限/大包黑洞时调小）
+geoproxy-server change mesh-mtu 1380
+
 # 可选：出口故障自动切换（默认关闭；本机直连优先，故障时自动切对端出口兜底，恢复后回切）
 geoproxy-server change mesh-failover on
 geoproxy-server change mesh-failover off
@@ -191,7 +194,10 @@ geoproxy-server change mesh-failover off
 geoproxy-server change mesh-failover-probe <url>
 ```
 
-开启 `mesh-failover` 后出口为「本机直连优先 + 对端兜底」（无在线对端时仍为本机直连），与 `mesh-exit` 互斥；
+`mesh-exit` 与 `mesh-failover` 可组合：urltest 在「本机直连 ↔ exit 隧道」间择优（tolerance 100ms，不掐断存量连接）。
+`mesh-exit` 自带数据面健康门禁：以 sing-box 握手成败为证据，连续失败自动暂停出口路由（流量回落本机 direct，
+冷却后自动重试），隧道死掉不再黑洞全部流量。
+mesh 目的地路由只匹配 peers 实际持有的 overlay /32（不再整段劫持 `10.66.0.0/16`）。
 每台机器依然只跑 **一个** sing-box 实例，探测组与防环规则都在同一个实例内完成。
 
 自 v0.2.33 起拒绝向**非本机** Master 发起明文 `http://` 注册（TOKEN/公钥会明文过网）。

@@ -52,7 +52,7 @@ gps_mesh_endpoints_json() {
       "type": "wireguard",
       "tag": "wg-ep",
       "system": false,
-      "mtu": 1408,
+      "mtu": ${MESH_WG_MTU},
       "address": ["${addr}"],
       "private_key": "${priv}",
       "listen_port": ${WG_LISTEN_PORT},
@@ -70,15 +70,21 @@ gps_mesh_peers_endpoint_json() {
 		return 0
 	fi
 	have_cmd python3 || err "mesh peers 渲染需要 python3"
+	local exit_suspended=0
+	if gps_mesh_exit_suspended; then
+		exit_suspended=1
+	fi
 	NODE_ID="${NODE_ID:-}" MESH_EXIT_NODE_ID="${MESH_EXIT_NODE_ID:-}" \
 		MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
 		MESH_WG_LIVE_ONLY="${MESH_WG_LIVE_ONLY:-1}" \
+		MESH_EXIT_SUSPENDED="$exit_suspended" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys
 from datetime import datetime, timezone
 path = sys.argv[1]
 self_id = os.environ.get("NODE_ID") or ""
 exit_id = os.environ.get("MESH_EXIT_NODE_ID") or ""
+exit_suspended = (os.environ.get("MESH_EXIT_SUSPENDED") or "0") == "1"
 stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
 live_only = (os.environ.get("MESH_WG_LIVE_ONLY") or "1") != "0"
 now = datetime.now(timezone.utc)
@@ -115,12 +121,6 @@ for n in nodes:
         continue
     endpoint = n.get("endpoint") or ""
     keepalive = int(n.get("keepalive") or 25)
-    allowed = [overlay + "/32"]
-    if exit_id and nid == exit_id:
-        if default_count:
-            raise SystemExit("anti-loop: multiple default-route peers")
-        allowed.extend(["0.0.0.0/0", "::/0"])
-        default_count += 1
     ep_host, ep_port = "", 0
     if endpoint:
         if endpoint.startswith("["):
@@ -130,6 +130,19 @@ for n in nodes:
         else:
             host, _, port = endpoint.rpartition(":")
             ep_host, ep_port = host, int(port or 0)
+    allowed = [overlay + "/32"]
+    if exit_id and nid == exit_id:
+        # 出口路由只授予「有可拨 endpoint 且未被健康门禁暂停」的 peer：
+        # 空 endpoint 的 peer 无法承载 0.0.0.0/0（纯黑洞），暂停期则回落 direct
+        if ep_host and ep_port and not exit_suspended:
+            if default_count:
+                raise SystemExit("anti-loop: multiple default-route peers")
+            allowed.extend(["0.0.0.0/0", "::/0"])
+            default_count += 1
+        elif exit_suspended:
+            print(f"WG_EXIT_SUSPENDED={nid}", file=sys.stderr)
+        else:
+            print(f"WG_EXIT_NO_ENDPOINT={nid}", file=sys.stderr)
     peer = {
         "public_key": pk,
         "allowed_ips": allowed,
@@ -145,15 +158,87 @@ print(",\n".join(parts))
 PY
 }
 
+# 与 WG peers 渲染同过滤口径的 overlay /32 清单（每行一个）。
+# 供路由规则精确匹配：目的地只送进「mesh 内真实存在」的地址，避免整段 /16 劫持同网段真实目的地。
+gps_mesh_peer_overlay_cidrs() {
+	gps_mesh_ensure_dirs
+	if [[ ! -f ${GPS_MESH_PEERS:-} ]]; then
+		return 0
+	fi
+	have_cmd python3 || return 0
+	NODE_ID="${NODE_ID:-}" MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
+		MESH_WG_LIVE_ONLY="${MESH_WG_LIVE_ONLY:-1}" \
+		python3 - "$GPS_MESH_PEERS" <<'PY'
+import ipaddress, json, os, sys
+from datetime import datetime, timezone
+path = sys.argv[1]
+self_id = os.environ.get("NODE_ID") or ""
+stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
+live_only = (os.environ.get("MESH_WG_LIVE_ONLY") or "1") != "0"
+now = datetime.now(timezone.utc)
+
+def alive(n):
+    ls = n.get("last_seen") or ""
+    if not ls:
+        return True
+    try:
+        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return (now - ts).total_seconds() <= stale
+
+with open(path, "r", encoding="utf-8") as f:
+    doc = json.load(f)
+seen = set()
+for n in doc.get("nodes") or []:
+    nid = n.get("node_id") or ""
+    if not nid or nid == self_id:
+        continue
+    if int(n.get("tripped") or 0):
+        continue
+    if live_only and not alive(n):
+        continue
+    if not (n.get("public_key") or ""):
+        continue
+    raw = (n.get("overlay_ip") or "").split("/")[0]
+    try:
+        ip = ipaddress.ip_address(raw)
+    except ValueError:
+        continue
+    if ip.version != 4:
+        continue
+    key = f"{ip}/32"
+    if key not in seen:
+        seen.add(key)
+        print(key)
+PY
+}
+
 gps_mesh_route_json() {
 	gps_profile_normalize
 	gps_mesh_defaults
 	local prefix final_tag
 	prefix=$(gps_json_escape "${MESH_OVERLAY_PREFIX}")
+	# failover 开启即恒定 final：不随「是否有在线 peer」翻转，避免 peer 抖动放大为路由翻转+重启
+	# （无 peer 时 wg-ep 探测必失败，urltest 自然选 direct）
 	final_tag=direct
-	# mesh-failover：有在线对端时才把 final 指到探测组
-	if [[ ${MESH_FAILOVER:-0} == 1 ]] && gps_mesh_has_live_peer; then
+	if [[ ${MESH_FAILOVER:-0} == 1 ]]; then
 		final_tag=mesh-failover
+	fi
+	# 目的地规则只收敛到 peer 实际持有的 overlay /32：
+	# 整段 /16 会把同网段的真实目的地（云内网/K8s service CIDR 等）也劫持进 WG 黑洞
+	local dest_rule="" cidr line first=1
+	while IFS= read -r line; do
+		[[ -n $line ]] || continue
+		if ((first)); then
+			first=0
+		else
+			cidr+=','
+		fi
+		cidr+="$(printf '"%s"' "$(gps_json_escape "$line")")"
+	done < <(gps_mesh_peer_overlay_cidrs)
+	if [[ -n ${cidr:-} ]]; then
+		dest_rule=$(printf ',\n      {\n        "ip_cidr": [%s],\n        "outbound": "wg-ep"\n      }' "$cidr")
 	fi
 	cat <<EOF
   "route": {
@@ -161,11 +246,7 @@ gps_mesh_route_json() {
       {
         "source_ip_cidr": ["${prefix}"],
         "outbound": "direct"
-      },
-      {
-        "ip_cidr": ["${prefix}"],
-        "outbound": "wg-ep"
-      }
+      }${dest_rule}
     ],
     "final": "${final_tag}"
   }
@@ -208,8 +289,10 @@ gps_mesh_outbounds_json() {
 	# 始终至少有 direct；L7 hop 占位（MESH_L7_DETOUR_JSON 高级用户/后续）
 	local extra=${MESH_L7_OUTBOUNDS_JSON:-}
 	# mesh-failover：direct 之后插入 urltest 探测组（本机直连 ↔ WG 隧道）
+	# 开启即恒定渲染（不随 peer 存亡翻转）；tolerance 100ms 防止近延迟下每 30s 来回切换
+	# 导致出口 IP 抖动；interrupt_exist_connections=false 保证切换不掐断存量连接
 	local failover=""
-	if [[ ${MESH_FAILOVER:-0} == 1 ]] && gps_mesh_has_live_peer; then
+	if [[ ${MESH_FAILOVER:-0} == 1 ]]; then
 		local probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
 		# probe 可被 CLI/state.env 手工篡改，渲染前 JSON 转义，防破坏 JSON 或注入
 		probe=$(gps_json_escape "$probe")
@@ -225,7 +308,8 @@ gps_mesh_outbounds_json() {
       ],
       "url": "${probe}",
       "interval": "30s",
-      "tolerance": 0
+      "tolerance": 100,
+      "interrupt_exist_connections": false
     }
 EOF
 		)

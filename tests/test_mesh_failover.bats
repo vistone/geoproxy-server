@@ -118,7 +118,8 @@ PY
 	src_line=$(grep -n 'source_ip_cidr' "$GPS_CONFIG" | head -1 | cut -d: -f1)
 	ip_line=$(grep -n '"ip_cidr"' "$GPS_CONFIG" | head -1 | cut -d: -f1)
 	[ "$src_line" -lt "$ip_line" ]
-	# 结构化断言 urltest 组内层字段：outbounds 标签顺序、url=probe、interval、tolerance、防环规则置顶
+	# 结构化断言 urltest 组内层字段：outbounds 标签顺序、url=probe、interval、tolerance、
+	# interrupt_exist_connections、防环规则置顶
 	python3 - "$GPS_CONFIG" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -129,7 +130,8 @@ assert g["type"] == "urltest", g["type"]
 assert g["outbounds"] == ["direct", "wg-ep"], g["outbounds"]
 assert g["url"] == "https://www.gstatic.com/generate_204", g["url"]
 assert g["interval"] == "30s", g["interval"]
-assert g["tolerance"] == 0, g["tolerance"]
+assert g["tolerance"] == 100, g["tolerance"]
+assert g["interrupt_exist_connections"] is False, g["interrupt_exist_connections"]
 assert cfg["route"]["final"] == "mesh-failover", cfg["route"]["final"]
 rules = cfg["route"]["rules"]
 assert rules and "source_ip_cidr" in rules[0], "anti-loop rule must be first"
@@ -138,13 +140,13 @@ PY
 	[ "$status" -eq 0 ]
 }
 
-@test "failover on without peers keeps direct-only final" {
+@test "failover on without peers still renders stable urltest final" {
 	mesh_init
 	MESH_FAILOVER=1
 	gps_write_config
-	run grep -q 'mesh-failover' "$GPS_CONFIG"
-	[ "$status" -ne 0 ]
-	grep -q '"final": "direct"' "$GPS_CONFIG"
+	# final 恒定指向探测组：不随 peer 存亡翻转（无 peer 时 wg-ep 探测必失败，urltest 选 direct）
+	grep -q '"tag": "mesh-failover"' "$GPS_CONFIG"
+	grep -q '"final": "mesh-failover"' "$GPS_CONFIG"
 	run python3 -m json.tool "$GPS_CONFIG"
 	[ "$status" -eq 0 ]
 }
@@ -167,22 +169,36 @@ PY
 	[ "$status" -ne 0 ]
 }
 
-@test "change mesh-failover on conflicts with mesh-exit" {
+@test "failover and mesh-exit can coexist (urltest over direct vs exit tunnel)" {
 	mesh_init
-	MESH_EXIT_NODE_ID=tile-exit
-	save_state
-	run gps_cmd_change mesh-failover on
-	[ "$status" -ne 0 ]
-	[[ "$output" == *冲突* ]]
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
+	gps_cmd_change mesh-failover on
+	MESH_EXIT_NODE_ID=tile-b gps_write_config
+	python3 - "$GPS_CONFIG" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+# urltest 组与 final
+g = [o for o in cfg["outbounds"] if o.get("tag") == "mesh-failover"]
+assert len(g) == 1, "failover group missing"
+assert cfg["route"]["final"] == "mesh-failover", cfg["route"]["final"]
+# exit peer 仍持有默认路由
+wg = [e for e in cfg["endpoints"] if e["type"] == "wireguard"][0]
+exits = [p for p in wg["peers"] if "0.0.0.0/0" in p.get("allowed_ips", [])]
+assert len(exits) == 1, f"exit peer default-route missing: {len(exits)}"
+PY
+	run python3 -m json.tool "$GPS_CONFIG"
+	[ "$status" -eq 0 ]
 }
 
-@test "change mesh-exit conflicts with failover on" {
+@test "change mesh-exit allowed while failover on" {
 	mesh_init
+	gps_mesh_peer_add tile-b --pubkey "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" --overlay-ip 10.66.0.2 --endpoint 203.0.113.12:51820
 	MESH_FAILOVER=1
 	save_state
 	run gps_cmd_change mesh-exit tile-b
-	[ "$status" -ne 0 ]
-	[[ "$output" == *冲突* ]]
+	[ "$status" -eq 0 ]
+	grep -Eq '^MESH_EXIT_NODE_ID="?tile-b"?$' "$GPS_STATE"
+	grep -q '0.0.0.0/0' "$GPS_CONFIG"
 }
 
 @test "change mesh-failover-probe validates url and persists" {

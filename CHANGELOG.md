@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.67 - 2026-09-04
+
+修复：消除「服务运行中流量被转发导致客户端断线」的三类根因（mesh 路由劫持面收敛 + exit 数据面健康门禁）。
+
+**A. mesh-exit 黑洞防护**
+
+- **健康门禁**（新 `gps_mesh_exit_health_gate`，`mesh/exit-health`）：以 sing-box 日志中的真实 WG 握手成败为证据，
+  连续 3 个同步周期「exit 握手失败且无成功」→ 暂停出口路由（渲染不再下发 `0.0.0.0/0`，流量回落本机 direct，服务不断）；
+  冷却 600s 后自动放行观察窗，仍失败则立即重新暂停（阈值 1，防出口 IP 反复横跳）。
+- **空 endpoint 守卫**：无公网 endpoint 的 peer 一律拒绝承担 exit（原行为是持有 `0.0.0.0/0` 却无处发包的纯黑洞）；
+  门禁周期性告警提醒补 endpoint。
+- **MTU 可配置**：`change mesh-mtu <1280-1500>`（默认仍 1408），路径受限/大包黑洞时可调小。
+
+**B. mesh-failover 稳定性**
+
+- urltest `tolerance` 0 → **100ms**，并显式 `interrupt_exist_connections: false`：消除近延迟下每 30s 切换导致的
+  出口 IP 抖动（切换不再掐断存量连接）。
+- `final` 与探测组**恒定渲染**（不再随「是否有在线 peer」翻转），peer 抖动不再放大为路由翻转+重启。
+- **解除 mesh-exit ↔ mesh-failover 互斥**：二者可组合 —— urltest 在「本机直连 ↔ exit 隧道」间择优，
+  隧道故障自动回落直连（此前互斥导致 failover 无 exit 时探测永败、功能形同虚设）。
+
+**C. 路由劫持面收敛（无条件生效）**
+
+- 目的地路由规则从整段 `10.66.0.0/16` 收敛为**当前 peers 实际持有的 overlay /32 明细**
+  （与 WG 渲染同口径：跳过本机/熔断/过期/无公钥节点；无 peer 则不发该规则）。
+  消除对同网段真实目的地（云内网、K8s service CIDR 等）的误劫持黑洞。防环 source 规则保持 /16。
+
+**可观测性**
+
+- mesh-sync 因 config 变更重启服务时，打印**脱敏后的 diff 摘要**（private_key/password 掩码），
+  「为什么重启」可直接从 journal 追溯。
+
+**测试**：新增 `test_mesh_route.bats`（/32 收敛、熔断排除、空端点守卫、MTU、门禁「3 败暂停→冷却复通→复败即停」全生命周期）；
+failover 断言更新（tolerance/interrupt、零 peer 恒定 final、互斥→共存）；全量 207 用例通过。
+
 ## v0.2.66 - 2026-09-01
 
 功能：被熔断（`TRAFFIC_TRIPPED=1`）的节点自动从 WG 组网中摘除——只有未熔断的 VPS 才是 WireGuard peer，避免对已停服节点徒劳握手重试。

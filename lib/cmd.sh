@@ -528,8 +528,9 @@ gps_cmd_change() {
 		else
 			gps_validate_single_line "$eid" || err "node_id 非法"
 			[[ $eid != "${NODE_ID:-}" ]] || err "不能将自己设为 mesh-exit（防环）"
-			[[ ${MESH_FAILOVER:-0} != 1 ]] || err "与 mesh-failover 冲突：请先 change mesh-failover off 再设置 mesh-exit"
 			MESH_EXIT_NODE_ID=$eid
+			# exit 与 failover 可组合：urltest 在直连与隧道间择优，隧道故障自动回落直连
+			[[ ${MESH_FAILOVER:-0} != 1 ]] || msg "提示: mesh-failover 已开启 — 直连/隧道由 urltest 择优（tolerance 100ms）"
 		fi
 		gps_write_config
 		save_state
@@ -541,11 +542,11 @@ gps_cmd_change() {
 		local v=${1:-}
 		[[ $v == on || $v == off || $v == 1 || $v == 0 ]] || err "用法: change mesh-failover on|off"
 		if [[ $v == on || $v == 1 ]]; then
-			[[ -z ${MESH_EXIT_NODE_ID:-} ]] || err "与 mesh-exit 冲突：请先 change mesh-exit none 再开启 mesh-failover"
 			MESH_FAILOVER=1
 			if ! gps_mesh_has_live_peer 2>/dev/null; then
-				warn "当前无在线对端节点，failover 开启后暂无可兜底出口（新增节点后自动生效）"
+				warn "当前无在线对端节点，failover 暂无可兜底隧道（新增节点后自动生效）"
 			fi
+			[[ -z ${MESH_EXIT_NODE_ID:-} ]] || msg "提示: mesh-exit(${MESH_EXIT_NODE_ID}) 已设置 — 隧道经 exit 出网，直连/隧道由 urltest 择优"
 		else
 			MESH_FAILOVER=0
 		fi
@@ -553,6 +554,18 @@ gps_cmd_change() {
 		save_state
 		gps_restart_svc
 		msg "$(_green "mesh-failover") → ${MESH_FAILOVER}"
+		return 0
+		;;
+	mesh-mtu | wg-mtu)
+		local m=${1:-}
+		[[ -n $m ]] || err "用法: change mesh-mtu <1280-1500>（路径受限/大包黑洞时调小）"
+		[[ $m =~ ^[0-9]+$ ]] || err "MTU 须为数字"
+		((10#$m >= 1280 && 10#$m <= 1500)) || err "MTU 需在 1280-1500: $m"
+		MESH_WG_MTU=$m
+		gps_write_config
+		save_state
+		gps_restart_svc
+		msg "$(_green "WG MTU") → ${MESH_WG_MTU}"
 		return 0
 		;;
 	mesh-failover-probe | failover-probe)
