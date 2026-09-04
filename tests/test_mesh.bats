@@ -90,7 +90,7 @@ setup() {
 	grep -q tile-b "$GPS_MESH_PEERS"
 }
 
-@test "mesh-exit adds default route only to that peer" {
+@test "exit role no longer grants default route (WG 仅节点互联)" {
 	export PORT=43004
 	export UUID="00000000-0000-4000-8000-000000000103"
 	export PASSWORD="mesh-pass"
@@ -106,12 +106,14 @@ setup() {
 	gps_mesh_peer_add tile-exit --pubkey "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=" --overlay-ip 10.66.0.9 --endpoint 203.0.113.99:51820 --exit
 	MESH_EXIT_NODE_ID=tile-exit
 	gps_write_config
-	grep -q '0.0.0.0/0' "$GPS_CONFIG"
+	! grep -q '0\.0\.0\.0/0' "$GPS_CONFIG"
+	grep -q '"final": "direct"' "$GPS_CONFIG"
+	grep -q '10\.66\.0\.9/32' "$GPS_CONFIG"
 	run python3 -m json.tool "$GPS_CONFIG"
 	[ "$status" -eq 0 ]
 }
 
-@test "anti-loop rejects self as mesh-exit" {
+@test "change mesh-exit reports feature removed" {
 	export PORT=43006
 	export UUID="00000000-0000-4000-8000-000000000105"
 	export PASSWORD="mesh-pass"
@@ -125,6 +127,7 @@ setup() {
 	gps_mesh_cmd_init --node-id tile-self --overlay-ip 10.66.0.7
 	run gps_cmd_change mesh-exit tile-self
 	[ "$status" -ne 0 ]
+	[[ "$output" == *"功能已移除"* ]]
 }
 
 @test "master registry register and member pull" {

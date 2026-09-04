@@ -132,7 +132,7 @@ $GPS_NAME mesh — WireGuard 组网（随主服务开机；Master 发现）
   mesh hop <json-file|none>
 
 Master 地址支持域名 / IPv4 / IPv6。菜单: 26) Mesh 角色
-跳板: change mesh-exit <node_id|none>
+WG 仅做节点互联，不转发代理流量（mesh-exit/failover 已移除）
 EOF
 }
 
@@ -219,8 +219,7 @@ gps_mesh_cmd_show() {
 	else
 		gps_mesh_print_wg_data_plane_status
 	fi
-	msg "  mesh-exit:   ${MESH_EXIT_NODE_ID:-none}"
-	msg "  mesh-failover: ${MESH_FAILOVER:-0}  probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}"
+	msg "  出口策略:    仅本机 direct（WG 不转发代理流量）"
 	msg "  心跳窗口:   ${MESH_PEER_STALE_SEC:-180}s（超时视为离线；仅在线节点写入 WG）"
 	msg "  peers file:  ${GPS_MESH_PEERS:-}"
 	if [[ -f ${GPS_MESH_PEERS:-} ]]; then

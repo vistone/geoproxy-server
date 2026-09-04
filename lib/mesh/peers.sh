@@ -155,7 +155,7 @@ gps_mesh_peers_merge_file() {
 	gps_mesh_peers_load_or_init
 	gps_mesh_ensure_node_id
 	have_cmd python3 || err "mesh 需要 python3"
-	# 防环：合并后若出现两个 exit 且本机 MESH_EXIT 指向非 exit，仅警告；双向 default 在渲染期拒绝
+	# roles 仅登记标注；v0.2.68 起 exit 角色不参与路由渲染
 	SELF="$NODE_ID" python3 - "$GPS_MESH_PEERS" "$src" <<'PY'
 import json, os, sys, datetime
 local_path, remote_path = sys.argv[1], sys.argv[2]
@@ -178,7 +178,7 @@ for n in remote.get("nodes", []) or []:
 local["nodes"] = list(by.values())
 local["schema"] = 1
 local["updated_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-# 防环粗检：多个 roles 含 exit 时允许（选谁当 exit 由 MESH_EXIT_NODE_ID 决定）
+# roles 仅作登记标注（v0.2.68 起 exit 角色不再参与路由渲染）
 tmp = local_path + ".tmp"
 with open(tmp, "w", encoding="utf-8") as f:
     json.dump(local, f, ensure_ascii=False, indent=2)

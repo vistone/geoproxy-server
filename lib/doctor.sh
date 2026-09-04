@@ -154,7 +154,7 @@ gps_doctor() {
 			0) ok=$((ok + 1)) ;;
 			*) fail=$((fail + 1)) ;;
 			esac
-			msg "  $(_green OK)  mesh-failover=${MESH_FAILOVER:-0}（本机直连优先，故障自动切对端）"
+			msg "  $(_green OK)  代理出口恒为本机 direct（WG 仅做节点互联，不转发代理流量）"
 			gps_mesh_print_control_plane_status 2>/dev/null || true
 		elif [[ ${MESH_ROLE:-} == member ]]; then
 			check "MESH_MASTER_URL 已设置" test -n "${MESH_MASTER_URL:-}"
@@ -180,13 +180,6 @@ gps_doctor() {
 				esac
 			fi
 			msg "  若 Node 连不上 Master：到 Master 上确认 TCP ${MESH_MASTER_PORT:-19527} 已对外放行（本机防火墙 + 云安全组）"
-		fi
-		if [[ -n ${MESH_EXIT_NODE_ID:-} && $MESH_EXIT_NODE_ID == "${NODE_ID:-}" ]]; then
-			msg "  $(_red FAIL) mesh-exit 指向自己（环路风险）"
-			fail=$((fail + 1))
-		elif [[ -n ${MESH_EXIT_NODE_ID:-} ]]; then
-			msg "  $(_green OK)  mesh-exit=$MESH_EXIT_NODE_ID"
-			ok=$((ok + 1))
 		fi
 		if [[ -n ${WG_LISTEN_PORT:-} ]] && have_cmd ss; then
 			if ss -lun 2>/dev/null | grep -qE ":${WG_LISTEN_PORT}\\b"; then

@@ -145,9 +145,7 @@ gps_menu() {
 			gps_mesh_menu_role || true
 			;;
 		27)
-			printf '%s' "mesh-exit node_id (none=清除): "
-			read -r eid
-			[[ -n $eid ]] && gps_cmd_change mesh-exit "$eid"
+			msg "$(_yellow "mesh-exit 已移除")：WireGuard 仅做节点互联，不再转发代理流量（出口恒为本机 direct）"
 			;;
 		28)
 			gps_cmd_uninstall || true

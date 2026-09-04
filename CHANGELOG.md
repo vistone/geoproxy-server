@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.68 - 2026-09-04
+
+**破坏性变更：WireGuard 严格只做节点互联，彻底移除代理流量转发能力**（mesh 隧道故障不再可能影响 TUIC 等代理服务）。
+
+**移除**
+
+- `change mesh-exit`（出口跳板，0.0.0.0/0 经 WG）：子命令保留但明确报「功能已移除」；菜单 27 改为移除说明。
+- `change mesh-failover` / `change mesh-failover-probe`（urltest 直连↔隧道切换）：同上报错移除。
+- 渲染层：WG peers **只持有各自 overlay /32**，任何情况下不再下发 `0.0.0.0/0` / `::/0`；
+  出站不再生成 urltest 探测组，`route.final` 恒为 `direct`。
+- v0.2.67 的 mesh-exit 健康门禁（exit-health 状态机）随功能一并删除；
+  `MESH_EXIT_NODE_ID`/`MESH_FAILOVER`/`MESH_FAILOVER_PROBE` 不再写入 state.env。
+
+**迁移**
+
+- 旧版升级残留的 exit/failover 状态：`mesh ensure` 检测到即告警并清除（「已忽略 mesh-exit/mesh-failover 配置」），
+  下一次配置渲染自动回到「出口恒 direct」。
+- doctor / `mesh show` 输出同步更新为「代理出口恒为本机 direct」。
+
+**保留（基础组网）**
+
+- Master/Member 注册发现、心跳在线、peers 同步、熔断节点摘除、目的地路由收敛到 peer overlay /32、
+  `change mesh-mtu`（1280-1500）、握手诊断 / `mesh connectivity`、TLS 控制面与 token 轮换。
+
+**测试**：`test_mesh_failover.bats` 重写为移除断言（CLI 报错、旧状态不渲染 urltest/default-route、
+ensure 清除残留并告警、peers 仅 /32）；route/mesh 用例同步更新；全量通过。
+
 ## v0.2.67 - 2026-09-04
 
 修复：消除「服务运行中流量被转发导致客户端断线」的三类根因（mesh 路由劫持面收敛 + exit 数据面健康门禁）。

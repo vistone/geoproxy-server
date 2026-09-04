@@ -70,21 +70,15 @@ gps_mesh_peers_endpoint_json() {
 		return 0
 	fi
 	have_cmd python3 || err "mesh peers 渲染需要 python3"
-	local exit_suspended=0
-	if gps_mesh_exit_suspended; then
-		exit_suspended=1
-	fi
-	NODE_ID="${NODE_ID:-}" MESH_EXIT_NODE_ID="${MESH_EXIT_NODE_ID:-}" \
+	# v0.2.68 起 WG 仅做节点互联：peers 只持有 overlay /32，绝不授予 0.0.0.0/0 等默认路由
+	NODE_ID="${NODE_ID:-}" \
 		MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
 		MESH_WG_LIVE_ONLY="${MESH_WG_LIVE_ONLY:-1}" \
-		MESH_EXIT_SUSPENDED="$exit_suspended" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys
 from datetime import datetime, timezone
 path = sys.argv[1]
 self_id = os.environ.get("NODE_ID") or ""
-exit_id = os.environ.get("MESH_EXIT_NODE_ID") or ""
-exit_suspended = (os.environ.get("MESH_EXIT_SUSPENDED") or "0") == "1"
 stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
 live_only = (os.environ.get("MESH_WG_LIVE_ONLY") or "1") != "0"
 now = datetime.now(timezone.utc)
@@ -103,7 +97,6 @@ with open(path, "r", encoding="utf-8") as f:
     doc = json.load(f)
 nodes = doc.get("nodes") or []
 parts = []
-default_count = 0
 for n in nodes:
     nid = n.get("node_id") or ""
     if not nid or nid == self_id:
@@ -130,22 +123,9 @@ for n in nodes:
         else:
             host, _, port = endpoint.rpartition(":")
             ep_host, ep_port = host, int(port or 0)
-    allowed = [overlay + "/32"]
-    if exit_id and nid == exit_id:
-        # 出口路由只授予「有可拨 endpoint 且未被健康门禁暂停」的 peer：
-        # 空 endpoint 的 peer 无法承载 0.0.0.0/0（纯黑洞），暂停期则回落 direct
-        if ep_host and ep_port and not exit_suspended:
-            if default_count:
-                raise SystemExit("anti-loop: multiple default-route peers")
-            allowed.extend(["0.0.0.0/0", "::/0"])
-            default_count += 1
-        elif exit_suspended:
-            print(f"WG_EXIT_SUSPENDED={nid}", file=sys.stderr)
-        else:
-            print(f"WG_EXIT_NO_ENDPOINT={nid}", file=sys.stderr)
     peer = {
         "public_key": pk,
-        "allowed_ips": allowed,
+        "allowed_ips": [overlay + "/32"],
         "persistent_keepalive_interval": keepalive,
     }
     if ep_host and ep_port:
@@ -217,14 +197,9 @@ PY
 gps_mesh_route_json() {
 	gps_profile_normalize
 	gps_mesh_defaults
-	local prefix final_tag
+	local prefix
 	prefix=$(gps_json_escape "${MESH_OVERLAY_PREFIX}")
-	# failover 开启即恒定 final：不随「是否有在线 peer」翻转，避免 peer 抖动放大为路由翻转+重启
-	# （无 peer 时 wg-ep 探测必失败，urltest 自然选 direct）
-	final_tag=direct
-	if [[ ${MESH_FAILOVER:-0} == 1 ]]; then
-		final_tag=mesh-failover
-	fi
+	# v0.2.68 起 WG 仅做节点互联：代理出口恒为 direct（不再有 mesh-exit / mesh-failover）
 	# 目的地规则只收敛到 peer 实际持有的 overlay /32：
 	# 整段 /16 会把同网段的真实目的地（云内网/K8s service CIDR 等）也劫持进 WG 黑洞
 	local dest_rule="" cidr line first=1
@@ -248,78 +223,21 @@ gps_mesh_route_json() {
         "outbound": "direct"
       }${dest_rule}
     ],
-    "final": "${final_tag}"
+    "final": "direct"
   }
 EOF
 }
 
-# 是否存在非本机且心跳在线的 peer（与 peers 渲染的 alive 判定一致；无心跳字段视为可用）
-gps_mesh_has_live_peer() {
-	local self=${NODE_ID:-}
-	[[ -f ${GPS_MESH_PEERS:-} ]] || return 1
-	have_cmd python3 || return 1
-	MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" python3 - "$GPS_MESH_PEERS" "$self" <<'PY'
-import json, os, sys
-from datetime import datetime, timezone
-path, self_id = sys.argv[1], sys.argv[2]
-stale = int(os.environ.get("MESH_PEER_STALE_SEC") or 180)
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        doc = json.load(f)
-except Exception:
-    sys.exit(1)
-now = datetime.now(timezone.utc)
-for n in doc.get("nodes") or []:
-    if (n.get("node_id") or "") == self_id:
-        continue
-    ls = n.get("last_seen") or ""
-    if not ls:
-        sys.exit(0)
-    try:
-        ts = datetime.strptime(ls, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except ValueError:
-        continue
-    if (now - ts).total_seconds() <= stale:
-        sys.exit(0)
-sys.exit(1)
-PY
-}
-
 gps_mesh_outbounds_json() {
 	# 始终至少有 direct；L7 hop 占位（MESH_L7_DETOUR_JSON 高级用户/后续）
+	# v0.2.68 起 WG 不承载代理流量：无 urltest 探测组，出口恒 direct
 	local extra=${MESH_L7_OUTBOUNDS_JSON:-}
-	# mesh-failover：direct 之后插入 urltest 探测组（本机直连 ↔ WG 隧道）
-	# 开启即恒定渲染（不随 peer 存亡翻转）；tolerance 100ms 防止近延迟下每 30s 来回切换
-	# 导致出口 IP 抖动；interrupt_exist_connections=false 保证切换不掐断存量连接
-	local failover=""
-	if [[ ${MESH_FAILOVER:-0} == 1 ]]; then
-		local probe=${MESH_FAILOVER_PROBE:-https://www.gstatic.com/generate_204}
-		# probe 可被 CLI/state.env 手工篡改，渲染前 JSON 转义，防破坏 JSON 或注入
-		probe=$(gps_json_escape "$probe")
-		failover=$(
-			cat <<EOF
-,
-    {
-      "type": "urltest",
-      "tag": "mesh-failover",
-      "outbounds": [
-        "direct",
-        "wg-ep"
-      ],
-      "url": "${probe}",
-      "interval": "30s",
-      "tolerance": 100,
-      "interrupt_exist_connections": false
-    }
-EOF
-		)
-	fi
 	if [[ -n ${extra//[[:space:]]/} ]]; then
 		cat <<EOF
     {
       "type": "direct",
       "tag": "direct"
-    }${failover},
+    },
 ${extra}
 EOF
 	else
@@ -327,7 +245,7 @@ EOF
     {
       "type": "direct",
       "tag": "direct"
-    }${failover}
+    }
 EOF
 	fi
 }

@@ -23,7 +23,7 @@
 - **IPv4 / IPv6 自适应** 监听与分享 URL（节点名在 `#fragment`）
 - 自签 TLS（按协议）；TUIC 默认 UUID=密码、BBR
 - 入站协议可切换（`change protocol` / `protocols`）
-- **Mesh**：随主服务开机；首台为 Master，成员用 `GPS_MESH_MASTER`+`GPS_MESH_TOKEN` 加入；`change mesh-exit` 跳板；`change mesh-failover` 出口故障自动切换（本机直连优先 + 对端兜底）
+- **Mesh**：随主服务开机；首台为 Master，成员用 `GPS_MESH_MASTER`+`GPS_MESH_TOKEN` 加入；**WG 仅做节点互联（overlay /32），不转发代理流量**
 - systemd：`geoproxy-tuic` + **KiwiVM 流量定时检查**（默认 80% 告警 / 95% 停服）
 - 默认日志 **debug**（可见进站/出站）
 
@@ -180,25 +180,16 @@ geoproxy-server mesh webhook set-secret # Master：GitHub Release 自动升级 w
 geoproxy-server mesh webhook show       # Master：webhook URL 与配置说明
 geoproxy-server mesh export
 
-# 可选：指定 L3 出口跳板
-geoproxy-server change mesh-exit <node_id>
-
 # 可选：WG MTU（默认 1408；路径受限/大包黑洞时调小）
 geoproxy-server change mesh-mtu 1380
-
-# 可选：出口故障自动切换（默认关闭；本机直连优先，故障时自动切对端出口兜底，恢复后回切）
-geoproxy-server change mesh-failover on
-geoproxy-server change mesh-failover off
-
-# 可选：自定义故障探测地址（默认 https://www.gstatic.com/generate_204）
-geoproxy-server change mesh-failover-probe <url>
 ```
 
-`mesh-exit` 与 `mesh-failover` 可组合：urltest 在「本机直连 ↔ exit 隧道」间择优（tolerance 100ms，不掐断存量连接）。
-`mesh-exit` 自带数据面健康门禁：以 sing-box 握手成败为证据，连续失败自动暂停出口路由（流量回落本机 direct，
-冷却后自动重试），隧道死掉不再黑洞全部流量。
-mesh 目的地路由只匹配 peers 实际持有的 overlay /32（不再整段劫持 `10.66.0.0/16`）。
-每台机器依然只跑 **一个** sing-box 实例，探测组与防环规则都在同一个实例内完成。
+**自 v0.2.68 起，WireGuard 仅做节点互联，严格不承载代理流量转发**：
+- `mesh-exit`（出口跳板）与 `mesh-failover`（出口切换）已移除；调用会明确报「功能已移除」。
+- 代理出口恒为本机 `direct`；WG peers 只持有各自 overlay `/32`，
+  路由目的地规则也只匹配这些 `/32`（不整段劫持 `10.66.0.0/16`）。
+- 升级时若 state 里残留旧版 `MESH_EXIT_NODE_ID`/`MESH_FAILOVER`，`mesh ensure` 会告警并清除。
+每台机器依然只跑 **一个** sing-box 实例。
 
 自 v0.2.33 起拒绝向**非本机** Master 发起明文 `http://` 注册（TOKEN/公钥会明文过网）。
 旧成员升级后请重新执行上面临入流程；仅 loopback 明文仍放行（排障用）。

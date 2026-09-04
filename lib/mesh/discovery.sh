@@ -164,8 +164,12 @@ gps_mesh_ensure_boot() {
 			gps_mesh_peers_upsert_self || warn "无法写入本地 peers（只读沙箱？检查 systemd ReadWritePaths 含 ${GPS_ETC:-/etc/geoproxy-server}）"
 		fi
 	fi
-	# exit 数据面健康门禁：握手连续失败 → 暂停 0.0.0.0/0 下发（渲染前评估）
-	gps_mesh_exit_health_gate
+	# v0.2.68 起 WG 不承载代理流量：忽略并清除旧版 mesh-exit / mesh-failover 配置
+	if [[ -n ${MESH_EXIT_NODE_ID:-} || ${MESH_FAILOVER:-0} == 1 ]]; then
+		warn "已忽略 mesh-exit/mesh-failover 配置：v0.2.68 起 WireGuard 仅做节点互联，代理流量恒走本机 direct"
+		MESH_EXIT_NODE_ID=""
+		MESH_FAILOVER=0
+	fi
 	gps_mesh_expose_wg_data_plane
 	gps_write_config || warn "无法写入 ${GPS_CONFIG:-config}（只读沙箱？检查 systemd ReadWritePaths）"
 }

@@ -520,41 +520,8 @@ gps_cmd_change() {
 		msg "$(_green "组网已确保") MESH_ROLE=${MESH_ROLE:-master}"
 		return 0
 		;;
-	mesh-exit | exit-node)
-		local eid=${1:-}
-		[[ -n $eid ]] || err "用法: change mesh-exit <node_id|none>"
-		if [[ $eid == none || $eid == off || $eid == - ]]; then
-			MESH_EXIT_NODE_ID=""
-		else
-			gps_validate_single_line "$eid" || err "node_id 非法"
-			[[ $eid != "${NODE_ID:-}" ]] || err "不能将自己设为 mesh-exit（防环）"
-			MESH_EXIT_NODE_ID=$eid
-			# exit 与 failover 可组合：urltest 在直连与隧道间择优，隧道故障自动回落直连
-			[[ ${MESH_FAILOVER:-0} != 1 ]] || msg "提示: mesh-failover 已开启 — 直连/隧道由 urltest 择优（tolerance 100ms）"
-		fi
-		gps_write_config
-		save_state
-		gps_restart_svc
-		msg "$(_green "mesh-exit") → ${MESH_EXIT_NODE_ID:-none}"
-		return 0
-		;;
-	mesh-failover | failover)
-		local v=${1:-}
-		[[ $v == on || $v == off || $v == 1 || $v == 0 ]] || err "用法: change mesh-failover on|off"
-		if [[ $v == on || $v == 1 ]]; then
-			MESH_FAILOVER=1
-			if ! gps_mesh_has_live_peer 2>/dev/null; then
-				warn "当前无在线对端节点，failover 暂无可兜底隧道（新增节点后自动生效）"
-			fi
-			[[ -z ${MESH_EXIT_NODE_ID:-} ]] || msg "提示: mesh-exit(${MESH_EXIT_NODE_ID}) 已设置 — 隧道经 exit 出网，直连/隧道由 urltest 择优"
-		else
-			MESH_FAILOVER=0
-		fi
-		gps_write_config
-		save_state
-		gps_restart_svc
-		msg "$(_green "mesh-failover") → ${MESH_FAILOVER}"
-		return 0
+	mesh-exit | exit-node | mesh-failover | failover | mesh-failover-probe | failover-probe)
+		err "功能已移除：v0.2.68 起 WireGuard 仅做节点互联（overlay /32），不再承载代理流量转发；代理出口恒为本机 direct"
 		;;
 	mesh-mtu | wg-mtu)
 		local m=${1:-}
@@ -566,18 +533,6 @@ gps_cmd_change() {
 		save_state
 		gps_restart_svc
 		msg "$(_green "WG MTU") → ${MESH_WG_MTU}"
-		return 0
-		;;
-	mesh-failover-probe | failover-probe)
-		local u=${1:-}
-		[[ -n $u ]] || err "用法: change mesh-failover-probe <url>"
-		gps_validate_single_line "$u" || err "探测地址不能包含换行/回车/NUL"
-		[[ $u == http://* || $u == https://* ]] || err "探测地址需以 http:// 或 https:// 开头"
-		MESH_FAILOVER_PROBE=$u
-		gps_write_config
-		save_state
-		gps_restart_svc
-		msg "$(_green "failover 探测地址") → ${MESH_FAILOVER_PROBE}"
 		return 0
 		;;
 	cluster-auto-upgrade | cluster-upgrade)
@@ -691,7 +646,7 @@ gps_cmd_change() {
 		return 0
 		;;
 	*)
-		err "用法: change port|uuid|passwd|protocol|profile|mesh-exit|mesh-failover|mesh-failover-probe|agent-bind|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
+		err "用法: change port|uuid|passwd|protocol|profile|mesh-mtu|agent-bind|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ..."
 		;;
 	esac
 	gps_write_config
@@ -857,7 +812,7 @@ Usage: $GPS_NAME [command] [args...]
   info | url | qr | log [--once]
   protocols
   mesh ensure|show|export|import|sync|sync-master|migrate-tls|token|peer|hop|port-checklist
-  change port|uuid|passwd|protocol|mesh-exit|mesh-master-host|agent-bind|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
+  change port|uuid|passwd|protocol|mesh-mtu|mesh-master-host|agent-bind|ip|ip6|ips|name|log|kiwivm|traffic-warn|traffic-stop|traffic-interval ...
   traffic [status|check|resume]
   upgrade [self|core|all] [--ver TAG] [--force]
   doctor
@@ -873,6 +828,6 @@ Usage: $GPS_NAME [command] [args...]
   - 熔断后用量低于停服线时自动恢复；仍可用 traffic resume
   - 默认日志 debug；分享 URL 节点名在 #fragment（change name）
   - 入站协议: protocols / change protocol <id>（默认 tuic）
-  - 组网随主服务开机；Master 加入地址支持 IPv4/IPv6/域名（change mesh-master-host）；跳板: change mesh-exit
+  - 组网随主服务开机；WG 仅做节点互联（overlay /32），不转发代理流量；MTU: change mesh-mtu
 EOF
 }
