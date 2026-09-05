@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.71 - 2026-09-05
+
+修复：doctor（健康检查）只读化与 WG 监听误判 — 消除「跑健康检查反而重启代理服务」的掉线路径。
+
+- **doctor 不再自动修复/重启**：移除诊断中对 `mesh remediate` 的隐式调用——此前 doctor 在「WG UDP 51820 看似未监听」时会自动重启 `geoproxy-tuic`，且每次运行都会触碰本机防火墙；现改为纯只读检查，未监听时提示显式运行 `geoproxy-server mesh remediate`。
+- **`gps_mesh_wg_listen_ok` 加固**：由 `ss -p`（需 root）＋进程名 `sing-box` 匹配改为纯端口绑定检测（`ss -uln sport=:51820`）——非 root 或进程名被截断/包装时不再误判「未监听」而触发重启。
+- 新增 `tests/test_doctor.bats` 用例：doctor member/master 在 WG 未监听时不重启服务、不改防火墙；`wg listen ok` 端口绑定检测不依赖进程名。
+
 ## v0.2.70 - 2026-09-05
 
 修复：TUIC 服务稳定性 — 消除三类「无谓停服/密集重启」路径（mesh 已不承载流量，但下列路径仍会重启代理进程造成掉线）。

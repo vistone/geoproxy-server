@@ -497,10 +497,11 @@ raise SystemExit(1)
 PY
 }
 
-# sing-box 是否在本地 UDP listen（userspace WG 为 UNCONN 态，需 -l）
+# 本地 UDP 端口是否已被绑定（userspace WG 为 UNCONN 态，需 -l）。
+# 只做端口绑定检测：不依赖 ss -p（需 root）与进程名 comm（可能被截断/包装），非 root 亦准确。
 gps_mesh_wg_listen_ok() {
 	local wg_port=${WG_LISTEN_PORT:-51820}
-	ss -ulnp "sport = :${wg_port}" 2>/dev/null | grep -q sing-box
+	ss -uln "sport = :${wg_port}" 2>/dev/null | grep -qE ":${wg_port}\\b"
 }
 
 # sing-box WG listen 口 UDP 累计字节（本机 51820 是否有动静）
@@ -758,7 +759,7 @@ PY
 	if gps_mesh_wg_listen_ok; then
 		msg "    WG 监听 UDP ${wg_port}: $(_green OK)（sing-box 已在 0.0.0.0:${wg_port} / [::]:${wg_port} 监听）"
 	else
-		msg "    WG 监听 UDP ${wg_port}: $(_red FAIL)（sing-box 未监听；运行 geoproxy-server mesh remediate 或菜单 23 doctor）"
+		msg "    WG 监听 UDP ${wg_port}: $(_red FAIL)（sing-box 未监听；请运行 geoproxy-server mesh remediate 手动修复）"
 	fi
 	if b1=$(gps_mesh_wg_socket_bytes 2>/dev/null); then
 		read -r wg_sent wg_recv <<<"$b1"

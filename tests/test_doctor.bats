@@ -475,3 +475,66 @@ _doctor_systemd_end() {
 	[[ "$output" == *"v2rayA"* ]]
 	! [[ "$output" == *"FAIL) agent 监听 0.0.0.0"* ]]
 }
+
+@test "wg listen ok detects bound udp port without process name" {
+	export WG_LISTEN_PORT=51820
+	ss() {
+		printf 'UNCONN 0      0            0.0.0.0:51820       0.0.0.0:*\n'
+	}
+	run gps_mesh_wg_listen_ok
+	[ "$status" -eq 0 ]
+}
+
+@test "wg listen ok fails when udp port not bound" {
+	export WG_LISTEN_PORT=51820
+	ss() {
+		printf 'UNCONN 0      0            0.0.0.0:51999       0.0.0.0:*\n'
+	}
+	run gps_mesh_wg_listen_ok
+	[ "$status" -ne 0 ]
+}
+
+@test "doctor member does not restart service when wg not listening" {
+	_member_doctor_setup 43410
+	export MESH_MASTER_URL="https://203.0.113.210:19527"
+	export MESH_TLS_PIN="sha256//EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE="
+	save_state
+	curl() { return 1; }
+	local restart_calls=0
+	gps_restart_svc() { restart_calls=$((restart_calls + 1)); }
+	ss() {
+		printf 'UNCONN 0      0            0.0.0.0:51999       0.0.0.0:*\n'
+	}
+	# 直接调用（非 run 子 shell）：mock 计数需回流当前 shell
+	gps_doctor >/dev/null 2>&1 || true
+	[ "$restart_calls" -eq 0 ]
+}
+
+@test "doctor master is read-only (no firewall change or restart when wg down)" {
+	export PORT=43411
+	export UUID="00000000-0000-4000-8000-00000000043411"
+	export PASSWORD="doc-pass"
+	export PROTOCOL=tuic
+	export PUBLIC_IP="203.0.113.211"
+	export MESH_ROLE=master
+	export MESH_CLUSTER_TOKEN="doctor-readonly-token"
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	GPS_MESH_SYNC_RESTART=0 gps_mesh_ensure_boot
+	save_state
+	curl() { return 1; }
+	local restart_calls=0 fw_calls=0
+	gps_restart_svc() { restart_calls=$((restart_calls + 1)); }
+	gps_fw_allow_udp() { fw_calls=$((fw_calls + 1)); }
+	gps_fw_allow_tcp() { fw_calls=$((fw_calls + 1)); }
+	ss() {
+		printf 'UNCONN 0      0            0.0.0.0:51999       0.0.0.0:*\n'
+	}
+	# 直接调用（非 run 子 shell）：mock 计数需回流当前 shell
+	gps_doctor >/dev/null 2>&1 || true
+	[ "$restart_calls" -eq 0 ]
+	[ "$fw_calls" -eq 0 ]
+}
