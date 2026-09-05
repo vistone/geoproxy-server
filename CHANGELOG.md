@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.70 - 2026-09-05
+
+修复：TUIC 服务稳定性 — 消除三类「无谓停服/密集重启」路径（mesh 已不承载流量，但下列路径仍会重启代理进程造成掉线）。
+
+- **upgrade self 改为先下载校验、成功后才停服换树**：下载/摘要校验失败时服务**零影响**
+  （旧版先停服再下载，每次失败尝试都白付一次全量断线）。
+- **集群跟版（mesh upgrade-cluster）加失败冷却**：升级失败写入 `mesh/upgrade-cooldown`，
+  `MESH_CLUSTER_UPGRADE_RETRY_SEC`（默认 600s）内成员不再反复调度升级 —
+  消除「Master 目标版本拉取失败 → 成员每分钟停服重试」的慢性掉线循环；成功后自动清冷却。
+- **mesh-sync 重启节流**：peer 心跳抖动（节点进出/熔断翻转）会改写 config 并触发重启；
+  现要求距上次 mesh 触发的重启 ≥ `MESH_SYNC_RESTART_MIN_SEC`（默认 300s）才重启，
+  期间变更挂起下一轮生效；服务未运行时不节流立即拉起。变更差异摘要（脱敏）保持输出。
+- 新增 `tests/test_stability.bats`：拉取失败零停服、冷却跳过/到期恢复/失败写冷却、重启节流（窗口内跳过、窗口外放行）。
+
 ## v0.2.69 - 2026-09-04
 
 修复：`mesh show` / `mesh connectivity` 连通性摘要的误导性表述（纯诊断输出，不涉及任何流量转发）。

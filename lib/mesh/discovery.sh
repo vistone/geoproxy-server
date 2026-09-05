@@ -202,14 +202,34 @@ gps_mesh_sync_master() {
 
 	# 只看 config.json：peers.json 的 last_seen 每次 upsert 都会变，不能据此重启代理
 	if [[ ${GPS_MESH_SYNC_RESTART:-1} == 1 && $before != "$after" ]]; then
-		msg "mesh: config 变更 → 重启 ${GPS_SERVICE}。差异摘要（凭证已脱敏）:"
-		if [[ -n $cfg_prev ]]; then
-			diff -u "$cfg_prev" "$GPS_CONFIG" 2>/dev/null |
-				sed -E 's/("private_key"[^:]*: *")[^"]*/\1***/; s/("password"[^:]*: *")[^"]*/\1***/' |
-				head -20 || true
-			rm -f "$cfg_prev"
+		dump_diff() {
+			msg "差异摘要（凭证已脱敏）:"
+			if [[ -n $cfg_prev ]]; then
+				diff -u "$cfg_prev" "$GPS_CONFIG" 2>/dev/null |
+					sed -E 's/("private_key"[^:]*: *")[^"]*/\1***/; s/("password"[^:]*: *")[^"]*/\1***/' |
+					head -20 || true
+				rm -f "$cfg_prev"
+			fi
+		}
+		# 重启节流：peer 心跳抖动（进出/熔断翻转）会造成 config 抖动；
+		# 服务在跑且距上次 mesh 重启不足冷却窗 → 本轮跳过，下一轮生效。
+		local last=0 now min_gap
+		min_gap=${MESH_SYNC_RESTART_MIN_SEC:-300}
+		if [[ -f ${GPS_MESH_DIR}/last-sync-restart ]]; then
+			last=$(tr -d '[:space:]' <"${GPS_MESH_DIR}/last-sync-restart" 2>/dev/null || echo 0)
 		fi
-		gps_restart_svc 2>/dev/null || true
+		[[ $last =~ ^[0-9]+$ ]] || last=0
+		now=$(date +%s)
+		if gps_svc is-active --quiet 2>/dev/null && ((now - last < min_gap)); then
+			msg "mesh: config 变更，但距上次 mesh 触发的重启不足 ${min_gap}s — 本轮跳过重启（下轮生效）"
+			dump_diff
+		else
+			msg "mesh: config 变更 → 重启 ${GPS_SERVICE}"
+			dump_diff
+			mkdir -p "$GPS_MESH_DIR" 2>/dev/null || true
+			printf '%s\n' "$now" >"${GPS_MESH_DIR}/last-sync-restart" 2>/dev/null || true
+			gps_restart_svc 2>/dev/null || true
+		fi
 	elif [[ -n $cfg_prev ]]; then
 		rm -f "$cfg_prev"
 	fi

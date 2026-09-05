@@ -305,18 +305,19 @@ gps_cmd_upgrade_self() {
 		msg "$(_green "无需升级") 脚本已是 $cur"
 		return 0
 	fi
-	# 先停干净再换文件，禁止在旧进程记忆上 restart
-	gps_svc_halt
+	# 稳定性关键路径：先下载并校验新脚本树，成功后才停服换树。
+	# 下载/校验失败时服务零影响（旧版先停服再下载，失败也白付一次断线）。
 	local tmp root
 	tmp=$(mktemp -d /tmp/gps-self-upgrade.XXXXXX)
 	trap 'rm -rf "'"$tmp"'"' RETURN
-	# $() 子 shell 捕获 fetch 的 err：失败时旧脚本未动，先拉回服务
+	# $() 子 shell 捕获 fetch 的 err：失败时服务未动，无需恢复
 	if root=$(gps_self_fetch_tree "$ver" "$tmp"); then :; else
 		rm -rf "$tmp"
 		trap - RETURN
-		gps_svc_boot || true
-		err "脚本拉取失败，已用旧脚本恢复服务；稍后重试或 upgrade self --ver <tag>"
+		err "脚本拉取失败（服务未受影响）；稍后重试或 upgrade self --ver <tag>"
 	fi
+	# 停干净再换文件，禁止在旧进程记忆上 restart（停服窗口仅为树替换+启动）
+	gps_svc_halt
 	gps_self_install_tree "$root"
 	save_state
 	rm -rf "$tmp"

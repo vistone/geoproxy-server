@@ -1091,11 +1091,27 @@ gps_mesh_installed_version() {
 }
 
 # Member：Master 广播的目标版本与本地不一致时，调度 upgrade-cluster unit
+# 升级失败冷却：冷却窗内不再调度（防「每分钟停服重试」式慢性断线）
+gps_mesh_cluster_upgrade_cooling() {
+	local f="${GPS_MESH_DIR}/upgrade-cooldown"
+	[[ -f $f ]] || return 1
+	local last
+	last=$(sed -n 's/^FAILED_AT=//p' "$f" 2>/dev/null | tail -1)
+	[[ $last =~ ^[0-9]+$ ]] || return 1
+	local now
+	now=$(date +%s)
+	((now - last < ${MESH_CLUSTER_UPGRADE_RETRY_SEC:-600}))
+}
+
 gps_mesh_cluster_schedule_upgrade() {
 	local target=${1:-}
 	gps_mesh_role_normalize 2>/dev/null || true
 	[[ ${MESH_ROLE:-} == member ]] || return 0
 	[[ ${MESH_CLUSTER_AUTO_UPGRADE:-1} == 1 ]] || return 0
+	# 上次升级失败后的冷却窗内不调度（失败原因见 geoproxy-mesh-upgrade journal）
+	if gps_mesh_cluster_upgrade_cooling; then
+		return 0
+	fi
 	target=$(printf '%s' "$target" | tr -d '[:space:]')
 	[[ -n $target && $target == v*.*.* ]] || return 0
 	local cur
@@ -1143,8 +1159,14 @@ gps_mesh_cmd_upgrade_cluster() {
 		return 0
 	fi
 	msg "$(_cyan "集群自动升级") Master 目标 ${tag}，本机 ${cur} → 开始 upgrade self…"
-	gps_cmd_upgrade_self --ver "$tag"
-	rm -f "$pending"
+	# 子 shell 捕获 err(exit 1)：失败写冷却标记，成员在冷却窗内不再反复停服重试
+	if ! (gps_cmd_upgrade_self --ver "$tag"); then
+		gps_mesh_ensure_dirs 2>/dev/null || true
+		printf 'FAILED_AT=%s\n' "$(date +%s)" >"${GPS_MESH_DIR}/upgrade-cooldown"
+		chmod 600 "${GPS_MESH_DIR}/upgrade-cooldown" 2>/dev/null || true
+		err "集群升级失败（服务已由 upgrade self 恢复/未受影响）；$((${MESH_CLUSTER_UPGRADE_RETRY_SEC:-600} / 60)) 分钟冷却后再试"
+	fi
+	rm -f "$pending" "${GPS_MESH_DIR}/upgrade-cooldown"
 }
 
 # 控制台打印时对集群 TOKEN 脱敏（前 8 字符 + ********）
