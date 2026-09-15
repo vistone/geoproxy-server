@@ -144,7 +144,8 @@ PY
 
 gps_mesh_peers_quarantine_and_init() {
 	# 损坏隔离：坏档改名留存，重新初始化空档（成员 60s 内自动重新注册）
-	local bad="${GPS_MESH_PEERS}.corrupt.$(date +%s)"
+	local bad
+	bad="${GPS_MESH_PEERS}.corrupt.$(date +%s)"
 	if [[ -f $GPS_MESH_PEERS ]]; then
 		mv -f "$GPS_MESH_PEERS" "$bad" 2>/dev/null || true
 	fi

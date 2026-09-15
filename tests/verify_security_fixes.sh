@@ -27,10 +27,8 @@ cd "$REPO_ROOT"
 # 在 MSYS/Git Bash 环境下，Windows Python 不识别 /c/ 路径，需要转换
 if command -v cygpath >/dev/null 2>&1; then
 	REPO_ROOT_WIN="$(cygpath -m "$REPO_ROOT")"
-	_py_path() { cygpath -m "$1"; }
 else
 	REPO_ROOT_WIN="$REPO_ROOT"
-	_py_path() { echo "$1"; }
 fi
 
 PASS=0
@@ -306,22 +304,6 @@ section "H-05: health 端点信息泄露"
 
 test_h05() {
 	# 从源码检查 health 返回的字段
-	local health_resp
-	health_resp=$(python3 -c "
-with open('$REPO_ROOT_WIN/scripts/mesh_master.py') as f:
-    lines = f.readlines()
-in_health = False
-for i, line in enumerate(lines):
-    if '/v1/health' in line:
-        for j in range(i, min(i+10, len(lines))):
-            if '_send(' in lines[j] and '200' in lines[j]:
-                body = lines[j].strip()
-                print(body)
-                break
-        break
-" 2>/dev/null || echo "")
-
-	# 更可靠的方式：直接 grep
 	local health_line
 	health_line=$(grep -A2 'path == "/v1/health"' "$REPO_ROOT/scripts/mesh_master.py" | grep '_send' || echo "")
 
@@ -401,7 +383,6 @@ test_m04() {
 	source "$REPO_ROOT/lib/common.sh"
 
 	# 测试 openssl 回退路径（临时屏蔽 sing-box 和 uuidgen 和 /proc 接口）
-	local fake_uuid="not-a-valid-uuid"
 	local hex
 	hex=$(openssl rand -hex 16 2>/dev/null || true)
 	if [[ -z "$hex" ]]; then
