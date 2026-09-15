@@ -196,12 +196,14 @@ EOF
 @test "register：旧 overlay 已被他人占用时改派新地址（不固化冲突）" {
 	local d=$GPS_TEST_PREFIX/ov
 	mkdir -p "$d"
-	cat >"$d/peers.json" <<'EOF'
+	local now_ts
+	now_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	cat >"$d/peers.json" <<EOF
 {
   "schema": 1,
   "nodes": [
-    {"node_id": "a", "public_key": "KA", "endpoint": "", "overlay_ip": "10.66.0.5", "roles": ["edge"], "keepalive": 25, "tripped": 0, "last_seen": "2026-09-15T00:00:00Z"},
-    {"node_id": "b", "public_key": "KB", "endpoint": "", "overlay_ip": "10.66.0.5", "roles": ["edge"], "keepalive": 25, "tripped": 0, "last_seen": "2026-09-15T00:00:00Z"}
+    {"node_id": "a", "public_key": "KA", "endpoint": "", "overlay_ip": "10.66.0.5", "roles": ["edge"], "keepalive": 25, "tripped": 0, "last_seen": "$now_ts"},
+    {"node_id": "b", "public_key": "KB", "endpoint": "", "overlay_ip": "10.66.0.5", "roles": ["edge"], "keepalive": 25, "tripped": 0, "last_seen": "$now_ts"}
   ]
 }
 EOF
@@ -400,15 +402,13 @@ EOF
 	[ "$status" -ne 0 ]
 	# 补齐所有必需文件 + 入口脚本语法正确 → 应通过
 	mkdir -p "$tree/lib/mesh" "$tree/scripts"
-	touch \
-		"$tree/geoproxy-server.sh" \
-		"$tree/lib/common.sh" \
-		"$tree/lib/config.sh" \
-		"$tree/lib/paths.sh" \
-		"$tree/lib/mesh/_registry.sh" \
-		"$tree/scripts/mesh_master.py" \
-		"$tree/scripts/geoagent.py"
 	echo '#!/usr/bin/env bash' >"$tree/geoproxy-server.sh"
+	echo '#' >"$tree/lib/common.sh"
+	echo '#' >"$tree/lib/config.sh"
+	echo '#' >"$tree/lib/paths.sh"
+	echo '#' >"$tree/lib/mesh/_registry.sh"
+	echo '#' >"$tree/scripts/mesh_master.py"
+	echo '#' >"$tree/scripts/geoagent.py"
 	run gps_verify_tree_version "$tree" "v9.9.9"
 	[ "$status" -eq 0 ]
 }
