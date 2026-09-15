@@ -398,8 +398,17 @@ EOF
 	# 缺少 geoproxy-server.sh → 应失败
 	run gps_verify_tree_version "$tree" "v9.9.9"
 	[ "$status" -ne 0 ]
-	# 补齐必需文件 → 应通过
-	touch "$tree/geoproxy-server.sh"
+	# 补齐所有必需文件 + 入口脚本语法正确 → 应通过
+	mkdir -p "$tree/lib/mesh" "$tree/scripts"
+	touch \
+		"$tree/geoproxy-server.sh" \
+		"$tree/lib/common.sh" \
+		"$tree/lib/config.sh" \
+		"$tree/lib/paths.sh" \
+		"$tree/lib/mesh/_registry.sh" \
+		"$tree/scripts/mesh_master.py" \
+		"$tree/scripts/geoagent.py"
+	echo '#!/usr/bin/env bash' >"$tree/geoproxy-server.sh"
 	run gps_verify_tree_version "$tree" "v9.9.9"
 	[ "$status" -eq 0 ]
 }
