@@ -34,7 +34,15 @@ gps_cmd_qr() {
 		fi
 		msg "$u"
 		if [[ $has_qr -eq 1 ]]; then
-			qrencode -t ANSIUTF8 "$u"
+			# 分享 URL 含凭证：经临时文件传入，不进 qrencode argv（AGENTS.md 凭证卫生）
+			local qrtmp
+			if qrtmp=$(mktemp); then
+				printf '%s' "$u" >"$qrtmp"
+				qrencode -t ANSIUTF8 -r "$qrtmp"
+				rm -f "$qrtmp"
+			else
+				qrencode -t ANSIUTF8 "$u"
+			fi
 		fi
 	done < <(gps_proto_share_urls)
 	if [[ $n -eq 0 ]]; then

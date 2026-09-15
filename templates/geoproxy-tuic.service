@@ -3,6 +3,10 @@ Description=GeoProxy VPS proxy (sing-box)
 Documentation=https://github.com/vistone/geoproxy-server
 After=network-online.target
 Wants=network-online.target
+# RestartSec=3 时默认 10s/5 次限速永不触发（窗口内最多 4 次启动），
+# 会形成无限 3 秒重启风暴；放宽窗口并限次，风暴有界后进入 failed 便于告警
+StartLimitIntervalSec=120
+StartLimitBurst=10
 
 [Service]
 Type=simple

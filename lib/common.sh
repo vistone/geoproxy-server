@@ -131,7 +131,8 @@ gps_tuic_node_name() {
 gps_urlencode() {
 	local s=$1
 	if have_cmd python3; then
-		python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=".-_~"))' "$s"
+		# 值经环境变量传递，不进子进程 argv（AGENTS.md 凭证卫生）
+		GPS_URLENCODE_S="$s" python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["GPS_URLENCODE_S"], safe=".-_~"))'
 		return
 	fi
 	local i c out="" LC_ALL=C
@@ -233,8 +234,16 @@ gps_with_state_lock() {
 	else
 		gps_state_lock_acquire
 	fi
-	local rc=0
-	GPS_STATE_LOCK_HELD=1 "$@" || rc=$?
+	local rc=0 prev=${GPS_STATE_LOCK_HELD:-0}
+	# 不用「VAR=1 "$@"」前置赋值：bash ≤ 5.2 对函数调用会令赋值在返回后残留，
+	# 导致同进程后续 save_state 绕锁（丢更新）；显式设置并恢复。
+	GPS_STATE_LOCK_HELD=1
+	"$@" || rc=$?
+	if [[ $prev == 1 ]]; then
+		GPS_STATE_LOCK_HELD=1
+	else
+		unset GPS_STATE_LOCK_HELD
+	fi
 	gps_state_lock_release
 	return "$rc"
 }
@@ -254,7 +263,13 @@ gps_json_escape() {
 		$'\n') out+='\n' ;;
 		$'\r') out+='\r' ;;
 		$'\t') out+='\t' ;;
-		*) out+=$c ;;
+		*)
+			# 其余 C0 控制字符（0x00-0x1F、0x7F）一律 \u00XX；多字节 UTF-8 逐字节透传不受影响
+			if [[ $c =~ [[:cntrl:]] ]]; then
+				printf -v c '\\u%04x' "'$c"
+			fi
+			out+=$c
+			;;
 		esac
 	done
 	printf '%s' "$out"
@@ -289,10 +304,8 @@ gps_source_env() {
 		owner=$(stat -c '%u' "$f" 2>/dev/null || echo -1)
 		[[ $owner == "$EUID" ]] || err "状态文件属主不是当前用户: $f"
 	fi
-	set -a
 	# shellcheck disable=SC1090
 	source "$f"
-	set +a
 	return 0
 }
 
@@ -501,14 +514,27 @@ save_state() {
 
 rand_port() {
 	local p
+	local urand=/dev/urandom
 	for _ in $(seq 1 40); do
-		p=$((20000 + RANDOM % 40000))
+		if [[ -r $urand ]]; then
+			local hex
+			hex=$(od -An -N2 -tu2 "$urand" | tr -d ' \n')
+			p=$((20000 + hex % 40000))
+		else
+			p=$((20000 + RANDOM % 40000))
+		fi
 		if ! ss -lun | awk '{print $5}' | grep -qE ":${p}\$"; then
 			echo "$p"
 			return 0
 		fi
 	done
-	echo $((30000 + RANDOM % 10000))
+	if [[ -r $urand ]]; then
+		local hex
+		hex=$(od -An -N2 -tu2 "$urand" | tr -d ' \n')
+		echo $((30000 + hex % 10000))
+	else
+		echo $((30000 + RANDOM % 10000))
+	fi
 }
 
 gen_uuid() {
@@ -516,10 +542,25 @@ gen_uuid() {
 		"$GPS_CORE_BIN" generate uuid 2>/dev/null && return 0
 	fi
 	if have_cmd uuidgen; then
-		uuidgen | tr '[:upper:]' '[:lower:]'
-		return 0
+		uuidgen -r 2>/dev/null | tr '[:upper:]' '[:lower:]' && return 0
+		uuidgen | tr '[:upper:]' '[:lower:]' && return 0
 	fi
-	cat /proc/sys/kernel/random/uuid 2>/dev/null || openssl rand -hex 16 | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/'
+	local u
+	u=$(cat /proc/sys/kernel/random/uuid 2>/dev/null) && {
+		echo "$u"
+		return 0
+	}
+	# openssl 回退：将 16 字节随机数格式化为 RFC 4122 v4 UUID
+	# 位置：0-7 time_low | 8-11 time_mid | 12-15 time_hi+version | 16-17 clk_hi+variant | 18-31 clk_low+node
+	local hex
+	hex=$(openssl rand -hex 16 2>/dev/null) || return 1
+	printf '%s-%s-4%s-%s%s-%s\n' \
+		"${hex:0:8}" \
+		"${hex:8:4}" \
+		"${hex:13:3}" \
+		"$(printf '%x' $((8 + 0x${hex:16:1} % 4)))" \
+		"${hex:17:3}" \
+		"${hex:20:12}"
 }
 
 confirm_yes() {

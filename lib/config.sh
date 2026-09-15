@@ -53,12 +53,22 @@ $(gps_proto_inbound_json "${PROTOCOL}-in-v6" ::)"
 ${extra}"
 	fi
 
-	local endpoints_block=""
-	endpoints_block=$(gps_mesh_endpoints_json 2>/dev/null || true)
+	local endpoints_block="" endpoints_err=""
+	endpoints_err=$(mktemp) || endpoints_err=/dev/null
+	endpoints_block=$(gps_mesh_endpoints_json 2>"$endpoints_err" || true)
+	if [[ -s $endpoints_err ]]; then
+		warn "mesh 出站渲染异常（本次配置未含 mesh peers，代理仍可启动）: $(head -c 300 "$endpoints_err")"
+	fi
+	rm -f "$endpoints_err" 2>/dev/null || true
 	local outbounds_block
 	outbounds_block=$(gps_mesh_outbounds_json)
-	local route_block=""
-	route_block=$(gps_mesh_route_json 2>/dev/null || true)
+	local route_block="" route_err=""
+	route_err=$(mktemp) || route_err=/dev/null
+	route_block=$(gps_mesh_route_json 2>"$route_err" || true)
+	if [[ -s $route_err ]]; then
+		warn "mesh 路由渲染异常（本次配置未含 mesh 路由）: $(head -c 300 "$route_err")"
+	fi
+	rm -f "$route_err" 2>/dev/null || true
 
 	# 组装：始终含 endpoints/route（WireGuard mesh）
 	local endpoints_section="" route_comma=""
@@ -69,7 +79,11 @@ ${extra}"
 		route_comma=","
 	fi
 
-	cat >"$GPS_CONFIG" <<EOF
+	# 先写临时文件并校验，通过后才原子替换：check 失败时旧配置原样保留，
+	# 服务可继续用上一份有效配置（旧实现直接覆盖，坏配置即掉线）。
+	local cfg_tmp cfg_chk
+	cfg_tmp=$(mktemp "${GPS_CONFIG}.tmp.XXXXXX") || err "无法创建临时文件: ${GPS_CONFIG}.tmp.*"
+	cat >"$cfg_tmp" <<EOF
 {
   "log": {
     "level": "${log_level}",
@@ -86,10 +100,15 @@ ${route_block}
 EOF
 	# 若无 route，上面可能留下多余空行；清理尾部孤立逗号已用 route_comma 处理
 	# 无 route 时 JSON 以 outbounds 闭合；有 route 时 route_block 自带 "route":{...}
-	chmod 600 "$GPS_CONFIG"
-	# 无 route 时文件末尾可能是 `  ]\n}` — OK
-	# 有 route 时 `  ],\n  "route": {...}\n}` — OK；但 route_block 缩进需正确
-	gps_check_config
+	chmod 600 "$cfg_tmp"
+	if ! cfg_chk=$("$GPS_CORE_BIN" check -c "$cfg_tmp" 2>&1); then
+		rm -f "$cfg_tmp"
+		err "生成的配置未通过 sing-box check（旧配置已保留）: ${cfg_chk}"
+	fi
+	if [[ -f $GPS_CONFIG ]]; then
+		cp -f "$GPS_CONFIG" "${GPS_CONFIG}.prev"
+	fi
+	mv -f "$cfg_tmp" "$GPS_CONFIG"
 }
 
 # 从 config.json 读出当前 level

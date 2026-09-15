@@ -33,7 +33,14 @@ gps_mesh_peers_upsert_self() {
 		ENDPOINT="$ep" ROLES="${MESH_ROLES:-edge}" TRIPPED="${TRAFFIC_TRIPPED:-$(gps_traffic_tripped_from_state)}" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys, datetime
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 path = sys.argv[1]
+lf = open(path + ".lock", "a")
+if fcntl:
+    fcntl.lockf(lf, fcntl.LOCK_EX)
 with open(path, "r", encoding="utf-8") as f:
     doc = json.load(f)
 nodes = doc.setdefault("nodes", [])
@@ -102,7 +109,14 @@ gps_mesh_peer_add() {
 	NID="$nid" PUB="$pubkey" EP="$endpoint" OV="$overlay" EXIT="$is_exit" KA="$keepalive" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys, datetime
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 path = sys.argv[1]
+lf = open(path + ".lock", "a")
+if fcntl:
+    fcntl.lockf(lf, fcntl.LOCK_EX)
 with open(path, "r", encoding="utf-8") as f:
     doc = json.load(f)
 nodes = [n for n in doc.get("nodes", []) if n.get("node_id") != os.environ["NID"]]
@@ -128,13 +142,30 @@ os.replace(tmp, path)
 PY
 }
 
+gps_mesh_peers_quarantine_and_init() {
+	# 损坏隔离：坏档改名留存，重新初始化空档（成员 60s 内自动重新注册）
+	local bad="${GPS_MESH_PEERS}.corrupt.$(date +%s)"
+	if [[ -f $GPS_MESH_PEERS ]]; then
+		mv -f "$GPS_MESH_PEERS" "$bad" 2>/dev/null || true
+	fi
+	rm -f "${GPS_MESH_PEERS}.tmp" 2>/dev/null || true
+	gps_mesh_peers_load_or_init
+}
+
 gps_mesh_peer_rm() {
 	local nid=$1
 	[[ -n $nid ]] || err "用法: mesh peer rm <node_id>"
 	gps_mesh_peers_load_or_init
 	NID="$nid" python3 - "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys, datetime
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 path = sys.argv[1]
+lf = open(path + ".lock", "a")
+if fcntl:
+    fcntl.lockf(lf, fcntl.LOCK_EX)
 with open(path, "r", encoding="utf-8") as f:
     doc = json.load(f)
 doc["nodes"] = [n for n in doc.get("nodes", []) if n.get("node_id") != os.environ["NID"]]
@@ -158,7 +189,14 @@ gps_mesh_peers_merge_file() {
 	# roles 仅登记标注；v0.2.68 起 exit 角色不参与路由渲染
 	SELF="$NODE_ID" python3 - "$GPS_MESH_PEERS" "$src" <<'PY'
 import json, os, sys, datetime
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 local_path, remote_path = sys.argv[1], sys.argv[2]
+lf = open(local_path + ".lock", "a")
+if fcntl:
+    fcntl.lockf(lf, fcntl.LOCK_EX)
 with open(local_path, "r", encoding="utf-8") as f:
     local = json.load(f)
 with open(remote_path, "r", encoding="utf-8") as f:

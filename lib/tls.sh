@@ -10,10 +10,10 @@ gps_ensure_tls() {
 	ensure_deps
 	msg "$(_cyan "生成") 自签 TLS 证书 ..."
 	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-		-keyout "$GPS_KEY" -out "$GPS_CERT" -days 3650 -nodes \
+		-keyout "$GPS_KEY" -out "$GPS_CERT" -days 365 -nodes \
 		-subj "/CN=geoproxy-tuic" >/dev/null 2>&1 ||
 		openssl req -x509 -newkey rsa:2048 \
-			-keyout "$GPS_KEY" -out "$GPS_CERT" -days 3650 -nodes \
+			-keyout "$GPS_KEY" -out "$GPS_CERT" -days 365 -nodes \
 			-subj "/CN=geoproxy-tuic" >/dev/null 2>&1 ||
 		err "openssl 生成证书失败"
 	chmod 600 "$GPS_KEY"

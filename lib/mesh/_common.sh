@@ -63,7 +63,7 @@ gps_mesh_ensure_master_tls() {
 	umask 077
 	if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
 		-keyout "$GPS_MESH_TLS_KEY" -out "$GPS_MESH_TLS_CERT" \
-		-days 3650 -nodes -subj /CN=geoproxy-mesh >/dev/null 2>&1; then
+		-days 365 -nodes -subj /CN=geoproxy-mesh >/dev/null 2>&1; then
 		err "生成 mesh TLS 证书失败：拒绝以明文启动控制面（仅调试可设 GPS_MESH_MASTER_TLS=0）"
 	fi
 	chmod 600 "$GPS_MESH_TLS_CERT" "$GPS_MESH_TLS_KEY"
@@ -182,7 +182,11 @@ gps_mesh_live_control_scheme() {
 
 gps_mesh_url_is_loopback() {
 	local low=${1,,}
-	[[ $low == 127.* || $low == localhost || $low == localhost.* || $low == ::1 || $low == \[::1\] ]]
+	[[ $low == \[::1\] ]] && return 0
+	if gps_validate_ipv4 "$low" 2>/dev/null; then
+		[[ $low == 127.* ]] && return 0
+	fi
+	[[ $low == localhost || $low == localhost.* || $low == ::1 ]]
 }
 
 # 提取 URL 的 host（去掉端口/路径；[v6] 去括号）

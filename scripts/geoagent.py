@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -20,6 +21,44 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+
+
+# ---------- 速率限制 ----------
+
+class RateLimiter:
+    """滑动窗口速率限制器：每 IP 每 window_sec 秒最多 max_requests 次。"""
+
+    def __init__(self, max_requests: int, window_sec: float):
+        self.max_requests = max_requests
+        self.window_sec = window_sec
+        self._hits: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, ip: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            bucket = self._hits.setdefault(ip, [])
+            cutoff = now - self.window_sec
+            while bucket and bucket[0] < cutoff:
+                bucket.pop(0)
+            if len(bucket) >= self.max_requests:
+                return False
+            bucket.append(now)
+            return True
+
+
+_STATUS_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_AGENT_STATUS_RATE", "30")),
+    float(os.environ.get("GPS_AGENT_STATUS_WINDOW", "60")),
+)
+_CONTROL_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_AGENT_CONTROL_RATE", "5")),
+    float(os.environ.get("GPS_AGENT_CONTROL_WINDOW", "60")),
+)
+_AUTH_FAIL_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_AGENT_AUTH_FAIL_RATE", "5")),
+    float(os.environ.get("GPS_AGENT_AUTH_FAIL_WINDOW", "60")),
+)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -35,11 +74,12 @@ STATE_PATH = Path(os.environ.get("GPS_STATE", "/etc/geoproxy-server/state.env"))
 PEERS_PATH = Path(os.environ.get("GPS_MESH_PEERS", "/etc/geoproxy-server/mesh/peers.json"))
 VERSION_PATH = Path(os.environ.get("GPS_VERSION_FILE", "/usr/local/lib/geoproxy-server/VERSION"))
 TOKEN = os.environ.get("GPS_AGENT_TOKEN", "")
-HOST = os.environ.get("GPS_AGENT_BIND", "0.0.0.0")
+HOST = os.environ.get("GPS_AGENT_BIND", "127.0.0.1")
 PORT = _env_int("GPS_AGENT_PORT", 19528)
 MAX_BODY = _env_int("GPS_AGENT_MAX_BODY", 8192)
 CLI = os.environ.get("GPS_AGENT_CLI", "/usr/local/bin/geoproxy-server")
 PROBE_URL = os.environ.get("GPS_AGENT_PROBE_URL", "https://www.gstatic.com/generate_204")
+ALLOW_IPS_RAW = os.environ.get("GPS_AGENT_ALLOW_IPS", "127.0.0.1,::1")
 LOCK = threading.Lock()
 _PROBE_CACHE = {"at": 0.0, "ms": None}
 
@@ -149,7 +189,11 @@ def mem_pct() -> float:
 
 
 def active_connections(port: str) -> int:
-    """ss 统计到代理入站端口的 established 连接数（v4/v6）。"""
+    """ss 统计到代理入站端口的 established 连接数（按 Local 列匹配，v4/v6）。
+
+    `ss -tn state established` 会省略 State 列，列序不固定；按表头定位 Local 列。
+    旧实现固定取 fields[3]（实为 Peer 列），统计的是到远端同端口的出站连接。
+    """
     if not port:
         return 0
     try:
@@ -159,13 +203,18 @@ def active_connections(port: str) -> int:
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return 0
+    lines = out.splitlines()
+    if not lines:
+        return 0
+    try:
+        local_idx = lines[0].split().index("Local")
+    except ValueError:
+        return 0
     n = 0
     pat = re.compile(r":%s$" % re.escape(str(port)))
-    for line in out.splitlines()[1:]:
+    for line in lines[1:]:
         fields = line.split()
-        if len(fields) < 4:
-            continue
-        if pat.search(fields[3]):
+        if len(fields) > local_idx and pat.search(fields[local_idx]):
             n += 1
     return n
 
@@ -334,6 +383,35 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+    def _client_ip(self) -> str:
+        ip = self.client_address[0]
+        if ip.startswith("::ffff:"):
+            ip = ip[7:]
+        return ip
+
+    def _ip_allowed(self) -> bool:
+        raw = ALLOW_IPS_RAW.strip()
+        if not raw or raw == "*":
+            return True
+        client = self._client_ip()
+        for item in raw.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            try:
+                net = ipaddress.ip_network(item, strict=False)
+                if ipaddress.ip_address(client) in net:
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    def _rate_limit_check(self, limiter: RateLimiter) -> bool:
+        if not limiter.check(self._client_ip()):
+            self._send(429, {"error": "rate limit exceeded"})
+            return False
+        return True
+
     def _send(self, code: int, body: dict | list | None = None) -> None:
         data = b"" if body is None else json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
@@ -346,8 +424,12 @@ class Handler(BaseHTTPRequestHandler):
     def _auth(self) -> bool:
         h = self.headers.get("Authorization", "")
         if not h.startswith("Bearer "):
+            _AUTH_FAIL_LIMIT.check(self._client_ip())
             return False
-        return hmac.compare_digest(h[7:].strip().encode(), TOKEN.encode())
+        ok = hmac.compare_digest(h[7:].strip().encode(), TOKEN.encode())
+        if not ok:
+            _AUTH_FAIL_LIMIT.check(self._client_ip())
+        return ok
 
     def _read_json(self) -> tuple[dict | None, int]:
         raw_len = self.headers.get("Content-Length", "0") or "0"
@@ -368,8 +450,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if not self._ip_allowed():
+            self._send(403, {"error": "forbidden"})
+            return
         if path != "/v1/status":
             self._send(404, {"error": "not found"})
+            return
+        if not self._rate_limit_check(_STATUS_LIMIT):
             return
         if not self._auth():
             self._send(401, {"error": "unauthorized"})
@@ -381,8 +468,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
+        if not self._ip_allowed():
+            self._send(403, {"error": "forbidden"})
+            return
         if path != "/v1/control":
             self._send(404, {"error": "not found"})
+            return
+        if not self._rate_limit_check(_CONTROL_LIMIT):
             return
         if not self._auth():
             self._send(401, {"error": "unauthorized"})

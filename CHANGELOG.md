@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.72 - 2026-09-15
+
+稳定性与安全加固：15 项硬化工序 + 11 项安全审计修复（1 Critical / 5 High / 5 Medium），覆盖配置原子性、锁泄漏、mesh 控制面健壮性、凭证卫生、服务模板节流等多个层面。
+
+### 稳定性加固
+
+- **配置写入：先校验后原子替换 + .prev 回滚**：`gps_write_config` 失败时旧配置原样保留（不半残），成功时保留上一版 `.prev` 以便一键回滚；sing-box 校验不通过零影响。
+- **state 锁标志不跨 `gps_with_state_lock` 泄漏**：修复 bash ≤ 5.2 上前置赋值在函数返回后残留 `GPS_STATE_LOCK_HELD` 的问题，避免后续操作误判持锁状态。
+- **mesh master 遇损坏 peers.json 隔离重建**：`gps_mesh_ensure_boot` 加载到非法 JSON 时不崩溃，将损坏文件 `.corrupt` 隔离并重建空 peers.json，保证控制面始终可用。
+- **mesh_master：TLS 握手下沉 worker 线程，不阻塞 accept 循环**：慢握手/恶意 TCP 挂连接不再堵住后续请求，控制面可用性显著提升。
+- **webhook 升级经 systemd-run 脱离 mesh-master cgroup**：GitHub webhook 触发的 `upgrade self` 不再与 mesh-master 同 cgroup，避免升级停服时把升级进程一起杀掉（自杀问题）。
+- **register：overlay 地址冲突自动改派**：旧 IP 已被他人占用时不固化冲突，重新分配新地址，节点重新注册后立即可用。
+- **heartbeat/register：tripped 畸形字段容错**：`tripped` 是非整数/非数字（如字符串、数组）时不炸线程，按 0 处理并正常返回 200。
+- **geoagent：连接统计按本地端口方向统计**：`activeConnections` 只统计入站（本地端口为目标），不数出站连接，避免误判流量规模。
+- **service 模板配置 StartLimit 抑制无限重启风暴**：三个 systemd unit（tuic / mesh-master / agent）均加 `StartLimitIntervalSec`，异常循环时 systemd 自动熔断，不再 死循环重启吃资源。
+- **upgrade self：停服后安装失败也兜底拉起服务**：下载成功但安装失败时，保证旧服务被重新拉起，不留下「升级失败 → 服务死掉」的空窗。
+- **凭证卫生：禁止把密钥塞进子进程 argv**：
+  - `gps_urlencode` 不把待编码值放进 python3 argv（通过 stdin 传递）
+  - Shadowsocks 分享链接 base64 编码不把 `method:password` 放进 python3 argv
+  - QR 展示不把分享 URL 放进 qrencode argv
+
+### 安全审计修复
+
+- **C-01：Agent 默认绑定 127.0.0.1 + 源 IP 白名单**（Critical）：`geoagent.py` 默认监听地址由 `0.0.0.0` 改为 `127.0.0.1`，新增 `GPS_AGENT_ALLOW_IPS` 白名单（默认仅本机），支持 CIDR；新增速率限制器（滑动窗口），并对认证失败单独限流。公网暴露需显式配置。
+- **H-01：Mesh 明文 HTTP 校验绕过**（High）：`gps_mesh_url_is_loopback()` 由 glob 匹配改为先经 `gps_validate_ipv4` 严格校验再匹配，修复 `127.0.0.1.attacker.com` 类恶意域名被误判为 loopback 的绕过。
+- **H-02：Overlay IP 耗尽攻击**（High）：分配池从 /24 扩大到 /20（4094 地址，可通过 `MESH_ALLOC_PREFIXLEN` 配置）；新增 `cleanup_stale()` 清理超过 10×STALE_SEC 未心跳的节点，register 流程在分配 IP 前先执行清理；新增 register 接口速率限制（10/min）。
+- **H-03：tag archive 回退校验不足**（High）：`gps_verify_tree_version()` 除 VERSION 一致性外，新增 7 个必需文件存在性检查 + 入口脚本 `bash -n` 语法校验，降低恶意归档绕过校验的风险。
+- **H-04：state.env allexport 密钥泄露**（High）：`gps_source_env()` 移除 `set -a / set +a`，state 变量仅在当前 shell 可用，不再自动导出到子进程环境，消除密钥通过子进程 argv / 环境泄漏的路径。
+- **H-05：health 端点信息泄露**（High）：`mesh_master.py` 的 `/v1/health` 由返回 role/prefix/stale_sec 等内部配置改为仅返回 `{"ok": true}`，避免内部信息被侦察。
+- **M-03：自签 TLS 证书有效期缩短**（Medium）：`lib/tls.sh`、`lib/mesh/_common.sh`、`scripts/mesh_master.py` 中自签证书有效期从 3650 天（10 年）缩短为 365 天（1 年），私钥泄露后影响窗口收窄。
+- **M-04：UUID 标准 v4 格式**（Medium）：`gen_uuid()` 的 openssl 回退路径按 RFC 4122 设置 version=4 和 variant 位，输出合法 v4 UUID。
+- **M-05：rand_port 随机源加固**（Medium）：`rand_port()` 优先使用 `/dev/urandom`（16 位熵），不再依赖 Bash 内置 `$RANDOM`（仅 15 位）。
+- **M-06：API 速率限制**（Medium）：`geoagent.py` 和 `mesh_master.py` 均新增滑动窗口速率限制器，status/health 等端点 60/min，register 10/min，认证失败单独限流，防止暴力枚举与资源耗尽。
+- 新增 `tests/test_hardening.bats`：15 个硬化工序回归测试（JSON 转义、配置原子性、锁泄漏、损坏 peers 重建、TLS 非阻塞、webhook 防自杀、overlay 改派、tripped 容错、连接统计方向、service 节流、升级兜底拉起、3 项凭证卫生）。
+- 新增 `tests/verify_security_fixes.sh` 与 `tests/verify_security_fixes.py`：跨平台的安全修复验证脚本，覆盖静态扫描 + 运行时集成测试。
+- `tests/test_mesh_tls.bats` 补充 H-01 loopback 绕过用例；`tests/test_state.bats` 补充 H-04 allexport 用例。
+
 ## v0.2.71 - 2026-09-05
 
 修复：doctor（健康检查）只读化与 WG 监听误判 — 消除「跑健康检查反而重启代理服务」的掉线路径。

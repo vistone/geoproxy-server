@@ -182,12 +182,29 @@ gps_verify_release_asset() {
 	gps_verify_core_archive "$archive" "${archive}.sha256sums" "$asset"
 }
 
-# 解出的脚本树 VERSION 必须与目标 tag 一致（防串包/缓存/半包）
+# 解出的脚本树 VERSION 必须与目标 tag 一致，且关键文件结构完整
 gps_verify_tree_version() {
 	local root=$1 tag=$2 v
 	v=$(tr -d '[:space:]' <"${root}/VERSION" 2>/dev/null || echo "")
 	[[ -n $v ]] || err "脚本树缺少 VERSION 文件，拒绝安装"
 	[[ $v == "$tag" ]] || err "脚本树 VERSION(${v}) 与目标版本(${tag})不一致，拒绝安装"
+	# 校验关键文件存在且非空，防止半包/截断归档
+	local required=(
+		"geoproxy-server.sh"
+		"lib/common.sh"
+		"lib/config.sh"
+		"lib/paths.sh"
+		"lib/mesh/_registry.sh"
+		"scripts/mesh_master.py"
+		"scripts/geoagent.py"
+	)
+	local f
+	for f in "${required[@]}"; do
+		[[ -s "${root}/${f}" ]] || err "脚本树缺少关键文件: ${f}（归档可能损坏）"
+	done
+	# 校验 bash 脚本语法（关键入口）
+	bash -n "${root}/geoproxy-server.sh" 2>/dev/null ||
+		err "脚本树入口语法错误（归档可能损坏）"
 }
 
 # 从远程 tag 拉取脚本树；仅把仓库根打印到 stdout（日志走 stderr）
@@ -318,6 +335,9 @@ gps_cmd_upgrade_self() {
 	fi
 	# 停干净再换文件，禁止在旧进程记忆上 restart（停服窗口仅为树替换+启动）
 	gps_svc_halt
+	# 停服后任何异常退出（安装失败/磁盘满/半安装）都必须把服务拉回来：
+	# 服务是被干净 stop 的，Restart=on-failure 不会兜底，不补拉即裸奔停机
+	trap 'gps_svc_boot >/dev/null 2>&1 || true' EXIT
 	gps_self_install_tree "$root"
 	save_state
 	rm -rf "$tmp"
@@ -338,6 +358,7 @@ gps_cmd_upgrade_self() {
 	# 「仅 enable --now」（v0.2.38 之前）；mesh ensure 也不 restart。
 	# 必须再显式重启 mesh-master，否则旧明文进程继续占 19527。
 	gps_upgrade_restart_mesh_master
+	trap - EXIT
 	gps_svc_boot
 	# shellcheck disable=SC2034  # 供 gps_reexec_if_menu 读取
 	GPS_UPGRADE_DID_WORK=1

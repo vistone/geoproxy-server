@@ -3,6 +3,9 @@ Description=GeoProxy mesh master registry
 Documentation=https://github.com/vistone/geoproxy-server
 After=network-online.target
 Wants=network-online.target
+# 防无限 3 秒重启风暴（同 geoproxy-tuic.service）
+StartLimitIntervalSec=120
+StartLimitBurst=10
 
 [Service]
 Type=simple

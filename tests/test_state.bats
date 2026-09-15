@@ -110,3 +110,16 @@ setup() {
 	gps_validate_ipv4 255.255.255.255
 	! gps_validate_ipv4 256.1.1.1
 }
+
+@test "gps_source_env does not export variables (H-04)" {
+	mkdir -p "$GPS_ETC"
+	printf 'SECRET_KEY=supersecret-val\n' >"$GPS_STATE"
+	chmod 600 "$GPS_STATE"
+	gps_source_env "$GPS_STATE"
+	# 当前 shell 中变量应可用
+	[ "$SECRET_KEY" = "supersecret-val" ]
+	# 子进程环境中不应出现（env 不包含 SECRET_KEY）
+	local found
+	found=$(env | grep -c '^SECRET_KEY=' || true)
+	[ "$found" -eq 0 ]
+}

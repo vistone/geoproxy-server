@@ -28,11 +28,22 @@ _start_master() {
 	local secret=${1:-} upgrade_cli=${2:-}
 	local mport
 	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	# v0.2.72 起 webhook 升级经 systemd-run 脱离 mesh-master cgroup；
+	# 用记录型 systemd-run 假件承接（写入与 upgrade CLI 相同的日志，断言不变）
+	local sdrbin="$GPS_TEST_PREFIX/sdrbin"
+	mkdir -p "$sdrbin"
+	cat >"$sdrbin/systemd-run" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >>"$GPS_TEST_PREFIX/upgrade-calls.log"
+exit 0
+EOF
+	chmod +x "$sdrbin/systemd-run"
 	local -a env=(MESH_CLUSTER_TOKEN=wh-token-0123456789abcdef
 		GPS_MESH_PEERS="$GPS_MESH_PEERS"
 		GPS_MESH_MASTER_TLS=0
 		GPS_MESH_MASTER_BIND=127.0.0.1
-		GPS_MESH_MASTER_PORT="$mport")
+		GPS_MESH_MASTER_PORT="$mport"
+		PATH="$sdrbin:$PATH")
 	[[ -n $secret ]] && env+=(GPS_GITHUB_WEBHOOK_SECRET="$secret")
 	[[ -n $upgrade_cli ]] && env+=(GPS_UPGRADE_CLI="$upgrade_cli")
 	: >"$GPS_TEST_PREFIX/upgrade-calls.log"

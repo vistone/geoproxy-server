@@ -214,3 +214,37 @@ EOF
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"TLS"* ]] || [[ "$output" == *"openssl"* ]] || [[ "$output" == *"失败"* ]]
 }
+
+@test "gps_mesh_url_is_loopback rejects 127.0.0.1.attacker.com (H-01)" {
+	run gps_mesh_url_is_loopback "127.0.0.1.attacker.com"
+	[ "$status" -ne 0 ]
+}
+
+@test "gps_mesh_url_is_loopback accepts real 127.0.0.0/8 addresses" {
+	run gps_mesh_url_is_loopback "127.0.0.1"
+	[ "$status" -eq 0 ]
+	run gps_mesh_url_is_loopback "127.1.2.3"
+	[ "$status" -eq 0 ]
+	run gps_mesh_url_is_loopback "127.255.255.255"
+	[ "$status" -eq 0 ]
+}
+
+@test "gps_mesh_url_is_loopback accepts localhost and ::1 variants" {
+	run gps_mesh_url_is_loopback "localhost"
+	[ "$status" -eq 0 ]
+	run gps_mesh_url_is_loopback "localhost.localdomain"
+	[ "$status" -eq 0 ]
+	run gps_mesh_url_is_loopback "::1"
+	[ "$status" -eq 0 ]
+	run gps_mesh_url_is_loopback "[::1]"
+	[ "$status" -eq 0 ]
+}
+
+@test "gps_mesh_url_is_loopback rejects public IPs" {
+	run gps_mesh_url_is_loopback "8.8.8.8"
+	[ "$status" -ne 0 ]
+	run gps_mesh_url_is_loopback "203.0.113.1"
+	[ "$status" -ne 0 ]
+	run gps_mesh_url_is_loopback "example.com"
+	[ "$status" -ne 0 ]
+}

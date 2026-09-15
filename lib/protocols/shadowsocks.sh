@@ -45,7 +45,8 @@ gps_proto_shadowsocks_share_urls() {
 	pw=$SS_PASSWORD
 	# SIP002: ss://base64(method:password)@host:port#name
 	if have_cmd python3; then
-		b64=$(python3 -c 'import base64,sys; print(base64.urlsafe_b64encode(sys.argv[1].encode()).decode().rstrip("="))' "${method}:${pw}")
+		# method:password 经环境变量传递，不进子进程 argv（AGENTS.md 凭证卫生）
+		b64=$(SS_B64_INPUT="${method}:${pw}" python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.environ["SS_B64_INPUT"].encode()).decode().rstrip("="))')
 	else
 		b64=$(printf '%s' "${method}:${pw}" | openssl base64 -A 2>/dev/null | tr '+/' '-_' | tr -d '=')
 	fi

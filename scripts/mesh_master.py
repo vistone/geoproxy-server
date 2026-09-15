@@ -14,14 +14,56 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import ssl
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+
+try:
+    import fcntl
+except ImportError:  # 非 Linux（本地测试环境）无 fcntl
+    fcntl = None
+
+
+# ---------- 速率限制 ----------
+
+class RateLimiter:
+    """滑动窗口速率限制器：每 IP 每 window_sec 秒最多 max_requests 次。"""
+
+    def __init__(self, max_requests: int, window_sec: float):
+        self.max_requests = max_requests
+        self.window_sec = window_sec
+        self._hits: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, ip: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            bucket = self._hits.setdefault(ip, [])
+            # 清理过期条目
+            cutoff = now - self.window_sec
+            while bucket and bucket[0] < cutoff:
+                bucket.pop(0)
+            if len(bucket) >= self.max_requests:
+                return False
+            bucket.append(now)
+            return True
+
+
+_REGISTER_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_MESH_REGISTER_RATE", "10")),
+    float(os.environ.get("GPS_MESH_REGISTER_WINDOW", "60")),
+)
+_GENERAL_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_MESH_GENERAL_RATE", "60")),
+    float(os.environ.get("GPS_MESH_GENERAL_WINDOW", "60")),
+)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -59,9 +101,15 @@ _UPGRADE_LOCK = threading.Lock()
 _UPGRADE_RUNNING = False
 _TAG_RE = re.compile(r"^v\d+\.\d+\.\d+$")
 
-# 首个 /24 内分配（与旧版行为一致）；.1 保留给 Master 自身
-_ALLOC_NET = PREFIX if PREFIX.prefixlen >= 24 else ipaddress.ip_network(
-    "%s/24" % PREFIX.network_address, strict=False)
+# 分配池大小：可通过 MESH_ALLOC_PREFIXLEN 控制；默认 /20（4093 个可用地址）
+_ALLOC_PREFIXLEN = int(os.environ.get("MESH_ALLOC_PREFIXLEN", "20"))
+if _ALLOC_PREFIXLEN < 16 or _ALLOC_PREFIXLEN > 30:
+    _ALLOC_PREFIXLEN = 20
+if PREFIX.prefixlen < _ALLOC_PREFIXLEN:
+    _ALLOC_NET = ipaddress.ip_network(
+        "%s/%d" % (PREFIX.network_address, _ALLOC_PREFIXLEN), strict=False)
+else:
+    _ALLOC_NET = PREFIX
 _MASTER_HOST = PREFIX.network_address + 1
 _RESERVED = {PREFIX.network_address, PREFIX.broadcast_address, _MASTER_HOST}
 _NODE_ID_MAX = 64
@@ -109,8 +157,40 @@ def empty_doc() -> dict:
 def load_doc() -> dict:
     if not PEERS_PATH.is_file():
         return empty_doc()
-    with PEERS_PATH.open("r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with PEERS_PATH.open("r", encoding="utf-8") as f:
+            doc = json.load(f)
+        if not isinstance(doc, dict):
+            raise ValueError("peers doc is not an object")
+        return doc
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        # 损坏隔离重建：否则每个注册请求都崩、健康检查却依旧 200（监控失明）。
+        # 成员每 60s 幂等重新注册，注册面自动恢复。
+        bak = PEERS_PATH.with_name("%s.corrupt.%s" % (PEERS_PATH.name, utc_now().replace("-", "").replace(":", "")))
+        try:
+            PEERS_PATH.replace(bak)
+        except OSError:
+            pass
+        sys.stderr.write("mesh-master: peers.json 损坏，已隔离为 %s 并重建（成员会自动重新注册）\n" % bak.name)
+        return empty_doc()
+
+
+class _PeersFileLock:
+    """peers.json 跨进程互斥：shell 侧（mesh-sync timer / CLI）与本进程共用同一把锁文件。"""
+
+    def __enter__(self) -> "_PeersFileLock":
+        self.lf = open(str(PEERS_PATH) + ".lock", "a")
+        if fcntl is not None:
+            fcntl.lockf(self.lf, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if fcntl is not None:
+            try:
+                fcntl.lockf(self.lf, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        self.lf.close()
 
 
 def save_doc(doc: dict) -> None:
@@ -121,6 +201,8 @@ def save_doc(doc: dict) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=2)
         f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())  # 断电不落半截/空文件（kill -9 由 rename 原子性兜底）
     os.chmod(tmp, 0o600)
     tmp.replace(PEERS_PATH)
 
@@ -134,6 +216,21 @@ def used_overlays(nodes: list) -> set[str]:
             continue
         out.add(str(ip))
     return out
+
+
+def cleanup_stale(nodes: list) -> list:
+    """移除超过 STALE_SEC * 2 未心跳的节点，释放 overlay IP。"""
+    now = datetime.now(timezone.utc)
+    alive = []
+    for n in nodes:
+        ts = parse_utc(n.get("last_seen"))
+        if ts is None:
+            # 无 last_seen 的保留（可能是手动导入的）
+            alive.append(n)
+            continue
+        if (now - ts).total_seconds() <= STALE_SEC * 10:
+            alive.append(n)
+    return alive
 
 
 def overlay_policy_ok(want: str) -> bool:
@@ -196,12 +293,17 @@ def extract_release_tag(event: str, payload: dict) -> str | None:
 def _run_upgrade(tag: str) -> None:
     global _UPGRADE_RUNNING
     try:
-        subprocess.run(
-            [UPGRADE_CLI, "upgrade", "self", "--ver", tag],
-            capture_output=True,
-            timeout=900,
-            check=False,
-        )
+        argv = [UPGRADE_CLI, "upgrade", "self", "--ver", tag]
+        if shutil.which("systemd-run"):
+            # 逃离 mesh-master 自身 cgroup：升级链会 restart mesh-master，
+            # 默认 KillMode=control-group 会把本进程的子进程（升级脚本）一并
+            # SIGTERM，导致 gps_svc_boot 永不执行 → 代理服务停机不自愈。
+            argv = ["systemd-run", "--collect", "--quiet", "--wait",
+                    "--unit=gps-webhook-upgrade"] + argv
+        p = subprocess.run(argv, capture_output=True, timeout=900, check=False)
+        if p.returncode != 0:
+            sys.stderr.write("mesh-master webhook upgrade rc=%s stderr=%s\n" % (
+                p.returncode, (p.stderr or b"").decode(errors="replace")[-2000:]))
     except (OSError, subprocess.SubprocessError) as e:
         sys.stderr.write("mesh-master webhook upgrade failed: %s\n" % e)
     finally:
@@ -230,6 +332,8 @@ def save_cluster_target(tag: str) -> None:
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=2)
         f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
     tmp.replace(CLUSTER_VERSION_PATH)
     try:
         os.chmod(CLUSTER_VERSION_PATH, 0o600)
@@ -254,6 +358,14 @@ def schedule_upgrade(tag: str) -> tuple[int, dict]:
         _UPGRADE_RUNNING = True
     threading.Thread(target=_run_upgrade, args=(tag,), daemon=True).start()
     return 202, {"ok": True, "upgrade": tag, "status": "scheduled", **cluster_payload()}
+
+
+def _int_or_zero(v) -> int:
+    """心跳/注册里的 tripped 等整数字段容错：畸形值按 0 处理，不炸 handler 线程。"""
+    try:
+        return int(v) if v else 0
+    except (TypeError, ValueError):
+        return 0
 
 
 def auth_ok(handler: BaseHTTPRequestHandler) -> bool:
@@ -294,7 +406,7 @@ def ensure_tls() -> str | None:
             "openssl", "req", "-x509", "-newkey", "ec",
             "-pkeyopt", "ec_paramgen_curve:prime256v1",
             "-keyout", str(TLS_KEY), "-out", str(TLS_CERT),
-            "-days", "3650", "-nodes", "-subj", "/CN=geoproxy-mesh",
+            "-days", "365", "-nodes", "-subj", "/CN=geoproxy-mesh",
         ])
         os.chmod(TLS_KEY, 0o600)
         os.chmod(TLS_CERT, 0o600)
@@ -377,10 +489,24 @@ class Handler(BaseHTTPRequestHandler):
         code, body = schedule_upgrade(tag)
         self._send(code, body)
 
+    def _client_ip(self) -> str:
+        ip = self.client_address[0]
+        if ip.startswith("::ffff:"):
+            ip = ip[7:]
+        return ip
+
+    def _rate_limit_check(self, limiter: RateLimiter) -> bool:
+        if not limiter.check(self._client_ip()):
+            self._send(429, {"error": "rate limit exceeded"})
+            return False
+        return True
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path == "/v1/health":
-            self._send(200, {"ok": True, "role": "master", "prefix": str(PREFIX), "stale_sec": STALE_SEC})
+            if not self._rate_limit_check(_GENERAL_LIMIT):
+                return
+            self._send(200, {"ok": True})
             return
         if path == "/v1/hook/github":
             self._send(200, {
@@ -391,13 +517,19 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
         if path == "/v1/peers":
+            if not self._rate_limit_check(_GENERAL_LIMIT):
+                return
             if not auth_ok(self):
                 self._send(401, {"error": "unauthorized"})
                 return
+            # 锁内只组装不发送：慢客户端的 socket 写最多阻塞到 timeout，不能拖住所有写路径
             with LOCK:
-                self._send(200, {**annotate_alive(load_doc()), **cluster_payload()})
+                body = {**annotate_alive(load_doc()), **cluster_payload()}
+            self._send(200, body)
             return
         if path == "/v1/cluster":
+            if not self._rate_limit_check(_GENERAL_LIMIT):
+                return
             if not auth_ok(self):
                 self._send(401, {"error": "unauthorized"})
                 return
@@ -413,6 +545,8 @@ class Handler(BaseHTTPRequestHandler):
         if path not in ("/v1/register", "/v1/heartbeat"):
             self._send(404, {"error": "not found"})
             return
+        if not self._rate_limit_check(_REGISTER_LIMIT):
+            return
         if not auth_ok(self):
             self._send(401, {"error": "unauthorized"})
             return
@@ -427,7 +561,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/v1/heartbeat":
-            with LOCK:
+            with LOCK, _PeersFileLock():
                 doc = load_doc()
                 for n in doc.get("nodes") or []:
                     if n.get("node_id") == nid:
@@ -435,9 +569,10 @@ class Handler(BaseHTTPRequestHandler):
                         ep = _clean(req.get("endpoint"), _FIELD_MAX)
                         if ep:
                             n["endpoint"] = ep
-                        n["tripped"] = 1 if int(req.get("tripped") or 0) else 0
+                        n["tripped"] = 1 if _int_or_zero(req.get("tripped")) else 0
                         save_doc(doc)
-                        self._send(200, {"ok": True, "peers": annotate_alive(doc), **cluster_payload()})
+                        body = {"ok": True, "peers": annotate_alive(doc), **cluster_payload()}
+                        self._send(200, body)
                         return
                 self._send(404, {"error": "unknown node; register first"})
             return
@@ -470,16 +605,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "overlay_ip is not a valid IP"})
                 return
 
-        with LOCK:
+        with LOCK, _PeersFileLock():
             doc = load_doc()
             prev = list(doc.get("nodes", []))
-            nodes = [n for n in prev if n.get("node_id") != nid]
+            # 每次注册时清理长期失活节点，释放 overlay IP（H-02）
+            cleaned = cleanup_stale(prev)
+            nodes = [n for n in cleaned if n.get("node_id") != nid]
             used = used_overlays(nodes)
             old = next((n for n in prev if n.get("node_id") == nid), None)
             old_ip = (old.get("overlay_ip") or "").split("/")[0] if old else ""
             if want_raw and overlay_policy_ok(want_raw) and want_raw not in used:
                 overlay = want_raw
-            elif old_ip and overlay_policy_ok(old_ip):
+            elif old_ip and overlay_policy_ok(old_ip) and old_ip not in used:
+                # 旧 IP 已被其他节点占用（并发/导入造成的冲突）时改派新地址，避免冲突固化
                 overlay = old_ip
             else:
                 overlay = alloc_overlay(used)
@@ -490,13 +628,42 @@ class Handler(BaseHTTPRequestHandler):
                 "overlay_ip": overlay,
                 "roles": roles,
                 "keepalive": keepalive,
-                "tripped": 1 if int(req.get("tripped") or 0) else 0,
+                "tripped": 1 if _int_or_zero(req.get("tripped")) else 0,
                 "last_seen": utc_now(),
             }
             nodes.append(entry)
             doc["nodes"] = nodes
             save_doc(doc)
-            self._send(200, {"node": entry, "peers": annotate_alive(doc), **cluster_payload()})
+            body = {"node": entry, "peers": annotate_alive(doc), **cluster_payload()}
+        self._send(200, body)
+
+
+class _TLSThreadingHTTPServer(ThreadingHTTPServer):
+    """TLS 握手在 worker 线程执行且带超时。
+
+    旧实现把 TLS wrap 在监听 socket 上：SSLSocket.accept() 会在 serve_forever 的
+    主线程内同步完成握手，任意外部地址只连不发 ClientHello 即可无限期冻结整个
+    注册面（register/heartbeat/health 全部无响应且 systemd 无感知）。
+    """
+
+    daemon_threads = True
+    handshake_timeout = 10.0
+
+    def __init__(self, addr, handler, ssl_ctx=None):
+        self.ssl_ctx = ssl_ctx
+        super().__init__(addr, handler)
+
+    def finish_request(self, request, client_address):
+        if self.ssl_ctx is not None:
+            try:
+                tls = self.ssl_ctx.wrap_socket(
+                    request, server_side=True, do_handshake_on_connect=False)
+                tls.settimeout(self.handshake_timeout)
+                tls.do_handshake()
+                request = tls
+            except (ssl.SSLError, OSError):
+                return  # 无效/超时握手：静默丢弃，不进 handle_error 刷日志
+        super().finish_request(request, client_address)
 
 
 def main() -> None:
@@ -513,12 +680,13 @@ def main() -> None:
             "mesh-master: TLS 启用失败（默认必须 TLS；仅调试可设 GPS_MESH_MASTER_TLS=0）: %s\n" % e
         )
         raise SystemExit(1)
-    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    ctx = None
     if pin:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         ctx.load_cert_chain(str(TLS_CERT), str(TLS_KEY))
-        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    httpd = _TLSThreadingHTTPServer((HOST, PORT), Handler, ctx)
+    if pin:
         sys.stderr.write("mesh-master listening on %s:%s peers=%s tls=on pin=%s\n" % (HOST, PORT, PEERS_PATH, pin))
     else:
         sys.stderr.write("mesh-master listening on %s:%s peers=%s tls=OFF (GPS_MESH_MASTER_TLS=0)\n" % (HOST, PORT, PEERS_PATH))

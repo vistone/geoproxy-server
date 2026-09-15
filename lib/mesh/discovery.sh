@@ -80,11 +80,18 @@ PY
 	) || cluster_tag=""
 
 	gps_mesh_ensure_dirs
-	# 应用分配的 overlay + 写入 peers 快照
+	# 应用分配的 overlay + 写入 peers 快照（tmp+replace 原子替换，中途被杀不留半截文件）
 	eval "$(
 		NODE_ID="$NODE_ID" python3 - "$tmp" "$GPS_MESH_PEERS" <<'PY'
 import json, os, sys, shlex
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 resp_path, peers_path = sys.argv[1], sys.argv[2]
+lf = open(peers_path + ".lock", "a")
+if fcntl:
+    fcntl.lockf(lf, fcntl.LOCK_EX)
 with open(resp_path, encoding="utf-8") as f:
     resp = json.load(f)
 node = resp.get("node") or {}
@@ -92,10 +99,12 @@ peers = resp.get("peers")
 if peers is None:
     peers = {"schema": 1, "nodes": []}
 overlay = (node.get("overlay_ip") or "").split("/")[0]
-with open(peers_path, "w", encoding="utf-8") as f:
+tmp = peers_path + ".tmp"
+with open(tmp, "w", encoding="utf-8") as f:
     json.dump(peers, f, ensure_ascii=False, indent=2)
     f.write("\n")
-os.chmod(peers_path, 0o600)
+os.chmod(tmp, 0o600)
+os.replace(tmp, peers_path)
 if overlay:
     print("MESH_OVERLAY_IP=" + shlex.quote(overlay))
 PY
@@ -148,7 +157,12 @@ gps_mesh_ensure_boot() {
 		gps_mesh_ensure_overlay_ip
 		gps_mesh_ensure_cluster_token
 		gps_mesh_ensure_master_tls
-		gps_mesh_peers_upsert_self
+		# 损坏隔离重建：坏 peers.json 不再让 ExecStartPre 硬失败进 start-limit 锁死
+		if ! gps_mesh_peers_upsert_self; then
+			warn "peers.json 损坏或不可写（${GPS_MESH_PEERS}）；已隔离重建，成员将自动重新注册"
+			gps_mesh_peers_quarantine_and_init
+			gps_mesh_peers_upsert_self || warn "无法写入本地 peers（只读沙箱？检查 systemd ReadWritePaths 含 ${GPS_ETC:-/etc/geoproxy-server}）"
+		fi
 		gps_mesh_resolve_master_host
 		MESH_MASTER_URL=$(gps_mesh_primary_join_url)
 		gps_mesh_write_join_cmd
