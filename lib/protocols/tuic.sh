@@ -3,7 +3,10 @@
 
 gps_proto_tuic_defaults() {
 	gps_proto_ensure_uuid
-	PASSWORD=${PASSWORD:-$UUID}
+	# L-06：默认独立密码，不再 UUID=PASSWORD
+	if [[ -z ${PASSWORD:-} ]]; then
+		PASSWORD=$(gen_uuid)
+	fi
 }
 
 # 生成单个 TUIC inbound JSON 片段（不含尾逗号）；用户可控值一律 JSON 转义

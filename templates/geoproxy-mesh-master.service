@@ -18,6 +18,7 @@ Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
+UMask=0077
 ReadWritePaths=__GPS_MESH_DIR__ __GPS_ETC_DIR__ __GPS_LIB_DIR__ /usr/local/bin /etc/systemd/system __GPS_LOG_DIR__
 ProtectHome=true
 PrivateTmp=true

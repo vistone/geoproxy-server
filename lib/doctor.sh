@@ -205,7 +205,7 @@ gps_doctor() {
 	local aenv=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
 	if [[ -f $aenv ]]; then
 		gps_source_env "$aenv" 2>/dev/null || true
-		local abind=${GPS_AGENT_BIND:-0.0.0.0} aport=${GPS_AGENT_PORT:-19528}
+		local abind=${GPS_AGENT_BIND:-127.0.0.1} aport=${GPS_AGENT_PORT:-19528}
 		if [[ -n ${GPS_AGENT_TOKEN:-} ]]; then
 			if [[ $abind == 0.0.0.0 || $abind == "*" ]]; then
 				warn_item "agent 监听 ${abind}:${aport}/tcp（明文 HTTP 公网；v2rayA 需可达；请确保 TOKEN 强度与云 SG 仅放行可信源）"

@@ -35,18 +35,28 @@
 
 ## 安装
 
-始终从 `main` 拉 `install.sh`，由脚本解析 **最新 Release tag**（不要把 tag 写进这一条）：
+**推荐（可审计）**：先下载再执行，避免直接管道执行：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh)
+curl -fsSL -o /tmp/geoproxy-install.sh \
+  https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh
+# 可选：对照 GitHub 上该文件内容或本地 clone 校验后再执行
+sudo bash /tmp/geoproxy-install.sh
+rm -f /tmp/geoproxy-install.sh
 ```
 
-或：
+或 clone 整仓安装：
 
 ```bash
 git clone --depth 1 https://github.com/vistone/geoproxy-server.git /tmp/geoproxy-server \
   && sudo bash /tmp/geoproxy-server/install.sh \
   && rm -rf /tmp/geoproxy-server
+```
+
+便捷管道（供应链风险更高，仅在信任 raw.githubusercontent.com 时使用）：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/vistone/geoproxy-server/main/install.sh)
 ```
 
 指定某版（仅排障）：`GPS_VERSION=vX.Y.Z sudo -E bash install.sh`

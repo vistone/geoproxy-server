@@ -1,29 +1,55 @@
 # GeoProxy Server 安全审计报告
 
-> 审计版本：v0.2.71  
-> 审计日期：2026-09-15  
+> 审计版本：v0.2.73（重审修复已发布）  
+> 初审日期：2026-09-15 · 重审日期：2026-09-15  
 > 审计范围：全量 Bash 脚本 + Python 服务 + 配置模板  
-> 修复状态：**已修复 11 项**（详见各漏洞末尾的 ✅ 标记）
+> 设计/计划：[`docs/superpowers/specs/2026-09-15-security-reaudit-design.md`](docs/superpowers/specs/2026-09-15-security-reaudit-design.md)
 
 ---
 
-## 摘要
+## 摘要（重审后）
 
-| 严重程度 | 总数 | 已修复 |
-|----------|------|--------|
-| Critical | 1 | 1 ✅ |
-| High | 5 | 5 ✅ |
-| Medium | 7 | 4 ✅ |
-| Low | 6 | 3 ✅ |
-| Info | 5 | 0 |
+| 严重程度 | 初审 | 重审新增/回归 | 本轮已修 |
+|----------|------|---------------|----------|
+| Critical | 1 | 0 | 1（初审） |
+| High | 5 | 2（R-01 回归、N-01） | 7 |
+| Medium | 7 | 若干（webhook/凭证/供应链） | 见下表 |
+| Low | 6 | 若干 | 见下表 |
+| Info | 5 | 0 | 0（架构建议，本轮不做） |
 
-**总体评价**：项目在安全方面有相当的意识和投入——文件权限 600、原子写入、flock 互斥、公钥指纹钉扎、HMAC 签名校验、凭证不进 argv 等做法都值得肯定。但仍存在若干高风险问题，主要集中在 API 暴露面、校验绕过和供应链信任模型上。
+**重审结论**：初审 Critical/High 代码侧大多仍在；**C-01 在部署层回归**（`agent.env` 默认 `0.0.0.0`），以及 **`localhost.*` glob 残留**。本轮已按 P0→P2 落地修复（未改 VERSION / 未 push）。
 
 ---
 
-## 修复记录
+## 本轮修复清单（重审）
 
-所有修复已在 v0.2.71 代码中完成（未发布新版本，待测试验证后发布）。修改文件清单：
+| ID | 严重度 | 修复要点 |
+|----|--------|----------|
+| R-01 | High | `gps_agent_write_env_file` 默认 `127.0.0.1` + 持久化 `GPS_AGENT_ALLOW_IPS` |
+| N-01 | High | `gps_mesh_url_is_loopback` 去掉 `localhost.*` |
+| M-06b | Medium | Agent 认证失败限流真正返回 429 |
+| N-03/N-04 | Medium | webhook 限速、GET 不暴露 `configured`、delivery 去重、仅 `release published` |
+| N-07 | Medium | `upgrade self` tag archive 需 `GPS_INSTALL_ALLOW_UNVERIFIED=1` |
+| N-09 | Medium | Kiwi API key 经临时文件传 curl，不进 argv |
+| N-10 | Medium | mesh Bearer 头文件 `umask 077` |
+| M-01 | Medium | `is_ipv4` 对齐 `gps_validate_ipv4` |
+| M-07 | Medium | README 推荐先下载再执行 |
+| L-01 | Low | mkdir 锁写 PID + 死进程回收 |
+| L-02 | Low | logrotate `create 600` + service `UMask=0077` |
+| L-06 | Low | TUIC 默认独立密码（不再 UUID=PASSWORD） |
+| N-11 | Low | discovery 去掉 `eval`；WG overlay 渲染前校验 |
+
+### 初审已修且重审确认仍成立
+
+H-03 / H-04 / H-05 / M-02 / M-03 / M-04 / M-05；Agent 空 Token 拒启、`compare_digest`、body 上限等。
+
+### 本轮未做（Info）
+
+I-01 共享 TOKEN · I-02 审计日志 · I-03 备份恢复 · I-04 降权 · I-05 外部依赖
+
+---
+
+## 初审修复记录（v0.2.72 已合入）
 
 | 漏洞 | 修改文件 | 修复方式 |
 |------|----------|----------|

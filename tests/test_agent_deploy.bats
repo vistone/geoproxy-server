@@ -29,13 +29,17 @@ setup() {
 	grep -q "ExecStart=/usr/bin/env python3" "$GPS_AGENT_UNIT_PATH"
 	grep -q "GPS_AGENT_TOKEN" "$GPS_AGENT_ENV"
 	grep -q "GPS_AGENT_PORT" "$GPS_AGENT_ENV"
-	grep -q '^GPS_AGENT_BIND=0.0.0.0' "$GPS_AGENT_ENV"
+	# R-01：默认仅本机，公网须显式 change agent-bind
+	grep -q '^GPS_AGENT_BIND=127.0.0.1' "$GPS_AGENT_ENV"
+	grep -q '^GPS_AGENT_ALLOW_IPS=' "$GPS_AGENT_ENV"
 	check_perm_600 "$GPS_AGENT_ENV"
-	# 二次调用不覆盖既有 token
+	# 二次调用不覆盖既有 token；显式设置的白名单写入并保留
 	local tok
 	tok=$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)
+	GPS_AGENT_ALLOW_IPS=203.0.113.10
 	gps_install_agent_units_files_only
 	[ "$(grep '^GPS_AGENT_TOKEN=' "$GPS_AGENT_ENV" | cut -d= -f2)" = "$tok" ]
+	grep -q '^GPS_AGENT_ALLOW_IPS=203.0.113.10' "$GPS_AGENT_ENV"
 }
 
 @test "agent CLI：status 与 token 输出" {

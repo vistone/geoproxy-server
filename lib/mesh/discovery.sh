@@ -81,9 +81,11 @@ PY
 
 	gps_mesh_ensure_dirs
 	# 应用分配的 overlay + 写入 peers 快照（tmp+replace 原子替换，中途被杀不留半截文件）
-	eval "$(
+	# N-11：不用 eval；python 只打印 overlay，bash 校验后赋值
+	local overlay_out
+	overlay_out=$(
 		NODE_ID="$NODE_ID" python3 - "$tmp" "$GPS_MESH_PEERS" <<'PY'
-import json, os, sys, shlex
+import json, os, sys
 try:
     import fcntl
 except ImportError:
@@ -106,9 +108,14 @@ with open(tmp, "w", encoding="utf-8") as f:
 os.chmod(tmp, 0o600)
 os.replace(tmp, peers_path)
 if overlay:
-    print("MESH_OVERLAY_IP=" + shlex.quote(overlay))
+    print(overlay, end="")
 PY
-	)"
+	) || overlay_out=""
+	if [[ -n $overlay_out ]]; then
+		gps_validate_ipv4 "$overlay_out" 2>/dev/null || gps_validate_ipv6 "$overlay_out" 2>/dev/null ||
+			err "Master 返回非法 overlay IP: $overlay_out"
+		MESH_OVERLAY_IP=$overlay_out
+	fi
 	rm -f "$tmp"
 	gps_mesh_cluster_schedule_upgrade "$cluster_tag"
 	return 0

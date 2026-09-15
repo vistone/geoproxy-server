@@ -78,13 +78,13 @@ setup() {
 	mkdir -p "$BATS_TEST_TMPDIR/tree-ok/lib/mesh" "$BATS_TEST_TMPDIR/tree-ok/scripts"
 	printf 'v9.9.9\n' >"$BATS_TEST_TMPDIR/tree-ok/VERSION"
 	printf '#!/usr/bin/env bash\n' >"$BATS_TEST_TMPDIR/tree-ok/geoproxy-server.sh"
-	touch \
-		"$BATS_TEST_TMPDIR/tree-ok/lib/common.sh" \
-		"$BATS_TEST_TMPDIR/tree-ok/lib/config.sh" \
-		"$BATS_TEST_TMPDIR/tree-ok/lib/paths.sh" \
-		"$BATS_TEST_TMPDIR/tree-ok/lib/mesh/_registry.sh" \
-		"$BATS_TEST_TMPDIR/tree-ok/scripts/mesh_master.py" \
-		"$BATS_TEST_TMPDIR/tree-ok/scripts/geoagent.py"
+	# -s 要求非空（防半包）；touch 空文件会误判失败
+	echo '#' >"$BATS_TEST_TMPDIR/tree-ok/lib/common.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/tree-ok/lib/config.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/tree-ok/lib/paths.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/tree-ok/lib/mesh/_registry.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/tree-ok/scripts/mesh_master.py"
+	echo '#' >"$BATS_TEST_TMPDIR/tree-ok/scripts/geoagent.py"
 	gps_verify_tree_version "$BATS_TEST_TMPDIR/tree-ok" v9.9.9
 }
 
@@ -144,13 +144,12 @@ setup() {
 	mkdir -p "$BATS_TEST_TMPDIR/pkgtree/lib/mesh" "$BATS_TEST_TMPDIR/pkgtree/scripts"
 	printf '#!/usr/bin/env bash\n' >"$BATS_TEST_TMPDIR/pkgtree/geoproxy-server.sh"
 	printf 'v9.9.9\n' >"$BATS_TEST_TMPDIR/pkgtree/VERSION"
-	touch \
-		"$BATS_TEST_TMPDIR/pkgtree/lib/common.sh" \
-		"$BATS_TEST_TMPDIR/pkgtree/lib/config.sh" \
-		"$BATS_TEST_TMPDIR/pkgtree/lib/paths.sh" \
-		"$BATS_TEST_TMPDIR/pkgtree/lib/mesh/_registry.sh" \
-		"$BATS_TEST_TMPDIR/pkgtree/scripts/mesh_master.py" \
-		"$BATS_TEST_TMPDIR/pkgtree/scripts/geoagent.py"
+	echo '#' >"$BATS_TEST_TMPDIR/pkgtree/lib/common.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/pkgtree/lib/config.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/pkgtree/lib/paths.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/pkgtree/lib/mesh/_registry.sh"
+	echo '#' >"$BATS_TEST_TMPDIR/pkgtree/scripts/mesh_master.py"
+	echo '#' >"$BATS_TEST_TMPDIR/pkgtree/scripts/geoagent.py"
 	tar -czf "$BATS_TEST_TMPDIR/pkg.tar.gz" -C "$BATS_TEST_TMPDIR/pkgtree" .
 	# mock 网络：curl 落盘 asset，digest 查询返回真实摘要
 	curl() {

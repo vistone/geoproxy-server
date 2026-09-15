@@ -89,7 +89,8 @@ ensure_logrotate() {
 }
 
 is_ipv4() {
-	[[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+	# 兼容旧调用名；实现与 gps_validate_ipv4 对齐（M-01）
+	gps_validate_ipv4 "$@"
 }
 
 is_ipv6() {
@@ -204,9 +205,18 @@ gps_state_lock_acquire() {
 		flock -x 9
 		return 0
 	fi
-	local d="${GPS_ETC}/state.lock.dir" i
+	# L-01：mkdir 自旋锁写入 PID；超时后若持有者已死则回收
+	local d="${GPS_ETC}/state.lock.dir" i pid
 	for i in $(seq 1 300); do
-		mkdir "$d" 2>/dev/null && return 0
+		if mkdir "$d" 2>/dev/null; then
+			printf '%s\n' "$$" >"${d}/pid"
+			return 0
+		fi
+		pid=$(cat "${d}/pid" 2>/dev/null || true)
+		if [[ -n $pid ]] && ! kill -0 "$pid" 2>/dev/null; then
+			rm -rf "$d" 2>/dev/null || true
+			continue
+		fi
 		sleep 0.1
 	done
 	err "获取状态锁超时: $d（若确认无其他实例可删除后重试）"
@@ -216,7 +226,7 @@ gps_state_lock_release() {
 	if have_cmd flock; then
 		exec 9>&- 2>/dev/null || true
 	else
-		rmdir "${GPS_ETC}/state.lock.dir" 2>/dev/null || true
+		rm -rf "${GPS_ETC}/state.lock.dir" 2>/dev/null || true
 	fi
 }
 

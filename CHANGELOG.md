@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.73 - 2026-09-15
+
+安全全量重审修复：关闭 C-01 部署层回归与 H-01 残留，并落地 Medium/Low 可修复项。
+
+### 破坏性变更 / 行为变更
+
+- **Agent 默认仅本机**：`gps_agent_write_env_file` 默认写入 `GPS_AGENT_BIND=127.0.0.1`（并持久化 `GPS_AGENT_ALLOW_IPS`）。远程 v2rayA 节点池须显式 `change agent-bind 0.0.0.0`（并配置白名单）。
+- **GitHub webhook 仅处理 `release` published**：不再因 `push` tag 触发 `upgrade self`。
+- **`upgrade self` 默认禁止 tag archive 回退**：无 Release asset 时需 `GPS_INSTALL_ALLOW_UNVERIFIED=1`（与 `install.sh` 对齐）。
+- **新建 TUIC 节点默认 UUID ≠ 密码**：空密码时独立 `gen_uuid`，已有 state 不受影响。
+
+### 安全修复
+
+- **R-01 / C-01 回归**：部署层默认 bind 与 Python 对齐为 `127.0.0.1`；`ALLOW_IPS` 写入 `agent.env`。
+- **N-01 / H-01 残留**：`gps_mesh_url_is_loopback` 去掉 `localhost.*` glob。
+- **M-06b**：Agent 认证失败限流生效（超限 429）。
+- **N-03 / N-04**：webhook 限速；GET 不暴露 `configured`；`X-GitHub-Delivery` 去重。
+- **N-07 / N-09 / N-10**：upgrade tag archive opt-in；Kiwi API key 不进 curl argv；mesh Bearer 头文件 umask 077。
+- **M-01 / M-07**：`is_ipv4` 对齐严格校验；README 推荐先下载再执行安装。
+- **L-01 / L-02 / L-06 / N-11**：mkdir 锁 PID 回收；logrotate `create 600` + service `UMask=0077`；discovery 去 `eval`；WG overlay 渲染前校验。
+
+### 测试与文档
+
+- 补充/调整 BATS：agent 默认 bind、localhost.*、N-07/N-09、UMask、download 树非空 fixture 等。
+- 新增 `docs/superpowers/specs/2026-09-15-security-reaudit-design.md` 与实施计划；更新 `SECURITY_AUDIT.md`。
+
 ## v0.2.72 - 2026-09-15
 
 稳定性与安全加固：15 项硬化工序 + 11 项安全审计修复（1 Critical / 5 High / 5 Medium），覆盖配置原子性、锁泄漏、mesh 控制面健壮性、凭证卫生、服务模板节流等多个层面。

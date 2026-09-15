@@ -64,6 +64,14 @@ _GENERAL_LIMIT = RateLimiter(
     int(os.environ.get("GPS_MESH_GENERAL_RATE", "60")),
     float(os.environ.get("GPS_MESH_GENERAL_WINDOW", "60")),
 )
+_WEBHOOK_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_MESH_WEBHOOK_RATE", "20")),
+    float(os.environ.get("GPS_MESH_WEBHOOK_WINDOW", "60")),
+)
+# N-04：近期 delivery id 去重（防签名请求重放）
+_WEBHOOK_SEEN: dict[str, float] = {}
+_WEBHOOK_SEEN_LOCK = threading.Lock()
+_WEBHOOK_SEEN_TTL = float(os.environ.get("GPS_MESH_WEBHOOK_DELIVERY_TTL", "3600"))
 
 
 def _env_int(name: str, default: int) -> int:
@@ -459,6 +467,8 @@ class Handler(BaseHTTPRequestHandler):
         return obj, 200
 
     def _handle_github_webhook(self) -> None:
+        if not self._rate_limit_check(_WEBHOOK_LIMIT):
+            return
         if not WEBHOOK_SECRET:
             self._send(503, {"error": "webhook not configured"})
             return
@@ -470,6 +480,19 @@ class Handler(BaseHTTPRequestHandler):
         if not verify_github_signature(raw, sig):
             self._send(401, {"error": "invalid signature"})
             return
+        # N-04：同一 X-GitHub-Delivery 只接受一次
+        delivery = (self.headers.get("X-GitHub-Delivery") or "").strip()
+        if delivery:
+            now = time.monotonic()
+            with _WEBHOOK_SEEN_LOCK:
+                cutoff = now - _WEBHOOK_SEEN_TTL
+                for k, ts in list(_WEBHOOK_SEEN.items()):
+                    if ts < cutoff:
+                        del _WEBHOOK_SEEN[k]
+                if delivery in _WEBHOOK_SEEN:
+                    self._send(200, {"ok": True, "duplicate": True})
+                    return
+                _WEBHOOK_SEEN[delivery] = now
         try:
             payload = json.loads(raw.decode() or "{}")
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -481,6 +504,10 @@ class Handler(BaseHTTPRequestHandler):
         event = self.headers.get("X-GitHub-Event", "")
         if event == "ping":
             self._send(200, {"ok": True, "pong": True})
+            return
+        # 仅 release published；push tag 易被旧签名重放诱导降级
+        if event != "release":
+            self._send(200, {"ok": True, "ignored": True, "event": event})
             return
         tag = extract_release_tag(event, payload)
         if not tag:
@@ -509,11 +536,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True})
             return
         if path == "/v1/hook/github":
+            if not self._rate_limit_check(_WEBHOOK_LIMIT):
+                return
+            # N-03：不暴露 configured，避免侦察 webhook 是否启用
             self._send(200, {
                 "ok": True,
                 "endpoint": "github webhook",
                 "method": "POST required",
-                "configured": bool(WEBHOOK_SECRET),
             })
             return
         if path == "/v1/peers":

@@ -75,7 +75,7 @@ gps_mesh_peers_endpoint_json() {
 		MESH_PEER_STALE_SEC="${MESH_PEER_STALE_SEC:-180}" \
 		MESH_WG_LIVE_ONLY="${MESH_WG_LIVE_ONLY:-1}" \
 		python3 - "$GPS_MESH_PEERS" <<'PY'
-import json, os, sys
+import ipaddress, json, os, sys
 from datetime import datetime, timezone
 path = sys.argv[1]
 self_id = os.environ.get("NODE_ID") or ""
@@ -111,6 +111,10 @@ for n in nodes:
         continue
     overlay = (n.get("overlay_ip") or "").split("/")[0]
     if not overlay:
+        continue
+    try:
+        ipaddress.ip_address(overlay)
+    except ValueError:
         continue
     endpoint = n.get("endpoint") or ""
     keepalive = int(n.get("keepalive") or 25)

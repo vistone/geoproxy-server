@@ -142,7 +142,7 @@ gps_cmd_install() {
 
 	[[ -n $PORT ]] || PORT=$(rand_port)
 	[[ -n $UUID ]] || UUID=$(gen_uuid)
-	[[ -n $PASSWORD ]] || PASSWORD=$UUID
+	[[ -n $PASSWORD ]] || PASSWORD=$(gen_uuid)
 	detect_local_stack
 	if [[ -z ${PUBLIC_IP:-} || -z ${PUBLIC_IP6:-} ]]; then
 		detect_public_ips || warn "公网地址探测不完整，可稍后: change ip / change ip6 / change ips"
@@ -671,7 +671,7 @@ gps_cmd_agent() {
 			warn "未启用：$envf 缺失或 GPS_AGENT_TOKEN 为空"
 			return 0
 		fi
-		msg "  监听:   ${GPS_AGENT_BIND:-0.0.0.0}:${GPS_AGENT_PORT:-19528}"
+		msg "  监听:   ${GPS_AGENT_BIND:-127.0.0.1}:${GPS_AGENT_PORT:-19528}"
 		msg "  Token:  $(gps_mask_key "$GPS_AGENT_TOKEN")"
 		if [[ ${GPS_NO_SYSTEMD:-0} != 1 && -z ${GPS_TEST_PREFIX:-} ]] && have_cmd systemctl; then
 			if systemctl is-active --quiet geoproxy-agent.service 2>/dev/null; then

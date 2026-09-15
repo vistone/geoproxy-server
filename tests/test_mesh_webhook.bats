@@ -252,7 +252,7 @@ EOF
 	resp=$(curl -fsS --max-time 3 "http://127.0.0.1:${WH_MPORT}/v1/hook/github")
 	echo "$resp" | grep -q '"endpoint": "github webhook"'
 	echo "$resp" | grep -q '"method": "POST required"'
-	echo "$resp" | grep -q '"configured": true'
+	! echo "$resp" | grep -q '"configured"'
 	_stop_master
 }
 

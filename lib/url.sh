@@ -41,7 +41,7 @@ gps_cmd_qr() {
 				qrencode -t ANSIUTF8 -r "$qrtmp"
 				rm -f "$qrtmp"
 			else
-				qrencode -t ANSIUTF8 "$u"
+				warn "无法创建临时文件，跳过二维码（拒绝把分享 URL 放入 argv）"
 			fi
 		fi
 	done < <(gps_proto_share_urls)
@@ -63,9 +63,9 @@ gps_cmd_info() {
 	msg "  MESH_ROLE: ${MESH_ROLE:-master}"
 	msg "  PROFILE:   ${PROFILE:-mesh-member}"
 	msg "  协议栈:   ${STACK_MODE:-?}（本机 v4=${HAS_V4} v6=${HAS_V6}）"
-	msg "  UUID:     ${UUID:-（无）}"
+	msg "  UUID:     $(gps_mask_key "${UUID:-}")"
 	if [[ -n ${PASSWORD:-} ]]; then
-		msg "  密码:     ${PASSWORD:0:8}********"
+		msg "  密码:     $(gps_mask_key "$PASSWORD")"
 	else
 		msg "  密码:     （无）"
 	fi

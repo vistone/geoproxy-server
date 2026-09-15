@@ -9,6 +9,8 @@ setup() {
 	source "$REPO_ROOT/lib/cmd.sh"
 	# shellcheck source=../lib/url.sh
 	source "$REPO_ROOT/lib/url.sh"
+	# shellcheck source=../lib/traffic.sh
+	source "$REPO_ROOT/lib/traffic.sh"
 }
 
 # ---------- common.sh：JSON 转义必须覆盖全部 C0 控制字符 ----------
@@ -278,21 +280,31 @@ EOF
 @test "geoagent：activeConnections 按本地端口统计（不数出站）" {
 	local bin=$GPS_TEST_PREFIX/ssbin
 	mkdir -p "$bin"
-	cat >"$bin/ss" <<'EOF'
+	# Python subprocess 在 Windows 找 ss.bat；Unix 找 ss
+	local ss_body='State Recv-Q Send-Q Local Address:Port Peer Address:Port
+ESTAB 0 0 10.0.0.1:443 8.8.8.8:54321
+ESTAB 0 0 10.0.0.1:8080 8.8.8.8:443
+ESTAB 0 0 10.0.0.1:443 1.1.1.1:9999'
+	cat >"$bin/ss" <<EOF
 #!/bin/bash
 cat <<'OUT'
-Recv-Q Send-Q Local Address:Port Peer Address:Port
-0 0 10.0.0.1:443 8.8.8.8:54321
-0 0 10.0.0.1:8080 8.8.8.8:443
-0 0 10.0.0.1:443 1.1.1.1:9999
+$ss_body
 OUT
 EOF
 	chmod +x "$bin/ss"
+	cat >"$bin/ss.bat" <<EOF
+@echo off
+echo State Recv-Q Send-Q Local Address:Port Peer Address:Port
+echo ESTAB 0 0 10.0.0.1:443 8.8.8.8:54321
+echo ESTAB 0 0 10.0.0.1:8080 8.8.8.8:443
+echo ESTAB 0 0 10.0.0.1:443 1.1.1.1:9999
+EOF
 	run env PATH="$bin:$PATH" python3 -c '
-import sys
-sys.path.insert(0, sys.argv[1])
+import os, sys
+os.environ["PATH"] = sys.argv[1] + os.pathsep + os.environ.get("PATH", "")
+sys.path.insert(0, sys.argv[2])
 import geoagent
-print(geoagent.active_connections("443"))' "$REPO_ROOT/scripts"
+print(geoagent.active_connections("443"))' "$bin" "$REPO_ROOT/scripts"
 	[ "$status" -eq 0 ]
 	[ "$output" = "2" ]
 }
@@ -434,4 +446,39 @@ EOF
 	src=$(awk '/^rand_port\(\)/,/^}/' "$REPO_ROOT/lib/common.sh")
 	grep -q '/dev/urandom' <<<"$src"
 	! grep -q '\$RANDOM' <<<"$src"
+}
+
+@test "is_ipv4 与 gps_validate_ipv4 对齐拒绝越界段（M-01）" {
+	run is_ipv4 "1.2.3.999"
+	[ "$status" -ne 0 ]
+	run is_ipv4 "203.0.113.10"
+	[ "$status" -eq 0 ]
+}
+
+@test "gps_self_fetch_tree 无 asset 时默认拒绝 tag archive（N-07）" {
+	curl() { return 22; }
+	run gps_self_fetch_tree v9.9.9 "$GPS_TEST_PREFIX/fetch-deny"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"GPS_INSTALL_ALLOW_UNVERIFIED"* ]]
+}
+
+@test "gps_kiwi_fetch_info 不把 api_key 放进 curl argv（N-09）" {
+	local bin=$GPS_TEST_PREFIX/curlbin
+	mkdir -p "$bin"
+	cat >"$bin/curl" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"$GPS_TEST_PREFIX/kiwi-argv.log"
+echo '{"error":0,"data_counter":1,"plan_monthly_data":100,"monthly_data_multiplier":1,"data_next_reset":1}'
+EOF
+	chmod +x "$bin/curl"
+	KIWI_VEID=123 KIWI_API_KEY="kiwi-secret-key-xyz" PATH="$bin:$PATH" gps_kiwi_fetch_info >/dev/null
+	! grep -q "kiwi-secret-key-xyz" "$GPS_TEST_PREFIX/kiwi-argv.log"
+	grep -q 'api_key@' "$GPS_TEST_PREFIX/kiwi-argv.log"
+}
+
+@test "service 模板含 UMask=0077（L-02）" {
+	grep -q 'UMask=0077' "$REPO_ROOT/templates/geoproxy-tuic.service"
+	grep -q 'UMask=0077' "$REPO_ROOT/templates/geoproxy-agent.service"
+	grep -q 'UMask=0077' "$REPO_ROOT/templates/geoproxy-mesh-master.service"
+	grep -q 'create 600 root root' "$REPO_ROOT/templates/logrotate.conf"
 }

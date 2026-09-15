@@ -186,7 +186,8 @@ gps_mesh_url_is_loopback() {
 	if gps_validate_ipv4 "$low" 2>/dev/null; then
 		[[ $low == 127.* ]] && return 0
 	fi
-	[[ $low == localhost || $low == localhost.* || $low == ::1 ]]
+	# 仅精确匹配 localhost / ::1；禁止 localhost.*（N-01：localhost.attacker.com 绕过）
+	[[ $low == localhost || $low == ::1 ]]
 }
 
 # 提取 URL 的 host（去掉端口/路径；[v6] 去括号）
@@ -253,8 +254,14 @@ gps_mesh_curl() {
 	fi
 	local hf=""
 	if [[ -n ${MESH_CLUSTER_TOKEN:-} ]]; then
+		# N-10：Bearer 头文件必须 0600（mktemp 受 umask 影响）
+		local old_umask
+		old_umask=$(umask)
+		umask 077
 		hf=$(mktemp)
+		umask "$old_umask"
 		printf 'Authorization: Bearer %s\n' "$MESH_CLUSTER_TOKEN" >"$hf"
+		chmod 600 "$hf" 2>/dev/null || true
 		args+=(-H @"$hf")
 	fi
 	local rc=0
@@ -861,7 +868,7 @@ gps_mesh_print_agent_port_status() {
 	gps_mesh_agent_enabled || return 0
 	local envf=${GPS_AGENT_ENV:-${GPS_ETC}/agent.env}
 	gps_source_env "$envf" 2>/dev/null || true
-	local bind=${GPS_AGENT_BIND:-0.0.0.0} port=${GPS_AGENT_PORT:-19528} backend
+	local bind=${GPS_AGENT_BIND:-127.0.0.1} port=${GPS_AGENT_PORT:-19528} backend
 	backend=$(gps_fw_backend)
 	msg "  Agent: ${bind}:${port}/tcp（明文 HTTP，v2rayA 节点池；非 mesh 控制面 ${MESH_MASTER_PORT:-19527}）"
 	if [[ $bind == 127.0.0.1 || $bind == ::1 ]]; then

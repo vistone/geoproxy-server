@@ -232,12 +232,17 @@ EOF
 @test "gps_mesh_url_is_loopback accepts localhost and ::1 variants" {
 	run gps_mesh_url_is_loopback "localhost"
 	[ "$status" -eq 0 ]
-	run gps_mesh_url_is_loopback "localhost.localdomain"
-	[ "$status" -eq 0 ]
 	run gps_mesh_url_is_loopback "::1"
 	[ "$status" -eq 0 ]
 	run gps_mesh_url_is_loopback "[::1]"
 	[ "$status" -eq 0 ]
+}
+
+@test "gps_mesh_url_is_loopback rejects localhost.* prefix bypass (N-01)" {
+	run gps_mesh_url_is_loopback "localhost.attacker.com"
+	[ "$status" -ne 0 ]
+	run gps_mesh_url_is_loopback "localhost.localdomain"
+	[ "$status" -ne 0 ]
 }
 
 @test "gps_mesh_url_is_loopback rejects public IPs" {

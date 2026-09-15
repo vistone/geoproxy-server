@@ -208,7 +208,7 @@ gps_verify_tree_version() {
 }
 
 # 从远程 tag 拉取脚本树；仅把仓库根打印到 stdout（日志走 stderr）
-# 优先 Release asset（sha256 校验）；旧版本 Release 无 asset 时回退 tag archive（VERSION-tag 一致性校验）
+# 优先 Release asset（sha256 校验）；tag archive 仅 GPS_INSTALL_ALLOW_UNVERIFIED=1（对齐 install.sh，N-07）
 gps_self_fetch_tree() {
 	local tag=$1
 	local dest=$2
@@ -220,9 +220,11 @@ gps_self_fetch_tree() {
 		echo -e "$(_cyan "下载") ${GPS_SELF_REPO} ${tag} (release asset, sha256 校验) ..." >&2
 		# stdout 是数据通道（只回传树根），校验消息全部转 stderr
 		gps_verify_release_asset "${dest}/src.tar.gz" "$tag" "$asset" >&2
-	else
-		echo -e "$(_yellow "无 release asset，回退 tag archive（仅 VERSION 一致性校验）") ${tag}" >&2
+	elif [[ ${GPS_INSTALL_ALLOW_UNVERIFIED:-0} == 1 ]]; then
+		echo -e "$(_yellow "GPS_INSTALL_ALLOW_UNVERIFIED=1 — 回退未校验 tag archive（仅排障）") ${tag}" >&2
 		curl -fsSL --max-time 120 "$turl" -o "${dest}/src.tar.gz" || err "下载失败: $turl"
+	else
+		err "无 release asset（${tag}）；如确需未校验的 tag archive，设 GPS_INSTALL_ALLOW_UNVERIFIED=1 后重试"
 	fi
 	tar -xzf "${dest}/src.tar.gz" -C "$dest" || err "解压失败"
 	local script root

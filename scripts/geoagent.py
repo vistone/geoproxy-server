@@ -422,14 +422,23 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def _auth(self) -> bool:
+        """鉴权通过返回 True；失败时已发送 401/429，返回 False。"""
         h = self.headers.get("Authorization", "")
+        ip = self._client_ip()
         if not h.startswith("Bearer "):
-            _AUTH_FAIL_LIMIT.check(self._client_ip())
+            if not _AUTH_FAIL_LIMIT.check(ip):
+                self._send(429, {"error": "rate limit exceeded"})
+                return False
+            self._send(401, {"error": "unauthorized"})
             return False
         ok = hmac.compare_digest(h[7:].strip().encode(), TOKEN.encode())
         if not ok:
-            _AUTH_FAIL_LIMIT.check(self._client_ip())
-        return ok
+            if not _AUTH_FAIL_LIMIT.check(ip):
+                self._send(429, {"error": "rate limit exceeded"})
+                return False
+            self._send(401, {"error": "unauthorized"})
+            return False
+        return True
 
     def _read_json(self) -> tuple[dict | None, int]:
         raw_len = self.headers.get("Content-Length", "0") or "0"
@@ -459,7 +468,6 @@ class Handler(BaseHTTPRequestHandler):
         if not self._rate_limit_check(_STATUS_LIMIT):
             return
         if not self._auth():
-            self._send(401, {"error": "unauthorized"})
             return
         try:
             self._send(200, build_status())
@@ -477,7 +485,6 @@ class Handler(BaseHTTPRequestHandler):
         if not self._rate_limit_check(_CONTROL_LIMIT):
             return
         if not self._auth():
-            self._send(401, {"error": "unauthorized"})
             return
         req, st = self._read_json()
         if st != 200:

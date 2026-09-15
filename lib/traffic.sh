@@ -83,11 +83,23 @@ gps_kiwi_fetch_info() {
 	gps_traffic_defaults
 	[[ -n $KIWI_VEID && -n $KIWI_API_KEY ]] || return 2
 	local base=${KIWI_API_BASE%/}
-	# POST 表单：API_KEY 不进 URL/argv（ps/proc 不可见）
+	# N-09：API_KEY 经临时文件传入，不进 curl argv（/proc/.../cmdline 不可见）
+	local keyf veidf rc=0
+	local old_umask
+	old_umask=$(umask)
+	umask 077
+	keyf=$(mktemp)
+	veidf=$(mktemp)
+	umask "$old_umask"
+	printf '%s' "$KIWI_API_KEY" >"$keyf"
+	printf '%s' "$KIWI_VEID" >"$veidf"
+	chmod 600 "$keyf" "$veidf" 2>/dev/null || true
 	curl -fsSL --max-time 15 -X POST \
-		--data-urlencode "veid=${KIWI_VEID}" \
-		--data-urlencode "api_key=${KIWI_API_KEY}" \
-		"${base}/getServiceInfo" 2>/dev/null || return 1
+		--data-urlencode "veid@${veidf}" \
+		--data-urlencode "api_key@${keyf}" \
+		"${base}/getServiceInfo" 2>/dev/null || rc=$?
+	rm -f "$keyf" "$veidf"
+	return "$rc"
 }
 
 gps_traffic_apply_parsed() {
