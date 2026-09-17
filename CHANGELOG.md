@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.75 - 2026-09-17
+
+回归修复：`gps_json_escape` 对多字节 UTF-8（如中文密码）的误转义。
+
+### 修复
+
+- **多字节 UTF-8 密码生成非法 JSON（v0.2.72 引入的回归）**：控制字符转义改用 `[[:cntrl:]]` 判断后，部分 libc（如 MSYS/Cygwin）的 C locale 该字符类包含 C1 区 0x80-0x9F，导致 UTF-8 续字节（如「测」的 0x8B）被误转义为 `\u008b`，产出非法 UTF-8 的 config.json、`sing-box check` 失败。现改为按字节码点数值判断（仅 <0x20 与 0x7F 转义），与 locale 无关。实测：中文密码 TUIC 配置恢复合法且字段正确。
+
+### 测试
+
+- `tests/test_hardening.bats` 新增「多字节 UTF-8 原样透传」用例（修复前失败已复现验证）。
+
 ## v0.2.74 - 2026-09-17
 
 稳定性收尾：webhook 自升级的 systemd-run 回退与可观测性、agent 连接统计可测性，及配套跨平台测试修复。

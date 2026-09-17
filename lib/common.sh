@@ -274,9 +274,13 @@ gps_json_escape() {
 		$'\r') out+='\r' ;;
 		$'\t') out+='\t' ;;
 		*)
-			# 其余 C0 控制字符（0x00-0x1F、0x7F）一律 \u00XX；多字节 UTF-8 逐字节透传不受影响
-			if [[ $c =~ [[:cntrl:]] ]]; then
-				printf -v c '\\u%04x' "'$c"
+			# 其余 ASCII 控制字符（<0x20、0x7F）一律 \u00XX。按字节码点数值判断：
+			# 不能用 [[:cntrl:]] —— 部分 libc（如 MSYS）的 C locale 该类含 C1 区
+			# 0x80-0x9F，会把多字节 UTF-8 的续字节误转义、产出非法 UTF-8 的 JSON。
+			local code
+			code=$(printf '%d' "'$c" 2>/dev/null) || code=""
+			if [[ $code =~ ^[0-9]+$ ]] && ((code < 32 || code == 127)); then
+				printf -v c '\\u%04x' "$code"
 			fi
 			out+=$c
 			;;

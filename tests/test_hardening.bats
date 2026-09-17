@@ -27,6 +27,18 @@ PY
 	[ "$status" -eq 0 ]
 }
 
+@test "json escape：多字节 UTF-8（如中文密码）原样透传不被误转义" {
+	local escaped
+	escaped=$(gps_json_escape "测试Pass")
+	run python3 - "$escaped" <<'PY'
+import json, sys
+raw = sys.argv[1]
+s = json.loads('"' + raw + '"')
+assert s == "测试Pass", repr(s)
+PY
+	[ "$status" -eq 0 ]
+}
+
 # ---------- config.sh：原子写 + 先校验后替换 + .prev 备份 ----------
 
 @test "write_config：sing-box check 失败时旧配置原样保留（原子替换）" {
