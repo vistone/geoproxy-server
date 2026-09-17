@@ -302,13 +302,19 @@ def _run_upgrade(tag: str) -> None:
     global _UPGRADE_RUNNING
     try:
         argv = [UPGRADE_CLI, "upgrade", "self", "--ver", tag]
+        p = None
         if shutil.which("systemd-run"):
             # 逃离 mesh-master 自身 cgroup：升级链会 restart mesh-master，
             # 默认 KillMode=control-group 会把本进程的子进程（升级脚本）一并
             # SIGTERM，导致 gps_svc_boot 永不执行 → 代理服务停机不自愈。
-            argv = ["systemd-run", "--collect", "--quiet", "--wait",
-                    "--unit=gps-webhook-upgrade"] + argv
-        p = subprocess.run(argv, capture_output=True, timeout=900, check=False)
+            esc = ["systemd-run", "--collect", "--quiet", "--wait",
+                   "--unit=gps-webhook-upgrade"] + argv
+            try:
+                p = subprocess.run(esc, capture_output=True, timeout=900, check=False)
+            except OSError as e:
+                sys.stderr.write("mesh-master: systemd-run 不可执行，回退直接调用: %s\n" % e)
+        if p is None:
+            p = subprocess.run(argv, capture_output=True, timeout=900, check=False)
         if p.returncode != 0:
             sys.stderr.write("mesh-master webhook upgrade rc=%s stderr=%s\n" % (
                 p.returncode, (p.stderr or b"").decode(errors="replace")[-2000:]))

@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.74 - 2026-09-17
+
+稳定性收尾：webhook 自升级的 systemd-run 回退与可观测性、agent 连接统计可测性，及配套跨平台测试修复。
+
+### 修复
+
+- **webhook 自升级 systemd-run 执行失败回退**：`systemd-run` 存在但无法 exec 时记录原因并回退直接调用 `upgrade self`，避免升级永不执行；同时输出升级子进程返回码与 stderr（此前结果完全丢弃，失败无任何日志线索）。
+- **geoagent `active_connections` 支持测试注入**：新增可选 `ss_out` 参数，BATS 可注入 `ss` 输出做方向性回归（Local 列匹配修复本体在 v0.2.72 已合入）。
+
+### 测试
+
+- `tests/test_hardening.bats`：webhook 升级用例分平台断言（MSYS/Windows 下原生 python 无法 exec shebang/.bat 假件，以回退日志为证；CI Linux 断言真实 systemd-run 调用且直接 CLI 不被调用）；`active_connections` 用例改为 `ss_out` 注入，跨平台可移植。
+
 ## v0.2.73 - 2026-09-15
 
 安全全量重审修复：关闭 C-01 部署层回归与 H-01 残留，并落地 Medium/Low 可修复项。

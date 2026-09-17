@@ -188,22 +188,24 @@ def mem_pct() -> float:
     return round(100.0 * (total - avail) / total, 1)
 
 
-def active_connections(port: str) -> int:
+def active_connections(port: str, ss_out: str | None = None) -> int:
     """ss 统计到代理入站端口的 established 连接数（按 Local 列匹配，v4/v6）。
 
     `ss -tn state established` 会省略 State 列，列序不固定；按表头定位 Local 列。
     旧实现固定取 fields[3]（实为 Peer 列），统计的是到远端同端口的出站连接。
+    ss_out 仅供测试注入 ss 输出。
     """
     if not port:
         return 0
-    try:
-        out = subprocess.run(
-            ["ss", "-tn", "state", "established"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout
-    except (OSError, subprocess.SubprocessError):
-        return 0
-    lines = out.splitlines()
+    if ss_out is None:
+        try:
+            ss_out = subprocess.run(
+                ["ss", "-tn", "state", "established"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            return 0
+    lines = ss_out.splitlines()
     if not lines:
         return 0
     try:

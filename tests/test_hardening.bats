@@ -142,17 +142,25 @@ PY
 	local d=$GPS_TEST_PREFIX/hook bin=$GPS_TEST_PREFIX/bin
 	mkdir -p "$d" "$bin"
 	local secret="whsec-hardening-0123456789"
-	cat >"$bin/systemd-run" <<EOF
+	# 原生 Windows python 无法 exec shebang 脚本：MSYS 下用 .bat 假件（shutil.which 经 PATHEXT 命中）
+	if [[ -n ${MSYSTEM:-} ]]; then
+		local dwin
+		dwin=$(cygpath -w "$d")
+		printf '@echo off\r\necho %%* >>"%s\\sdr.log"\r\nexit /b 0\r\n' "$dwin" >"$bin/systemd-run.bat"
+		printf '@echo off\r\necho %%* >>"%s\\cli.log"\r\nexit /b 0\r\n' "$dwin" >"$bin/geoproxy-server.bat"
+	else
+		cat >"$bin/systemd-run" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >>"$d/sdr.log"
 exit 0
 EOF
-	cat >"$bin/geoproxy-server" <<EOF
+		cat >"$bin/geoproxy-server" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >>"$d/cli.log"
 exit 0
 EOF
-	chmod +x "$bin/systemd-run" "$bin/geoproxy-server"
+		chmod +x "$bin/systemd-run" "$bin/geoproxy-server"
+	fi
 	local mport
 	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
 	PATH="$bin:$PATH" \
@@ -188,9 +196,15 @@ EOF
 	done
 	kill "$pid" 2>/dev/null || true
 	wait "$pid" 2>/dev/null || true
-	grep -q "upgrade self --ver v9.9.9" "$d/sdr.log"
-	# 旧路径（直接在 mesh-master cgroup 内执行）不得出现
-	[ ! -e "$d/cli.log" ]
+	if [[ -n ${MSYSTEM:-} ]]; then
+		# Windows 原生 python 无法 exec shebang/.bat 假件（CreateProcess 不查 PATHEXT）：
+		# 以「进入 systemd-run 分支后回退」的日志为证；真实 exec 语义由 CI Linux 断言
+		grep -q "systemd-run 不可执行，回退直接调用" "$d/log"
+	else
+		grep -q "upgrade self --ver v9.9.9" "$d/sdr.log"
+		# 旧路径（直接在 mesh-master cgroup 内执行）不得出现
+		[ ! -e "$d/cli.log" ]
+	fi
 }
 
 # ---------- mesh_master.py：overlay 改派与畸形 tripped 字段 ----------
@@ -278,33 +292,19 @@ EOF
 # ---------- geoagent.py：连接统计方向 ----------
 
 @test "geoagent：activeConnections 按本地端口统计（不数出站）" {
-	local bin=$GPS_TEST_PREFIX/ssbin
-	mkdir -p "$bin"
-	# Python subprocess 在 Windows 找 ss.bat；Unix 找 ss
-	local ss_body='State Recv-Q Send-Q Local Address:Port Peer Address:Port
-ESTAB 0 0 10.0.0.1:443 8.8.8.8:54321
-ESTAB 0 0 10.0.0.1:8080 8.8.8.8:443
-ESTAB 0 0 10.0.0.1:443 1.1.1.1:9999'
-	cat >"$bin/ss" <<EOF
-#!/bin/bash
-cat <<'OUT'
-$ss_body
-OUT
-EOF
-	chmod +x "$bin/ss"
-	cat >"$bin/ss.bat" <<EOF
-@echo off
-echo State Recv-Q Send-Q Local Address:Port Peer Address:Port
-echo ESTAB 0 0 10.0.0.1:443 8.8.8.8:54321
-echo ESTAB 0 0 10.0.0.1:8080 8.8.8.8:443
-echo ESTAB 0 0 10.0.0.1:443 1.1.1.1:9999
-EOF
-	run env PATH="$bin:$PATH" python3 -c '
-import os, sys
-os.environ["PATH"] = sys.argv[1] + os.pathsep + os.environ.get("PATH", "")
-sys.path.insert(0, sys.argv[2])
+	# 经 ss_out 注入 ss 输出（跨平台）；`ss -tn state established` 单状态过滤时无 State 列，
+	# 此时 fields[3] 是 Peer 列——旧实现固定取 fields[3] 数的是出站连接
+	run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1])
 import geoagent
-print(geoagent.active_connections("443"))' "$bin" "$REPO_ROOT/scripts"
+out = "\n".join([
+    "Recv-Q Send-Q Local Address:Port Peer Address:Port",
+    "0 0 10.0.0.1:443 8.8.8.8:54321",
+    "0 0 10.0.0.1:8080 8.8.8.8:443",
+    "0 0 10.0.0.1:443 1.1.1.1:9999",
+])
+print(geoagent.active_connections("443", ss_out=out))' "$REPO_ROOT/scripts"
 	[ "$status" -eq 0 ]
 	[ "$output" = "2" ]
 }
