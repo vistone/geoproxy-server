@@ -68,14 +68,15 @@ gps_verify_core_archive() {
 	msg "$(_green "sha256 校验通过") $asset"
 }
 
-# 装入新核心；旧二进制保留为 .prev 供失败回滚
+# 装入新核心；旧二进制保留为 .prev 供失败回滚（先写 .new 再 mv，避免中断丢二进制）
 gps_install_core_from() {
 	local bin=$1
 	mkdir -p "$GPS_LIB_DIR"
+	install -m 755 "$bin" "${GPS_CORE_BIN}.new"
 	if [[ -x $GPS_CORE_BIN ]]; then
 		mv -f "$GPS_CORE_BIN" "${GPS_CORE_BIN}.prev"
 	fi
-	install -m 755 "$bin" "$GPS_CORE_BIN"
+	mv -f "${GPS_CORE_BIN}.new" "$GPS_CORE_BIN"
 }
 
 # 回滚到上一版核心；无 .prev（首次安装）返回 1
@@ -84,9 +85,12 @@ gps_rollback_core() {
 	mv -f "${GPS_CORE_BIN}.prev" "$GPS_CORE_BIN"
 }
 
-gps_download_core() {
+# 下载并校验 sing-box 到 dest_dir，stdout 仅打印二进制路径；不触碰 GPS_CORE_BIN。
+# 供 upgrade core 的 fetch-then-swap：失败时服务零影响。
+gps_fetch_core_to() {
 	local ver=$1
 	local force=${2:-0}
+	local dest_dir=$3
 	local arch
 	arch=$(detect_arch)
 	ensure_deps
@@ -97,20 +101,23 @@ gps_download_core() {
 	cur=$(gps_core_ver_installed)
 	if [[ $force -eq 0 && -n $cur && $cur == "$ver" && -x ${GPS_CORE_BIN:-} ]]; then
 		CORE_VER="$ver"
-		msg "$(_green "已是最新") sing-box ${tag}，跳过下载"
+		msg "$(_green "已是最新") sing-box ${tag}，跳过下载" >&2
+		printf '%s' "$GPS_CORE_BIN"
 		return 0
 	fi
+
+	[[ -n $dest_dir ]] || err "gps_fetch_core_to: 缺少目标目录"
+	mkdir -p "$dest_dir"
 
 	local name="sing-box-${ver}-linux-${arch}"
 	local url="https://github.com/SagerNet/sing-box/releases/download/${tag}/${name}.tar.gz"
 	local tmp
 	tmp=$(mktemp -d)
-	msg "$(_cyan "下载") sing-box ${tag} (${arch}) ..."
+	msg "$(_cyan "下载") sing-box ${tag} (${arch}) ..." >&2
 	if ! curl -fL --progress-bar --max-time 300 -o "${tmp}/sb.tar.gz" "$url"; then
 		rm -rf "$tmp"
 		err "下载失败: $url"
 	fi
-	# 解压前先做完整性校验：GitHub API digest → 本地 sha256 对比
 	local asset="${name}.tar.gz" digest
 	if ! digest=$(gps_core_asset_digest "$tag" "$asset"); then
 		rm -rf "$tmp"
@@ -128,10 +135,39 @@ gps_download_core() {
 		rm -rf "$tmp"
 		err "归档中未找到 sing-box 二进制"
 	}
-	gps_install_core_from "$bin"
+	install -m 755 "$bin" "${dest_dir}/sing-box"
 	rm -rf "$tmp"
 	CORE_VER="$ver"
-	msg "$(_green "已安装") $GPS_CORE_BIN ($tag)"
+	msg "$(_green "已下载并校验") ${dest_dir}/sing-box ($tag)" >&2
+	printf '%s' "${dest_dir}/sing-box"
+}
+
+gps_download_core() {
+	local ver=$1
+	local force=${2:-0}
+	local cur
+	cur=$(gps_core_ver_installed)
+	ver=$(gps_resolve_core_ver "$ver")
+	if [[ $force -eq 0 && -n $cur && $cur == "$ver" && -x ${GPS_CORE_BIN:-} ]]; then
+		CORE_VER="$ver"
+		msg "$(_green "已是最新") sing-box v${ver}，跳过下载"
+		return 0
+	fi
+	local tmp bin
+	tmp=$(mktemp -d)
+	# $() 捕获 fetch 的 err：失败时不碰已装核心
+	if bin=$(gps_fetch_core_to "$ver" "$force" "$tmp"); then :; else
+		rm -rf "$tmp"
+		return 1
+	fi
+	# 已是最新时 fetch 可能返回现有 GPS_CORE_BIN
+	if [[ $bin == "$GPS_CORE_BIN" ]]; then
+		rm -rf "$tmp"
+		return 0
+	fi
+	gps_install_core_from "$bin"
+	rm -rf "$tmp"
+	msg "$(_green "已安装") $GPS_CORE_BIN (v${CORE_VER})"
 }
 
 # ---------- geoproxy-server 脚本自身升级 ----------
@@ -275,7 +311,7 @@ EOF
 				-e "s|__ETC_DIR__|${GPS_ETC}|g" \
 				-e "s|__LOG_DIR__|${GPS_LOG_DIR}|g" \
 				-e "s|__BIN__|${bin}|g" \
-				"$tpl" >"$GPS_UNIT_PATH"
+				"$tpl" | gps_atomic_write_file "$GPS_UNIT_PATH" 644
 		fi
 		gps_install_traffic_timer 2>/dev/null || true
 		gps_install_mesh_units 2>/dev/null || true
@@ -298,6 +334,7 @@ gps_cmd_upgrade_self() {
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		need_root
 	fi
+	gps_upgrade_lock_acquire || err "另一升级正在进行，请稍后重试"
 	local ver=latest
 	local force=0
 	while [[ $# -gt 0 ]]; do
@@ -310,10 +347,16 @@ gps_cmd_upgrade_self() {
 			force=1
 			shift
 			;;
-		*) err "未知参数: $1（用法: upgrade self [--ver TAG] [--force]）" ;;
+		*)
+			gps_upgrade_lock_release
+			err "未知参数: $1（用法: upgrade self [--ver TAG] [--force]）"
+			;;
 		esac
 	done
-	load_state || err "未安装"
+	load_state || {
+		gps_upgrade_lock_release
+		err "未安装"
+	}
 	ensure_deps
 	ver=$(gps_self_resolve_ver "$ver")
 	local cur=$GPS_SH_VER
@@ -322,47 +365,41 @@ gps_cmd_upgrade_self() {
 	fi
 	if [[ $force -eq 0 && $cur == "$ver" ]]; then
 		msg "$(_green "无需升级") 脚本已是 $cur"
+		gps_upgrade_lock_release
 		return 0
 	fi
 	# 稳定性关键路径：先下载并校验新脚本树，成功后才停服换树。
-	# 下载/校验失败时服务零影响（旧版先停服再下载，失败也白付一次断线）。
 	local tmp root
 	tmp=$(mktemp -d /tmp/gps-self-upgrade.XXXXXX)
-	trap 'rm -rf "'"$tmp"'"' RETURN
-	# $() 子 shell 捕获 fetch 的 err：失败时服务未动，无需恢复
 	if root=$(gps_self_fetch_tree "$ver" "$tmp"); then :; else
 		rm -rf "$tmp"
-		trap - RETURN
+		gps_upgrade_lock_release
 		err "脚本拉取失败（服务未受影响）；稍后重试或 upgrade self --ver <tag>"
 	fi
-	# 停干净再换文件，禁止在旧进程记忆上 restart（停服窗口仅为树替换+启动）
 	gps_svc_halt
-	# 停服后任何异常退出（安装失败/磁盘满/半安装）都必须把服务拉回来：
-	# 服务是被干净 stop 的，Restart=on-failure 不会兜底，不补拉即裸奔停机
-	trap 'gps_svc_boot >/dev/null 2>&1 || true' EXIT
+	# 停服后任何异常退出都必须把服务拉回来，并释放升级锁
+	trap 'gps_svc_boot >/dev/null 2>&1 || true; gps_upgrade_lock_release' EXIT
 	gps_self_install_tree "$root"
 	save_state
 	rm -rf "$tmp"
-	trap - RETURN
-	# 菜单进程里仍是升级前 source 的旧函数；用磁盘上的新入口强制初始化组网
 	if [[ -x ${GPS_BIN_LINK:-} ]]; then
 		"$GPS_BIN_LINK" mesh ensure || warn "mesh ensure 未成功（将在服务启动 ExecStartPre 再试）"
 	elif [[ -f ${GPS_LIB_DIR}/scripts/geoproxy-server.sh ]]; then
 		bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" mesh ensure || warn "mesh ensure 未成功（将在服务启动 ExecStartPre 再试）"
 	fi
-	# 新入口的 agent 凭证/单元：从旧版（< v0.2.43）升级时不会自动创建，必须显式 ensure（幂等）
 	if [[ -x ${GPS_BIN_LINK:-} ]]; then
 		"$GPS_BIN_LINK" agent ensure 2>/dev/null || warn "agent ensure 未成功（可运行 geoproxy-server install 重建）"
 	elif [[ -f ${GPS_LIB_DIR}/scripts/geoproxy-server.sh ]]; then
 		bash "${GPS_LIB_DIR}/scripts/geoproxy-server.sh" agent ensure 2>/dev/null || warn "agent ensure 未成功（可运行 geoproxy-server install 重建）"
 	fi
-	# gps_self_install_tree 里的 gps_install_mesh_units 来自升级前内存，可能仍是
-	# 「仅 enable --now」（v0.2.38 之前）；mesh ensure 也不 restart。
-	# 必须再显式重启 mesh-master，否则旧明文进程继续占 19527。
 	gps_upgrade_restart_mesh_master
 	trap - EXIT
-	gps_svc_boot
-	# shellcheck disable=SC2034  # 供 gps_reexec_if_menu 读取
+	if ! gps_svc_boot; then
+		warn "升级后启动失败，重试一次…"
+		gps_svc_boot || warn "服务仍未拉起，请手动: systemctl start ${GPS_SERVICE}"
+	fi
+	gps_upgrade_lock_release
+	# shellcheck disable=SC2034
 	GPS_UPGRADE_DID_WORK=1
 	msg "$(_green "脚本已升级") $cur → $GPS_SH_VER"
 	msg "配置/证书/凭证未改动；已停止旧进程并用新脚本重新拉起服务"

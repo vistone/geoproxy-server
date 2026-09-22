@@ -386,6 +386,7 @@ gps_cmd_upgrade_core() {
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		need_root
 	fi
+	gps_upgrade_lock_acquire || err "另一升级正在进行，请稍后重试"
 	local ver=latest
 	local force=0
 	while [[ $# -gt 0 ]]; do
@@ -398,37 +399,71 @@ gps_cmd_upgrade_core() {
 			force=1
 			shift
 			;;
-		*) err "未知参数: $1（用法: upgrade core [--ver TAG] [--force]）" ;;
+		*)
+			gps_upgrade_lock_release
+			err "未知参数: $1（用法: upgrade core [--ver TAG] [--force]）"
+			;;
 		esac
 	done
-	load_state || err "未安装"
+	load_state || {
+		gps_upgrade_lock_release
+		err "未安装"
+	}
 	local before target
 	before=$(gps_core_ver_installed)
 	target=$(gps_resolve_core_ver "$ver")
 	if [[ $force -eq 0 && -n $before && $before == "$target" && -x ${GPS_CORE_BIN:-} ]]; then
 		CORE_VER=$before
 		msg "$(_green "无需升级") sing-box 当前已是 v${CORE_VER}"
+		gps_upgrade_lock_release
+		return 0
+	fi
+	# fetch-then-swap：先下载校验，成功后才停服换二进制（对齐 upgrade self）
+	local tmp bin
+	tmp=$(mktemp -d /tmp/gps-core-upgrade.XXXXXX)
+	if bin=$(gps_fetch_core_to "$ver" "$force" "$tmp"); then :; else
+		rm -rf "$tmp"
+		gps_upgrade_lock_release
+		err "sing-box 下载/校验失败（服务未受影响）；稍后重试或 upgrade core --ver <tag>"
+	fi
+	if [[ $bin == "$GPS_CORE_BIN" ]]; then
+		rm -rf "$tmp"
+		gps_upgrade_lock_release
+		msg "$(_green "无需升级") sing-box 当前已是 v${CORE_VER:-$target}"
 		return 0
 	fi
 	gps_svc_halt
-	# 子 shell 捕获下载链路的 err（exit 1）：失败时旧核心未动，先拉回服务
-	if (gps_download_core "$ver" "$force"); then :; else
-		gps_svc_boot || true
-		err "sing-box 下载/校验失败，已用旧核心恢复服务；稍后重试或 upgrade core --ver <tag>"
-	fi
+	trap 'gps_svc_boot >/dev/null 2>&1 || true; gps_upgrade_lock_release' EXIT
+	gps_install_core_from "$bin"
+	rm -rf "$tmp"
 	# 新核心先过配置检查，不吃当前配置则回滚到旧核心
-	if (gps_check_config); then :; else
+	if ! gps_check_config; then
 		if gps_rollback_core; then
 			msg "$(_yellow "新核心校验失败，已回滚旧核心")"
-			(gps_check_config) || err "旧核心亦无法通过配置检查，请排查: $GPS_CONFIG"
+			if ! gps_check_config; then
+				trap - EXIT
+				gps_svc_boot || true
+				gps_upgrade_lock_release
+				err "旧核心亦无法通过配置检查，请排查: $GPS_CONFIG"
+			fi
 		else
-			err "新核心校验失败且无旧核心可回滚（首次安装后首次升级），请排查: $GPS_CONFIG"
+			trap - EXIT
+			gps_svc_boot || true
+			gps_upgrade_lock_release
+			err "新核心校验失败且无旧核心可回滚，已尝试恢复服务；请排查: $GPS_CONFIG"
 		fi
-		gps_svc_boot
+		trap - EXIT
+		gps_svc_boot || true
+		gps_upgrade_lock_release
 		err "已回滚并恢复服务；可稍后重试或指定 --ver"
 	fi
 	save_state
-	gps_svc_boot
+	trap - EXIT
+	gps_svc_boot || {
+		warn "升级后启动失败，重试一次…"
+		gps_svc_boot || warn "服务仍未拉起，请手动: systemctl start ${GPS_SERVICE}"
+	}
+	gps_upgrade_lock_release
 	GPS_UPGRADE_DID_WORK=1
 	msg "$(_green "升级完成") sing-box=$CORE_VER"
 }

@@ -50,6 +50,10 @@ class RateLimiter:
             cutoff = now - self.window_sec
             while bucket and bucket[0] < cutoff:
                 bucket.pop(0)
+            if not bucket:
+                # 空桶回收，避免扫描 IP 导致 dict 膨胀
+                self._hits.pop(ip, None)
+                bucket = self._hits.setdefault(ip, [])
             if len(bucket) >= self.max_requests:
                 return False
             bucket.append(now)
@@ -59,6 +63,10 @@ class RateLimiter:
 _REGISTER_LIMIT = RateLimiter(
     int(os.environ.get("GPS_MESH_REGISTER_RATE", "10")),
     float(os.environ.get("GPS_MESH_REGISTER_WINDOW", "60")),
+)
+_HEARTBEAT_LIMIT = RateLimiter(
+    int(os.environ.get("GPS_MESH_HEARTBEAT_RATE", "60")),
+    float(os.environ.get("GPS_MESH_HEARTBEAT_WINDOW", "60")),
 )
 _GENERAL_LIMIT = RateLimiter(
     int(os.environ.get("GPS_MESH_GENERAL_RATE", "60")),
@@ -302,19 +310,26 @@ def _run_upgrade(tag: str) -> None:
     global _UPGRADE_RUNNING
     try:
         argv = [UPGRADE_CLI, "upgrade", "self", "--ver", tag]
-        p = None
-        if shutil.which("systemd-run"):
-            # 逃离 mesh-master 自身 cgroup：升级链会 restart mesh-master，
-            # 默认 KillMode=control-group 会把本进程的子进程（升级脚本）一并
-            # SIGTERM，导致 gps_svc_boot 永不执行 → 代理服务停机不自愈。
-            esc = ["systemd-run", "--collect", "--quiet", "--wait",
-                   "--unit=gps-webhook-upgrade"] + argv
-            try:
-                p = subprocess.run(esc, capture_output=True, timeout=900, check=False)
-            except OSError as e:
-                sys.stderr.write("mesh-master: systemd-run 不可执行，回退直接调用: %s\n" % e)
-        if p is None:
-            p = subprocess.run(argv, capture_output=True, timeout=900, check=False)
+        if not shutil.which("systemd-run"):
+            # 禁止同 cgroup 回退：升级链会 restart mesh-master，KillMode 会杀掉升级进程
+            # → gps_svc_boot 永不执行 → 代理停机不自愈
+            sys.stderr.write(
+                "mesh-master: systemd-run 不可用，拒绝同 cgroup 升级（tag=%s）；"
+                "请安装 systemd 或手动 upgrade self\n" % tag)
+            return
+        # 唯一 unit 名：避免固定名冲突导致升级永不执行且无回退
+        unit = "gps-webhook-upgrade-%s-%d" % (
+            re.sub(r"[^A-Za-z0-9_-]", "", tag)[:32] or "tag",
+            int(time.time()),
+        )
+        esc = ["systemd-run", "--collect", "--quiet", "--wait",
+               "--unit=%s" % unit] + argv
+        try:
+            p = subprocess.run(esc, capture_output=True, timeout=900, check=False)
+        except OSError as e:
+            sys.stderr.write(
+                "mesh-master: systemd-run 执行失败，拒绝同 cgroup 回退: %s\n" % e)
+            return
         if p.returncode != 0:
             sys.stderr.write("mesh-master webhook upgrade rc=%s stderr=%s\n" % (
                 p.returncode, (p.stderr or b"").decode(errors="replace")[-2000:]))
@@ -382,14 +397,21 @@ def _int_or_zero(v) -> int:
         return 0
 
 
+def _token_eq(a: bytes, b: bytes) -> bool:
+    """恒定时间比较；长度不等直接 False（compare_digest 否则抛 ValueError）。"""
+    if len(a) != len(b):
+        return False
+    return hmac.compare_digest(a, b)
+
+
 def auth_ok(handler: BaseHTTPRequestHandler) -> bool:
     if not TOKEN:
         return True
     h = handler.headers.get("Authorization", "")
     if h.startswith("Bearer "):
-        return hmac.compare_digest(h[7:].strip().encode(), TOKEN.encode())
+        return _token_eq(h[7:].strip().encode(), TOKEN.encode())
     t = handler.headers.get("X-Mesh-Token", "")
-    return hmac.compare_digest(t.strip().encode(), TOKEN.encode())
+    return _token_eq(t.strip().encode(), TOKEN.encode())
 
 
 # ---------- 自签 TLS：证书生成与公钥指纹（curl --pinnedpubkey 格式） ----------
@@ -580,7 +602,8 @@ class Handler(BaseHTTPRequestHandler):
         if path not in ("/v1/register", "/v1/heartbeat"):
             self._send(404, {"error": "not found"})
             return
-        if not self._rate_limit_check(_REGISTER_LIMIT):
+        limiter = _HEARTBEAT_LIMIT if path == "/v1/heartbeat" else _REGISTER_LIMIT
+        if not self._rate_limit_check(limiter):
             return
         if not auth_ok(self):
             self._send(401, {"error": "unauthorized"})
@@ -596,6 +619,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/v1/heartbeat":
+            body = None
+            code = 404
             with LOCK, _PeersFileLock():
                 doc = load_doc()
                 for n in doc.get("nodes") or []:
@@ -607,8 +632,12 @@ class Handler(BaseHTTPRequestHandler):
                         n["tripped"] = 1 if _int_or_zero(req.get("tripped")) else 0
                         save_doc(doc)
                         body = {"ok": True, "peers": annotate_alive(doc), **cluster_payload()}
-                        self._send(200, body)
-                        return
+                        code = 200
+                        break
+            # 锁外发送：慢客户端不能拖住 register/heartbeat 写路径
+            if code == 200:
+                self._send(200, body)
+            else:
                 self._send(404, {"error": "unknown node; register first"})
             return
 
@@ -655,7 +684,11 @@ class Handler(BaseHTTPRequestHandler):
                 # 旧 IP 已被其他节点占用（并发/导入造成的冲突）时改派新地址，避免冲突固化
                 overlay = old_ip
             else:
-                overlay = alloc_overlay(used)
+                try:
+                    overlay = alloc_overlay(used)
+                except RuntimeError:
+                    self._send(503, {"error": "overlay pool exhausted"})
+                    return
             entry = {
                 "node_id": nid,
                 "public_key": pubkey,

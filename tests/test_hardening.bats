@@ -209,9 +209,8 @@ EOF
 	kill "$pid" 2>/dev/null || true
 	wait "$pid" 2>/dev/null || true
 	if [[ -n ${MSYSTEM:-} ]]; then
-		# Windows 原生 python 无法 exec shebang/.bat 假件（CreateProcess 不查 PATHEXT）：
-		# 以「进入 systemd-run 分支后回退」的日志为证；真实 exec 语义由 CI Linux 断言
-		grep -q "systemd-run 不可执行，回退直接调用" "$d/log"
+		# Windows 原生 python 无法 exec shebang/.bat 假件：拒绝同 cgroup 回退并打日志
+		grep -qE "systemd-run (不可用|执行失败).*拒绝同 cgroup" "$d/log"
 	else
 		grep -q "upgrade self --ver v9.9.9" "$d/sdr.log"
 		# 旧路径（直接在 mesh-master cgroup 内执行）不得出现

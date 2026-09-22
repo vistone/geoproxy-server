@@ -304,6 +304,70 @@ gps_atomic_write_env() {
 	mv -f "$tmp" "$dest"
 }
 
+# 通用原子写文件（unit 等非密钥文件可指定 mode，默认 644）
+gps_atomic_write_file() {
+	local dest=$1 mode=${2:-644} tmp
+	mkdir -p "$(dirname "$dest")"
+	tmp=$(mktemp "${dest}.tmp.XXXXXX") || err "无法创建临时文件: ${dest}.tmp.*"
+	cat >"$tmp"
+	chmod "$mode" "$tmp"
+	mv -f "$tmp" "$dest"
+}
+
+# ---------- 升级互斥锁：防止 upgrade / mesh-sync 重启 / traffic resume 交错 ----------
+gps_upgrade_lock_path() {
+	printf '%s' "${GPS_ETC}/upgrade.lock"
+}
+
+gps_upgrade_lock_acquire() {
+	[[ ${GPS_UPGRADE_LOCK_HELD:-0} == 1 ]] && return 0
+	mkdir -p "$GPS_ETC"
+	if have_cmd flock; then
+		exec 8>>"$(gps_upgrade_lock_path)"
+		if ! flock -n -x 8; then
+			return 1
+		fi
+	else
+		local d="${GPS_ETC}/upgrade.lock.d"
+		if ! mkdir "$d" 2>/dev/null; then
+			return 1
+		fi
+		printf '%s\n' "$$" >"$d/pid"
+	fi
+	GPS_UPGRADE_LOCK_HELD=1
+	return 0
+}
+
+gps_upgrade_lock_release() {
+	[[ ${GPS_UPGRADE_LOCK_HELD:-0} == 1 ]] || return 0
+	if have_cmd flock; then
+		flock -u 8 2>/dev/null || true
+		# 注意：不可写成 `exec 8>&- 2>/dev/null`——无命令的 exec 会把 2>/dev/null
+		# 永久套到当前 shell，后续 err/msg 的 stderr 全部消失。
+		exec 8>&- || true
+	else
+		rm -rf "${GPS_ETC}/upgrade.lock.d" 2>/dev/null || true
+	fi
+	unset GPS_UPGRADE_LOCK_HELD
+}
+
+# 非阻塞探测：升级锁是否被占用（供 sync/traffic 跳过冲突操作）
+gps_upgrade_in_progress() {
+	[[ ${GPS_UPGRADE_LOCK_HELD:-0} == 1 ]] && return 0
+	mkdir -p "$GPS_ETC"
+	if have_cmd flock; then
+		exec 7>>"$(gps_upgrade_lock_path)"
+		if flock -n -x 7; then
+			flock -u 7 2>/dev/null || true
+			exec 7>&- || true
+			return 1
+		fi
+		exec 7>&- || true
+		return 0
+	fi
+	[[ -d ${GPS_ETC}/upgrade.lock.d ]]
+}
+
 # source 前的安全检查：拒绝符号链接；生产模式要求属主=当前用户且无组/其他写
 gps_source_env() {
 	local f=$1

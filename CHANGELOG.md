@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.76 - 2026-09-22
+
+稳定性全面加固：对齐 `upgrade core` 与 self 的 fetch-then-swap、解耦集群升级与 tuic 启动链，并收紧 mesh/agent 控制面与配置写入路径。
+
+### 稳定性修复（P0）
+
+- **`upgrade core` 改为先下载校验再停服**：失败时服务零影响；停服后校验/回滚失败路径一律先 `gps_svc_boot` 再报错；EXIT trap 兜底拉起。
+- **集群升级与 tuic ExecStartPre 解耦**：`mesh ensure` / register 只写 `upgrade-pending`；由 mesh-sync `kick` 以 `systemctl start --no-block` 启动 oneshot，避免启动链嵌套 halt。
+
+### 稳定性修复（P1）
+
+- **mesh-sync 节流跳过落盘 `restart-pending`**：冷却结束后即使 cksum 不变也会强制重启，真正「下轮生效」。
+- **全局升级互斥锁**（`upgrade.lock`）：self/core 串行；sync 重启与 traffic 自动 resume 在升级窗口跳过。
+- **heartbeat 锁外发送响应**；register/heartbeat 分限流；overlay 池耗尽返回 503。
+- **鉴权 `compare_digest` 长度不等不再抛异常**（稳定 401）。
+- **webhook 禁止同 cgroup 回退**；`systemd-run` unit 名含 tag+时间戳防冲突。
+- **WG peers 渲染 per-peer 容错**（坏 `tripped`/endpoint 不再掏空整段 mesh）。
+- **`gps_set_log_level` 原子写**：先 check 临时文件再替换，失败保留旧配置。
+
+### 稳定性修复（P2）
+
+- **核心安装原子化**（`.new` → mv）；unit 文件原子写；流量百分比按 ceil 熔断；agent `cpuPct` 采样缓存；set-thresholds 失败回滚 warn。
+
+### 测试
+
+- `tests/test_stability.bats`：core 零停服、无 prev 仍 boot、pending-only 调度、restart-pending、set_log_level 回滚。
+- 调整 cluster-upgrade / hardening webhook 断言以匹配新行为。
+
 ## v0.2.75 - 2026-09-17
 
 回归修复：`gps_json_escape` 对多字节 UTF-8（如中文密码）的误转义。

@@ -102,7 +102,10 @@ for n in nodes:
     if not nid or nid == self_id:
         continue
     # 熔断节点（TRAFFIC_TRIPPED=1）不加入 WG 组网：服务已停，握手只会徒劳重试
-    if int(n.get("tripped") or 0):
+    try:
+        if int(n.get("tripped") or 0):
+            continue
+    except (TypeError, ValueError):
         continue
     if live_only and not alive(n):
         continue
@@ -117,16 +120,24 @@ for n in nodes:
     except ValueError:
         continue
     endpoint = n.get("endpoint") or ""
-    keepalive = int(n.get("keepalive") or 25)
+    try:
+        keepalive = int(n.get("keepalive") or 25)
+    except (TypeError, ValueError):
+        keepalive = 25
     ep_host, ep_port = "", 0
-    if endpoint:
-        if endpoint.startswith("["):
-            br = endpoint.rfind("]")
-            ep_host = endpoint[1:br]
-            ep_port = int(endpoint[br+2:])
-        else:
-            host, _, port = endpoint.rpartition(":")
-            ep_host, ep_port = host, int(port or 0)
+    try:
+        if endpoint:
+            if endpoint.startswith("["):
+                br = endpoint.rfind("]")
+                if br < 1:
+                    raise ValueError("bad ipv6 endpoint")
+                ep_host = endpoint[1:br]
+                ep_port = int(endpoint[br+2:])
+            else:
+                host, _, port = endpoint.rpartition(":")
+                ep_host, ep_port = host, int(port or 0)
+    except (TypeError, ValueError, IndexError):
+        ep_host, ep_port = "", 0
     peer = {
         "public_key": pk,
         "allowed_ips": [overlay + "/32"],
@@ -178,7 +189,10 @@ for n in doc.get("nodes") or []:
     nid = n.get("node_id") or ""
     if not nid or nid == self_id:
         continue
-    if int(n.get("tripped") or 0):
+    try:
+        if int(n.get("tripped") or 0):
+            continue
+    except (TypeError, ValueError):
         continue
     if live_only and not alive(n):
         continue

@@ -196,7 +196,8 @@ gps_cmd_traffic_check() {
 	fi
 
 	local pct_int
-	pct_int=$(awk -v p="$TRAFFIC_LAST_PCT" 'BEGIN{printf "%d", p+0}')
+	# ceil：94.1% 在 stop=95 时仍按 95 计，避免截断推迟熔断一整轮
+	pct_int=$(awk -v p="$TRAFFIC_LAST_PCT" 'BEGIN{x=p+0; if(x>int(x)) x=int(x)+1; else x=int(x); printf "%d", x}')
 	msg "traffic check: ${TRAFFIC_LAST_PCT}% (warn=${TRAFFIC_WARN_PCT} stop=${TRAFFIC_STOP_PCT} tripped=${TRAFFIC_TRIPPED})"
 
 	if ((pct_int >= TRAFFIC_STOP_PCT)); then
@@ -231,6 +232,10 @@ gps_cmd_traffic_check() {
 gps_traffic_resume_cleared() {
 	local mode=${1:-manual}
 	gps_traffic_defaults
+	if [[ $mode == auto ]] && gps_upgrade_in_progress 2>/dev/null; then
+		warn "升级进行中，跳过流量自动 resume（熔断标记保留至升级结束）"
+		return 0
+	fi
 	TRAFFIC_TRIPPED=0
 	TRAFFIC_TRIPPED_AT=
 	save_state

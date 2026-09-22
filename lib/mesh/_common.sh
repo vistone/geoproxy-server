@@ -1133,17 +1133,35 @@ gps_mesh_cluster_schedule_upgrade() {
 	gps_mesh_ensure_dirs 2>/dev/null || true
 	printf '%s\n' "$target" >"$pending"
 	chmod 600 "$pending" 2>/dev/null || true
+	# 默认只写 pending：ExecStartPre(mesh ensure) / register 不得同步拉起 upgrade，
+	# 否则会嵌套 halt 正在 activating 的 tuic。真正启动由 kick（mesh-sync）触发。
+	if [[ ${GPS_MESH_START_CLUSTER_UPGRADE:-0} == 1 ]]; then
+		gps_mesh_cluster_kick_pending_upgrade
+	fi
+}
+
+# 若存在 upgrade-pending，启动 oneshot（--no-block）或测试环境内直接执行
+gps_mesh_cluster_kick_pending_upgrade() {
+	local pending=${GPS_MESH_UPGRADE_PENDING:-${GPS_MESH_DIR}/upgrade-pending}
+	[[ -f $pending ]] || return 0
+	if gps_mesh_cluster_upgrade_cooling; then
+		return 0
+	fi
 	if [[ ${GPS_NO_SYSTEMD:-0} == 1 || -n ${GPS_TEST_PREFIX:-} ]]; then
-		gps_mesh_cmd_upgrade_cluster "$target" 2>/dev/null || true
+		# pending 文件已含目标版本；$1 可选兜底，kick 路径不传参
+		# shellcheck disable=SC2119
+		gps_mesh_cmd_upgrade_cluster 2>/dev/null || true
 		return 0
 	fi
 	if have_cmd systemctl; then
-		systemctl start "${GPS_MESH_UPGRADE_SERVICE:-geoproxy-mesh-upgrade}.service" 2>/dev/null ||
+		# --no-block：不阻塞调用方（尤其禁止在 tuic 启动事务内同步等待）
+		systemctl start --no-block "${GPS_MESH_UPGRADE_SERVICE:-geoproxy-mesh-upgrade}.service" 2>/dev/null ||
 			warn "无法启动 ${GPS_MESH_UPGRADE_SERVICE}（请 upgrade self 安装 unit）"
 	fi
 }
 
 # mesh-sync / geoproxy-mesh-upgrade.service：执行 pending 集群升级
+# shellcheck disable=SC2120 # $1 可选：优先读 pending 文件
 gps_mesh_cmd_upgrade_cluster() {
 	if [[ -z ${GPS_TEST_PREFIX:-} ]]; then
 		need_root

@@ -72,6 +72,11 @@ PY
 	gps_mesh_register_and_pull
 	kill "$mpid" 2>/dev/null || true
 	wait "$mpid" 2>/dev/null || true
+	# ensure/register 只写 pending，不嵌套执行 upgrade（防 tuic ExecStartPre 自杀）
+	[[ -f ${GPS_MESH_UPGRADE_PENDING} ]]
+	grep -q 'v0.2.65' "${GPS_MESH_UPGRADE_PENDING}"
+	[[ ! -f ${GPS_TEST_PREFIX}/upgrade-self.log ]]
+	GPS_MESH_START_CLUSTER_UPGRADE=1 gps_mesh_cluster_kick_pending_upgrade
 	grep -q '\-\-ver v0.2.65' "${GPS_TEST_PREFIX}/upgrade-self.log"
 }
 

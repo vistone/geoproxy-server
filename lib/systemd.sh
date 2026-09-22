@@ -21,7 +21,7 @@ gps_install_unit() {
 		-e "s|__ETC_DIR__|${GPS_ETC}|g" \
 		-e "s|__LOG_DIR__|${GPS_LOG_DIR}|g" \
 		-e "s|__BIN__|${bin}|g" \
-		"$tpl" >"$GPS_UNIT_PATH"
+		"$tpl" | gps_atomic_write_file "$GPS_UNIT_PATH" 644
 	gps_install_traffic_timer
 	gps_install_mesh_units
 	gps_install_agent_units

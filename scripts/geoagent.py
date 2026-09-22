@@ -41,6 +41,9 @@ class RateLimiter:
             cutoff = now - self.window_sec
             while bucket and bucket[0] < cutoff:
                 bucket.pop(0)
+            if not bucket:
+                self._hits.pop(ip, None)
+                bucket = self._hits.setdefault(ip, [])
             if len(bucket) >= self.max_requests:
                 return False
             bucket.append(now)
@@ -78,6 +81,8 @@ HOST = os.environ.get("GPS_AGENT_BIND", "127.0.0.1")
 PORT = _env_int("GPS_AGENT_PORT", 19528)
 MAX_BODY = _env_int("GPS_AGENT_MAX_BODY", 8192)
 CLI = os.environ.get("GPS_AGENT_CLI", "/usr/local/bin/geoproxy-server")
+_CPU_CACHE: tuple[float, float] | None = None  # (monotonic_ts, pct)
+_CPU_CACHE_LOCK = threading.Lock()
 PROBE_URL = os.environ.get("GPS_AGENT_PROBE_URL", "https://www.gstatic.com/generate_204")
 ALLOW_IPS_RAW = os.environ.get("GPS_AGENT_ALLOW_IPS", "127.0.0.1,::1")
 LOCK = threading.Lock()
@@ -159,15 +164,26 @@ def _cpu_sample():
 
 
 def cpu_pct() -> float:
+    """进程级采样缓存，避免每个 /v1/status 请求 sleep 1s 占满线程。"""
+    global _CPU_CACHE
+    now = time.monotonic()
+    with _CPU_CACHE_LOCK:
+        if _CPU_CACHE is not None and (now - _CPU_CACHE[0]) < 1.5:
+            return _CPU_CACHE[1]
     a = _cpu_sample()
     time.sleep(1.0)
     b = _cpu_sample()
     if not a or not b:
-        return 0.0
-    dt = b[0] - a[0]
-    if dt <= 0:
-        return 0.0
-    return round(100.0 * (1 - (b[1] - a[1]) / dt), 1)
+        pct = 0.0
+    else:
+        dt = b[0] - a[0]
+        if dt <= 0:
+            pct = 0.0
+        else:
+            pct = round(100.0 * (1 - (b[1] - a[1]) / dt), 1)
+    with _CPU_CACHE_LOCK:
+        _CPU_CACHE = (time.monotonic(), pct)
+    return pct
 
 
 def mem_pct() -> float:
@@ -358,10 +374,17 @@ def handle_control(req: dict) -> tuple[int, dict]:
         warn, stop = int(warn), int(stop)
         if not (1 <= warn < stop <= 100):
             return 400, {"error": "invalid thresholds: 1 <= warnPct < stopPct <= 100"}
+        st = parse_env_file(STATE_PATH)
+        old_warn = st.get("TRAFFIC_WARN_PCT")
         ok1, e1 = run_cli(["change", "traffic-warn", str(warn)])
+        if not ok1:
+            return 500, {"error": e1 or "set traffic-warn failed"}
         ok2, e2 = run_cli(["change", "traffic-stop", str(stop)])
-        if not (ok1 and ok2):
-            return 500, {"error": (e1 or e2) or "set-thresholds failed"}
+        if not ok2:
+            # 回滚 warn，避免半更新
+            if old_warn and re.fullmatch(r"[0-9]+", str(old_warn)):
+                run_cli(["change", "traffic-warn", str(old_warn)])
+            return 500, {"error": e2 or "set traffic-stop failed"}
         return 200, {"ok": True}
     elif action == "set-check-interval":
         sec = req.get("seconds")
@@ -433,7 +456,9 @@ class Handler(BaseHTTPRequestHandler):
                 return False
             self._send(401, {"error": "unauthorized"})
             return False
-        ok = hmac.compare_digest(h[7:].strip().encode(), TOKEN.encode())
+        got = h[7:].strip().encode()
+        want = TOKEN.encode()
+        ok = (len(got) == len(want)) and hmac.compare_digest(got, want)
         if not ok:
             if not _AUTH_FAIL_LIMIT.check(ip):
                 self._send(429, {"error": "rate limit exceeded"})

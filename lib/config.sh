@@ -129,12 +129,18 @@ gps_set_log_level() {
 	esac
 	LOG_LEVEL=$level
 	[[ -f $GPS_CONFIG ]] || err "配置不存在，请先 install"
-	if grep -qE '"level"[[:space:]]*:' "$GPS_CONFIG"; then
-		sed -i -E "s/\"level\"[[:space:]]*:[[:space:]]*\"[a-z]+\"/\"level\": \"${level}\"/" "$GPS_CONFIG"
-	else
-		err "配置中缺少 log.level"
+	grep -qE '"level"[[:space:]]*:' "$GPS_CONFIG" || err "配置中缺少 log.level"
+	# 先写临时文件并 check，通过后再原子替换（对齐 gps_write_config）
+	local cfg_tmp
+	cfg_tmp=$(mktemp "${GPS_CONFIG}.tmp.XXXXXX") || err "无法创建临时文件: ${GPS_CONFIG}.tmp.*"
+	sed -E "s/\"level\"[[:space:]]*:[[:space:]]*\"[a-z]+\"/\"level\": \"${level}\"/" "$GPS_CONFIG" >"$cfg_tmp"
+	chmod 600 "$cfg_tmp"
+	if ! "$GPS_CORE_BIN" check -c "$cfg_tmp" >/dev/null 2>&1; then
+		rm -f "$cfg_tmp"
+		err "日志级别变更未通过 sing-box check（旧配置已保留）"
 	fi
-	gps_check_config
+	cp -f "$GPS_CONFIG" "${GPS_CONFIG}.prev" 2>/dev/null || true
+	mv -f "$cfg_tmp" "$GPS_CONFIG"
 	msg "$(_green "日志级别") → $level（进站/出站连接建议 debug）"
 }
 

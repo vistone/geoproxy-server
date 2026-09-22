@@ -215,14 +215,21 @@ gps_mesh_sync_master() {
 		cp -f "$GPS_CONFIG" "$cfg_prev" 2>/dev/null || cfg_prev=""
 	fi
 
-	gps_mesh_ensure_boot
+	# sync 路径允许 kick 集群升级（ensure/ExecStartPre 默认不 kick）
+	GPS_MESH_START_CLUSTER_UPGRADE=1 gps_mesh_ensure_boot
+	# 若 register 未改写 pending（已是目标版）但盘上仍有旧 pending，也 kick 一次
+	gps_mesh_cluster_kick_pending_upgrade
 	save_state 2>/dev/null || true
 
 	after=""
 	[[ -f $GPS_CONFIG ]] && after=$(cksum "$GPS_CONFIG" 2>/dev/null | awk '{print $1" "$2}')
 
 	# 只看 config.json：peers.json 的 last_seen 每次 upsert 都会变，不能据此重启代理
-	if [[ ${GPS_MESH_SYNC_RESTART:-1} == 1 && $before != "$after" ]]; then
+	# restart-pending：节流跳过时落盘，冷却结束后即使 cksum 不变也强制重启（真正「下轮生效」）
+	local need_restart=0
+	[[ ${GPS_MESH_SYNC_RESTART:-1} == 1 && $before != "$after" ]] && need_restart=1
+	[[ ${GPS_MESH_SYNC_RESTART:-1} == 1 && -f ${GPS_MESH_DIR}/restart-pending ]] && need_restart=1
+	if [[ $need_restart -eq 1 ]]; then
 		dump_diff() {
 			msg "差异摘要（凭证已脱敏）:"
 			if [[ -n $cfg_prev ]]; then
@@ -232,8 +239,13 @@ gps_mesh_sync_master() {
 				rm -f "$cfg_prev"
 			fi
 		}
-		# 重启节流：peer 心跳抖动（进出/熔断翻转）会造成 config 抖动；
-		# 服务在跑且距上次 mesh 重启不足冷却窗 → 本轮跳过，下一轮生效。
+		if gps_upgrade_in_progress 2>/dev/null; then
+			msg "mesh: config 变更，但升级进行中 — 本轮跳过重启（写入 restart-pending）"
+			mkdir -p "$GPS_MESH_DIR" 2>/dev/null || true
+			: >"${GPS_MESH_DIR}/restart-pending"
+			dump_diff
+			return 0
+		fi
 		local last=0 now min_gap
 		min_gap=${MESH_SYNC_RESTART_MIN_SEC:-300}
 		if [[ -f ${GPS_MESH_DIR}/last-sync-restart ]]; then
@@ -243,12 +255,15 @@ gps_mesh_sync_master() {
 		now=$(date +%s)
 		if gps_svc is-active --quiet 2>/dev/null && ((now - last < min_gap)); then
 			msg "mesh: config 变更，但距上次 mesh 触发的重启不足 ${min_gap}s — 本轮跳过重启（下轮生效）"
+			mkdir -p "$GPS_MESH_DIR" 2>/dev/null || true
+			: >"${GPS_MESH_DIR}/restart-pending"
 			dump_diff
 		else
 			msg "mesh: config 变更 → 重启 ${GPS_SERVICE}"
 			dump_diff
 			mkdir -p "$GPS_MESH_DIR" 2>/dev/null || true
 			printf '%s\n' "$now" >"${GPS_MESH_DIR}/last-sync-restart" 2>/dev/null || true
+			rm -f "${GPS_MESH_DIR}/restart-pending"
 			gps_restart_svc 2>/dev/null || true
 		fi
 	elif [[ -n $cfg_prev ]]; then
