@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.77 - 2026-09-22
+
+升级链路收尾：webhook 降级/重放防护、core 换二进制前的运行时自检、路径捕获污染修复。
+
+### 修复
+
+- **webhook 拒绝降级与同版重放**（`scripts/mesh_master.py`）：`schedule_upgrade` 读取本地版本（`GPS_VERSION_FILE`），目标 tag ≤ 本地版本时直接忽略并返回 `{"ignored": "downgrade"}`，不写 `cluster-version.json`（防降级目标传导给成员自动升级）。签名正确的旧 release 报文被重放不再触发降级；确需降级仍可手动 `upgrade self --ver <tag>`。版本文件缺失/损坏时守卫退化为放行（兼容首次部署）。
+- **`upgrade core` 停服前新二进制冒烟自检**（`lib/cmd.sh`）：sha256 只保证完整性、不保证本机可运行（glibc/架构不匹配时换上后运行即崩）。停服前先执行 `<新核心> version`，失败即中止且服务零影响。
+- **`gps_verify_core_archive` 校验消息改走 stderr**（`lib/download.sh`）：此前 `msg` 打到 stdout 会污染 `$(gps_fetch_core_to ...)` 捕获的二进制路径（下游需靠 `${src_root##*$'\n'}` 兜底截取）。
+
+### 测试
+
+- `tests/test_hardening.bats` 新增：webhook 降级拒绝（断言 `ignored: downgrade` 且不写 cluster-version）、core 冒烟失败中止不停服、冒烟通过才停服换核心；master 进程清理改 TERM→KILL（Windows 原生 python 不响应 MSYS SIGTERM 时 `wait` 会挂起）。
+- `tests/test_stability.bats`：补 `gps_verify_core_archive` stdout 干净用例（本版修复）。
+
 ## v0.2.76 - 2026-09-22
 
 稳定性全面加固：对齐 `upgrade core` 与 self 的 fetch-then-swap、解耦集群升级与 tuic 启动链，并收紧 mesh/agent 控制面与配置写入路径。

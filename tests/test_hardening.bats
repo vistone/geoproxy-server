@@ -143,8 +143,9 @@ PY
 	local code=$output
 	kill "$stall" 2>/dev/null || true
 	kill "$pid" 2>/dev/null || true
-	wait "$stall" 2>/dev/null || true
-	wait "$pid" 2>/dev/null || true
+	sleep 0.3
+	kill -9 "$stall" 2>/dev/null || true
+	kill -9 "$pid" 2>/dev/null || true
 	[ "$code" = "200" ]
 }
 
@@ -207,7 +208,8 @@ EOF
 		sleep 0.2
 	done
 	kill "$pid" 2>/dev/null || true
-	wait "$pid" 2>/dev/null || true
+	sleep 0.3
+	kill -9 "$pid" 2>/dev/null || true
 	if [[ -n ${MSYSTEM:-} ]]; then
 		# Windows 原生 python 无法 exec shebang/.bat 假件：拒绝同 cgroup 回退并打日志
 		grep -qE "systemd-run (不可用|执行失败).*拒绝同 cgroup" "$d/log"
@@ -257,7 +259,8 @@ EOF
 		-d '{"node_id":"b","public_key":"KB2"}' \
 		"http://127.0.0.1:${mport}/v1/register" >"$d/resp.json"
 	kill "$pid" 2>/dev/null || true
-	wait "$pid" 2>/dev/null || true
+	sleep 0.3
+	kill -9 "$pid" 2>/dev/null || true
 	resp=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["node"]["overlay_ip"])' "$d/resp.json")
 	[ "$resp" != "10.66.0.5" ]
 }
@@ -293,7 +296,8 @@ EOF
 		-d '{"node_id":"a","tripped":[]}' \
 		"http://127.0.0.1:${mport}/v1/heartbeat")
 	kill "$pid" 2>/dev/null || true
-	wait "$pid" 2>/dev/null || true
+	sleep 0.3
+	kill -9 "$pid" 2>/dev/null || true
 	[ "$code1" = "200" ]
 	[ "$code2" = "200" ]
 	# 损坏 peers.json 被隔离重建（load_doc 容错）
@@ -492,4 +496,91 @@ EOF
 	grep -q 'UMask=0077' "$REPO_ROOT/templates/geoproxy-agent.service"
 	grep -q 'UMask=0077' "$REPO_ROOT/templates/geoproxy-mesh-master.service"
 	grep -q 'create 600 root root' "$REPO_ROOT/templates/logrotate.conf"
+}
+
+# ---------- v0.2.76：webhook 降级/同版重放防护 ----------
+
+@test "webhook 拒绝降级与同版重放（本地版本更高或相同时不触发升级）" {
+	local d=$GPS_TEST_PREFIX/dg
+	mkdir -p "$d"
+	printf 'v9.9.9\n' >"$d/VERSION"
+	local mport pid resp
+	mport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+	MESH_CLUSTER_TOKEN=dg-token-0123456789 GPS_MESH_PEERS="$d/peers.json" \
+		GPS_GITHUB_WEBHOOK_SECRET="whsec-dg-0123456789" GPS_VERSION_FILE="$d/VERSION" \
+		GPS_MESH_MASTER_BIND=127.0.0.1 GPS_MESH_MASTER_PORT="$mport" GPS_MESH_MASTER_TLS=0 \
+		python3 "$REPO_ROOT/scripts/mesh_master.py" >"$d/log" 2>&1 </dev/null &
+	pid=$!
+	local i ready=0
+	for i in $(seq 1 50); do
+		if curl -fsS -o /dev/null --max-time 1 "http://127.0.0.1:${mport}/v1/health" 2>/dev/null; then
+			ready=1
+			break
+		fi
+		sleep 0.1
+	done
+	if [[ $ready -ne 1 ]]; then
+		kill "$pid" 2>/dev/null || true
+		skip "master 未就绪"
+	fi
+	local secret="whsec-dg-0123456789"
+	local body='{"action":"published","release":{"tag_name":"v0.2.62"}}'
+	local sig
+	sig=$(printf 'sha256=%s' "$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$secret" | awk '{print $2}')")
+	resp=$(curl -fsS --max-time 3 \
+		-H "Content-Type: application/json" -H "X-GitHub-Event: release" \
+		-H "X-Hub-Signature-256: $sig" \
+		-d "$body" "http://127.0.0.1:${mport}/v1/hook/github")
+	# 不用 wait：Windows 原生 python 可能不响应 MSYS SIGTERM，wait 会无限挂起
+	kill "$pid" 2>/dev/null || true
+	sleep 0.3
+	kill -9 "$pid" 2>/dev/null || true
+	grep -q '"ignored": "downgrade"' <<<"$resp"
+	# 降级目标不得写入 cluster-version.json（会传导给成员自动升级）
+	! grep -q "v0.2.62" "$d/cluster-version.json" 2>/dev/null
+}
+
+# ---------- v0.2.76：core 升级停服前新二进制冒烟测试 ----------
+
+@test "upgrade core：新二进制冒烟失败时中止且不停服" {
+	local tree=$GPS_TEST_PREFIX/corebad
+	mkdir -p "$tree"
+	printf '#!/bin/bash\nexit 3\n' >"$tree/sing-box"
+	chmod +x "$tree/sing-box"
+	export PORT=44151 UUID="00000000-0000-4000-8000-000000000206" PASSWORD="p6" PROTOCOL=tuic
+	save_state
+	gps_upgrade_lock_acquire() { :; }
+	gps_upgrade_lock_release() { :; }
+	gps_resolve_core_ver() { printf '%s' "${1:-latest}"; }
+	gps_core_ver_installed() { echo ""; }
+	gps_fetch_core_to() { echo "$tree/sing-box"; }
+	gps_svc_halt() { printf 'halt\n' >>"$GPS_TEST_PREFIX/core-hb.log"; }
+	gps_svc_boot() { printf 'boot\n' >>"$GPS_TEST_PREFIX/core-hb.log"; }
+	run gps_cmd_upgrade_core --ver 9.9.9
+	[ "$status" -ne 0 ]
+	[ ! -e "$GPS_TEST_PREFIX/core-hb.log" ]
+	grep -q "未受影响" <<<"$output"
+}
+
+@test "upgrade core：冒烟通过才停服换核心" {
+	local tree=$GPS_TEST_PREFIX/coreok
+	mkdir -p "$tree"
+	printf '#!/bin/bash\n[[ "$1" == "version" ]] && echo "sing-box version 9.9.9"\nexit 0\n' >"$tree/sing-box"
+	chmod +x "$tree/sing-box"
+	export PORT=44152 UUID="00000000-0000-4000-8000-000000000207" PASSWORD="p7" PROTOCOL=tuic
+	save_state
+	gps_upgrade_lock_acquire() { :; }
+	gps_upgrade_lock_release() { :; }
+	gps_resolve_core_ver() { printf '%s' "${1:-latest}"; }
+	gps_core_ver_installed() { echo ""; }
+	gps_fetch_core_to() { echo "$tree/sing-box"; }
+	gps_install_core_from() { printf 'install:%s\n' "$1" >>"$GPS_TEST_PREFIX/core-hb.log"; }
+	gps_check_config() { :; }
+	gps_svc_halt() { printf 'halt\n' >>"$GPS_TEST_PREFIX/core-hb.log"; }
+	gps_svc_boot() { printf 'boot\n' >>"$GPS_TEST_PREFIX/core-hb.log"; }
+	run gps_cmd_upgrade_core --ver 9.9.9
+	[ "$status" -eq 0 ]
+	grep -q '^halt$' "$GPS_TEST_PREFIX/core-hb.log"
+	grep -q '^boot$' "$GPS_TEST_PREFIX/core-hb.log"
+	grep -q "install:$tree/sing-box" "$GPS_TEST_PREFIX/core-hb.log"
 }

@@ -65,7 +65,8 @@ gps_verify_core_archive() {
 	expected=$(awk -v a="$asset" '$2==a{print $1; exit}' "$manifest")
 	actual=$(sha256sum "$archive" | awk '{print $1}')
 	[[ ${expected,,} == "${actual,,}" ]] || err "sha256 校验失败: $asset（清单=${expected} 实际=${actual}），拒绝解压"
-	msg "$(_green "sha256 校验通过") $asset"
+	# 走 stderr：调用方用 $(...) 捕获 stdout 当路径，msg 到 stdout 会污染路径捕获
+	msg "$(_green "sha256 校验通过") $asset" >&2
 }
 
 # 装入新核心；旧二进制保留为 .prev 供失败回滚（先写 .new 再 mv，避免中断丢二进制）

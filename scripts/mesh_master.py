@@ -97,6 +97,7 @@ CLUSTER_VERSION_PATH = Path(
 )
 TOKEN = os.environ.get("MESH_CLUSTER_TOKEN", "")
 WEBHOOK_SECRET = os.environ.get("GPS_GITHUB_WEBHOOK_SECRET", "")
+VERSION_PATH = Path(os.environ.get("GPS_VERSION_FILE", "/usr/local/lib/geoproxy-server/VERSION"))
 UPGRADE_CLI = os.environ.get("GPS_UPGRADE_CLI", "/usr/local/bin/geoproxy-server")
 HOST = os.environ.get("GPS_MESH_MASTER_BIND", "0.0.0.0")
 PORT = _env_int("GPS_MESH_MASTER_PORT", 19527)
@@ -377,9 +378,34 @@ def cluster_payload() -> dict:
     return {"cluster": {"target_version": tag, "auto_upgrade": True}}
 
 
+def load_local_version() -> str | None:
+    """读本地脚本版本（GPS_VERSION_FILE）；缺失/损坏返回 None（守卫退化为放行）。"""
+    try:
+        with VERSION_PATH.open("r", encoding="utf-8") as f:
+            v = f.read().strip()
+    except OSError:
+        return None
+    return v if _TAG_RE.fullmatch(v) else None
+
+
+def _semver_key(tag: str) -> tuple[int, int, int] | None:
+    m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
 def schedule_upgrade(tag: str) -> tuple[int, dict]:
     """后台触发 upgrade self；立即返回，避免 GitHub webhook 超时。"""
     global _UPGRADE_RUNNING
+    # 降级/同版重放防护：签名正确的旧 release 报文被重放时不得触发降级
+    # （cluster-version.json 还会传导给成员自动升级）。确需降级请手动 upgrade self --ver。
+    local = load_local_version()
+    lk = _semver_key(local) if local else None
+    tk = _semver_key(tag)
+    if lk is not None and tk is not None and tk <= lk:
+        sys.stderr.write("mesh-master: webhook 拒绝降级/重复 %s（本地 %s）；如确需降级请手动 upgrade self --ver\n" % (tag, local))
+        return 200, {"ok": True, "ignored": "downgrade", "target": tag, "local": local, **cluster_payload()}
     save_cluster_target(tag)
     with _UPGRADE_LOCK:
         if _UPGRADE_RUNNING:

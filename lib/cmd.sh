@@ -432,6 +432,13 @@ gps_cmd_upgrade_core() {
 		msg "$(_green "无需升级") sing-box 当前已是 v${CORE_VER:-$target}"
 		return 0
 	fi
+	# 停服前冒烟：sha256 只保证完整性，不保证本机可运行（glibc/架构不匹配时
+	# 换上后运行即崩）。version 自检失败则中止，服务零影响。
+	if ! "$bin" version >/dev/null 2>&1; then
+		rm -rf "$tmp"
+		gps_upgrade_lock_release
+		err "新 sing-box 自检失败（无法执行 version；架构/glibc 不兼容？），已中止（服务未受影响）"
+	fi
 	gps_svc_halt
 	trap 'gps_svc_boot >/dev/null 2>&1 || true; gps_upgrade_lock_release' EXIT
 	gps_install_core_from "$bin"

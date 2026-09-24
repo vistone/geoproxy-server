@@ -121,6 +121,18 @@ stable_init() {
 	[ "$halted" -eq 0 ]
 }
 
+@test "core archive verification keeps stdout clean for path capture" {
+	local archive="$GPS_TEST_PREFIX/core.tar.gz"
+	local manifest="$GPS_TEST_PREFIX/sha256sums.txt"
+	local asset=core.tar.gz digest out
+	printf 'verified payload' >"$archive"
+	digest=$(sha256sum "$archive" | awk '{print $1}')
+	printf '%s  %s\n' "$digest" "$asset" >"$manifest"
+
+	out=$(gps_verify_core_archive "$archive" "$manifest" "$asset")
+	[ -z "$out" ]
+}
+
 @test "upgrade core check failure always boots even without prev" {
 	stable_init
 	save_state
