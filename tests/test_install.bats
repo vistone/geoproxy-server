@@ -2,6 +2,8 @@
 
 setup() {
 	source "$BATS_TEST_DIRNAME/_setup.bash"
+	# shellcheck source=../lib/download.sh
+	source "$REPO_ROOT/lib/download.sh"
 	# shellcheck source=../lib/systemd.sh
 	source "$REPO_ROOT/lib/systemd.sh"
 	# shellcheck source=../lib/cmd.sh
@@ -62,6 +64,54 @@ setup() {
 	have_cmd() { return 1; }
 	run ensure_logrotate
 	[ "$status" -ne 0 ]
+}
+
+@test "reinstall after-self-update skips confirm and fetch" {
+	export PORT=43111
+	export UUID="00000000-0000-4000-8000-000000000211"
+	export PASSWORD="u-pass"
+	export PROTOCOL=tuic
+	detect_local_stack() {
+		STACK_MODE=v4only
+		HAS_V4=1
+		HAS_V6=0
+	}
+	mkdir -p "$GPS_ETC"
+	# 最小合法 state（load_state 能读即可）
+	PORT=43111 UUID=00000000-0000-4000-8000-000000000211 PASSWORD=u-pass PROTOCOL=tuic \
+		INSTALLED_AT=2026-01-01T00:00:00Z LOG_LEVEL=warn STACK_MODE=v4only \
+		save_state
+	local side="$GPS_TEST_PREFIX/reinstall-side.log"
+	: >"$side"
+	gps_reinstall_fetch_self() { echo fetch >>"$side"; }
+	confirm_yes() {
+		echo confirm >>"$side"
+		return 0
+	}
+	ensure_deps() { :; }
+	gps_download_core() { :; }
+	gps_protocol_normalize() { :; }
+	gps_protocol_defaults() { :; }
+	gps_protocol_validate() { :; }
+	gps_mesh_bootstrap_from_env() { :; }
+	gps_mesh_ensure_boot() { :; }
+	gps_validate_port() { return 0; }
+	gps_validate_uuid() { return 0; }
+	gps_validate_single_line() { return 0; }
+	save_state() { :; }
+	gps_install_unit() { :; }
+	gps_install_entrypoint() { :; }
+	gps_restart_svc() { :; }
+	gps_cmd_info() { :; }
+	gps_cmd_url() { :; }
+	detect_public_ips() { :; }
+	detect_public_ipv4() { :; }
+	detect_public_ipv6() { :; }
+	# 同 shell 调用，函数 mock 与 side 文件才生效
+	local out
+	out=$(gps_cmd_install --after-self-update 2>&1)
+	[[ ! -s $side ]]
+	[[ "$out" == *"已切换到新脚本"* || "$out" == *"继续安装"* ]]
 }
 
 @test "uninstall removes prefix tree, entrypoint and logrotate config" {

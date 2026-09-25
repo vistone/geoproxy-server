@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## v0.2.78 - 2026-09-25
+
+修复菜单「安装/重装」拉完新脚本后仍用旧进程函数装核心，导致 `install: No such file or directory`。
+
+### 修复
+
+- **重装拉取脚本后强制 re-exec**（`lib/cmd.sh`）：`gps_reinstall_fetch_self` 落盘新树后 `exec … install --after-self-update`，避免继续执行已 source 的旧 `gps_download_core` / `gps_verify_core_archive`（v0.2.76 及更早会把 sha256 日志打进 stdout，污染 `bin=$(gps_fetch_core_to)` 路径，随后 `install` 报 No such file）。
+- **路径捕获兜底**（`lib/download.sh`）：新增 `gps_stdout_path`，`gps_download_core` / `upgrade core` / `gps_install_core_from` 安装前剥掉混入的日志行与 ANSI；源文件缺失时给出明确错误而非裸 `install: No such file`。
+
+### 测试
+
+- `tests/test_download.bats`：stdout 路径清洗、污染源路径拒绝。
+- `tests/test_install.bats`：`--after-self-update` 跳过确认/再拉取。
+
 ## v0.2.77 - 2026-09-22
 
 升级链路收尾：webhook 降级/重放防护、core 换二进制前的运行时自检、路径捕获污染修复。

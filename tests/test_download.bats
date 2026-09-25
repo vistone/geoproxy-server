@@ -6,6 +6,23 @@ setup() {
 	source "$REPO_ROOT/lib/download.sh"
 }
 
+@test "gps_stdout_path keeps last line and strips ANSI" {
+	# shellcheck source=../lib/download.sh
+	source "$REPO_ROOT/lib/download.sh"
+	local polluted=$'\e[92msha256 ok\e[0m asset.tar.gz\n/tmp/real/sing-box'
+	[ "$(gps_stdout_path "$polluted")" = "/tmp/real/sing-box" ]
+	[ "$(gps_stdout_path "/tmp/clean")" = "/tmp/clean" ]
+}
+
+@test "gps_install_core_from rejects polluted or missing source with clear error" {
+	# shellcheck source=../lib/download.sh
+	source "$REPO_ROOT/lib/download.sh"
+	mkdir -p "$GPS_LIB_DIR"
+	run gps_install_core_from $'junk\n/no/such/bin'
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"核心二进制不存在"* || "$output" == *"路径无效"* ]]
+}
+
 @test "core install keeps previous binary for rollback" {
 	mkdir -p "$GPS_LIB_DIR"
 	printf '#!/bin/bash\n# old-core\n' >"$BATS_TEST_TMPDIR/old-bin"

@@ -10,6 +10,7 @@ gps_parse_install_args() {
 	CORE_VER_ARG=""
 	INSTALL_PREFIX=""
 	PROTOCOL_ARG=""
+	AFTER_SELF_UPDATE=0
 	while [[ $# -gt 0 ]]; do
 		case $1 in
 		--port)
@@ -47,6 +48,11 @@ gps_parse_install_args() {
 			;;
 		--no-systemd)
 			GPS_NO_SYSTEMD=1
+			shift
+			;;
+		--after-self-update)
+			# 内部标志：重装拉新脚本后 re-exec 续跑，勿在帮助中暴露
+			AFTER_SELF_UPDATE=1
 			shift
 			;;
 		-h | --help)
@@ -122,14 +128,20 @@ gps_cmd_install() {
 		[[ -n $cli_ip ]] && PUBLIC_IP=$cli_ip
 		[[ -n $cli_ip6 ]] && PUBLIC_IP6=$cli_ip6
 		[[ -n $cli_proto ]] && PROTOCOL=$cli_proto
-		warn "检测到已安装配置: $GPS_STATE（保留端口/UUID/KiwiVM 凭证）"
-		if [[ -t 0 ]]; then
-			confirm_yes "保留配置并重装脚本与服务?" || err "已取消"
+		if [[ ${AFTER_SELF_UPDATE:-0} -eq 1 ]]; then
+			msg "$(_cyan "已切换到新脚本") $GPS_SH_VER，继续安装（配置保留）"
 		else
-			msg "非交互：保留已有配置，刷新脚本与服务"
-		fi
-		if [[ -z ${GPS_TEST_PREFIX:-} && ${GPS_NO_FETCH_SELF:-0} != 1 ]]; then
-			gps_reinstall_fetch_self
+			warn "检测到已安装配置: $GPS_STATE（保留端口/UUID/KiwiVM 凭证）"
+			if [[ -t 0 ]]; then
+				confirm_yes "保留配置并重装脚本与服务?" || err "已取消"
+			else
+				msg "非交互：保留已有配置，刷新脚本与服务"
+			fi
+			# 磁盘上的新脚本不会自动替换当前 shell 里已 source 的函数。
+			# 必须 re-exec，否则会用旧版 gps_download_core（stdout 污染路径 → install 失败）。
+			if [[ -z ${GPS_TEST_PREFIX:-} && ${GPS_NO_FETCH_SELF:-0} != 1 ]]; then
+				gps_reinstall_fetch_self "$@"
+			fi
 		fi
 	else
 		gps_kiwi_load_persist
@@ -212,14 +224,31 @@ gps_cmd_install() {
 }
 
 # 重装时从 GitHub 拉取最新管理脚本（避免从已安装目录拷贝自己）
+# 成功后 exec 进入新脚本的 install --after-self-update，避免继续跑旧函数定义。
 gps_reinstall_fetch_self() {
 	local ver tmp root
 	ver=$(gps_self_resolve_ver latest)
 	msg "$(_cyan "拉取最新管理脚本") $ver ..."
 	tmp=$(mktemp -d /tmp/gps-self-upgrade.XXXXXX)
 	root=$(gps_self_fetch_tree "$ver" "$tmp")
+	# $(fetch) 若混入日志，取最后一行作为路径
+	root=$(gps_stdout_path "$root")
 	gps_self_install_tree "$root"
 	rm -rf "$tmp"
+	local entry="${GPS_BIN_LINK:-}"
+	if [[ ! -x $entry ]]; then
+		entry="${GPS_LIB_DIR}/scripts/geoproxy-server.sh"
+	fi
+	[[ -e $entry ]] || err "新脚本入口不存在: $entry"
+	msg "$(_cyan "脚本已落盘") $GPS_SH_VER，重新进入安装流程 …"
+	# 过滤掉调用方可能带入的 --after-self-update，避免重复
+	local -a pass=()
+	local a
+	for a in "$@"; do
+		[[ $a == --after-self-update ]] && continue
+		pass+=("$a")
+	done
+	exec bash "$entry" install --after-self-update "${pass[@]}"
 }
 
 gps_install_entrypoint() {
@@ -426,6 +455,7 @@ gps_cmd_upgrade_core() {
 		gps_upgrade_lock_release
 		err "sing-box 下载/校验失败（服务未受影响）；稍后重试或 upgrade core --ver <tag>"
 	fi
+	bin=$(gps_stdout_path "$bin")
 	if [[ $bin == "$GPS_CORE_BIN" ]]; then
 		rm -rf "$tmp"
 		gps_upgrade_lock_release

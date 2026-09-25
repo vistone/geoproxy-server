@@ -69,11 +69,24 @@ gps_verify_core_archive() {
 	msg "$(_green "sha256 校验通过") $asset" >&2
 }
 
+# $(cmd) 捕获路径时剥掉可能混入的日志行，只留最后一行
+gps_stdout_path() {
+	local s=$1
+	s=${s##*$'\n'}
+	s=${s%%$'\r'}
+	# 去掉 ANSI 着色残留
+	# shellcheck disable=SC2001
+	s=$(printf '%s' "$s" | sed 's/\x1b\[[0-9;]*m//g')
+	printf '%s' "$s"
+}
+
 # 装入新核心；旧二进制保留为 .prev 供失败回滚（先写 .new 再 mv，避免中断丢二进制）
 gps_install_core_from() {
 	local bin=$1
-	mkdir -p "$GPS_LIB_DIR"
-	install -m 755 "$bin" "${GPS_CORE_BIN}.new"
+	bin=$(gps_stdout_path "$bin")
+	[[ -n $bin && -f $bin ]] || err "核心二进制不存在或路径无效: ${bin:-<empty>}"
+	mkdir -p "$GPS_LIB_DIR" || err "无法创建核心目录: $GPS_LIB_DIR"
+	install -m 755 "$bin" "${GPS_CORE_BIN}.new" || err "安装核心失败: $bin → ${GPS_CORE_BIN}.new"
 	if [[ -x $GPS_CORE_BIN ]]; then
 		mv -f "$GPS_CORE_BIN" "${GPS_CORE_BIN}.prev"
 	fi
@@ -161,6 +174,7 @@ gps_download_core() {
 		rm -rf "$tmp"
 		return 1
 	fi
+	bin=$(gps_stdout_path "$bin")
 	# 已是最新时 fetch 可能返回现有 GPS_CORE_BIN
 	if [[ $bin == "$GPS_CORE_BIN" ]]; then
 		rm -rf "$tmp"
